@@ -1,0 +1,891 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Company Portal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0c0e11;
+    --bg-2:#101318;
+    --surface:#15181e;
+    --surface-2:#1a1e26;
+    --surface-hover:#1e232c;
+    --border:#252a33;
+    --border-soft:#1e222a;
+    --text:#e7eaef;
+    --text-dim:#9aa1ad;
+    --text-faint:#6b7280;
+    --accent:#5b8cff;
+    --accent-soft:rgba(91,140,255,.14);
+    --accent-line:rgba(91,140,255,.35);
+    --teal:#3ec7c2;
+    --amber:#f0b64b;
+    --green:#54c98a;
+    --rose:#f2748c;
+    --radius:14px;
+    --radius-sm:10px;
+    --shadow:0 1px 3px rgba(0,0,0,.28);
+  }
+  [data-theme="light"]{
+    --bg:#f3f5f8;
+    --bg-2:#eceef2;
+    --surface:#ffffff;
+    --surface-2:#f4f6f9;
+    --surface-hover:#eef1f5;
+    --border:#dde1e8;
+    --border-soft:#e7eaf0;
+    --text:#181b21;
+    --text-dim:#565d6b;
+    --text-faint:#8a91a0;
+    --accent:#3d6ff5;
+    --accent-soft:rgba(61,111,245,.12);
+    --accent-line:rgba(61,111,245,.4);
+    --shadow:0 1px 3px rgba(20,30,60,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    line-height:1.45;
+  }
+  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+
+  /* ---------- shell ---------- */
+  .shell{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
+  header.top{
+    display:flex;align-items:center;justify-content:space-between;
+    gap:20px;flex-wrap:wrap;margin-bottom:26px;
+  }
+  .brand{display:flex;align-items:center;gap:12px}
+  .brand .logo{
+    width:38px;height:38px;border-radius:11px;flex:none;
+    background:linear-gradient(140deg,var(--accent),#7a5bff);
+    display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;
+    box-shadow:0 4px 16px rgba(91,140,255,.28);
+  }
+  .brand h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .brand span{display:block;font-size:12px;color:var(--text-faint);font-weight:400}
+
+  /* ---------- toggle ---------- */
+  .view-toggle{
+    display:inline-flex;background:var(--surface);border:1px solid var(--border);
+    border-radius:12px;padding:4px;gap:2px;
+  }
+  .view-toggle button{
+    all:unset;cursor:pointer;padding:8px 18px;border-radius:9px;
+    font-size:13.5px;font-weight:500;color:var(--text-dim);
+    display:flex;align-items:center;gap:8px;transition:.16s;
+  }
+  .view-toggle button:hover{color:var(--text)}
+  .view-toggle button.active{background:var(--accent-soft);color:#bcd0ff}
+  .view-toggle button.active .dot{background:var(--accent)}
+  .view-toggle .dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint)}
+
+  /* header controls cluster */
+  .controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .icon-btn{
+    all:unset;cursor:pointer;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
+    background:var(--surface);border:1px solid var(--border);color:var(--text-dim);transition:.16s;
+  }
+  .icon-btn:hover{color:var(--text);background:var(--surface-hover);border-color:var(--border)}
+  .icon-btn svg{width:19px;height:19px}
+  .acct{
+    all:unset;cursor:pointer;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
+    color:#fff;font-weight:700;font-size:14px;background:linear-gradient(140deg,#5b8cff,#7a5bff);
+    box-shadow:0 3px 12px rgba(91,140,255,.3);position:relative;transition:transform .16s;
+  }
+  .acct:hover{transform:scale(1.05)}
+  .acct .status{position:absolute;bottom:-1px;right:-1px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--bg)}
+
+  /* settings modal */
+  .overlay{
+    position:fixed;inset:0;background:rgba(6,8,12,.6);backdrop-filter:blur(3px);
+    display:none;align-items:flex-start;justify-content:center;padding:70px 18px;z-index:50;
+  }
+  .overlay.open{display:flex;animation:fade .18s ease}
+  @keyframes fade{from{opacity:0}to{opacity:1}}
+  .modal{
+    width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);
+    border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.5);
+    animation:pop .2s cubic-bezier(.2,.8,.3,1);
+  }
+  @keyframes pop{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:none}}
+  .modal .m-top{display:flex;align-items:center;gap:14px;padding:20px;border-bottom:1px solid var(--border-soft)}
+  .modal .m-top .m-av{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;background:linear-gradient(140deg,#5b8cff,#7a5bff);flex:none}
+  .modal .m-top .m-nm{font-size:15px;font-weight:600}
+  .modal .m-top .m-em{font-size:12.5px;color:var(--text-faint)}
+  .modal .m-top .m-x{margin-left:auto;all:unset;cursor:pointer;color:var(--text-faint);font-size:20px;line-height:1;padding:6px}
+  .modal .m-x:hover{color:var(--text)}
+  .m-sec{padding:8px 12px}
+  .m-label{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);padding:10px 8px 6px}
+  .m-row{display:flex;align-items:center;gap:12px;padding:11px 10px;border-radius:10px;cursor:pointer;transition:.14s;font-size:13.5px;font-weight:500}
+  .m-row:hover{background:var(--surface-hover)}
+  .m-row svg{width:17px;height:17px;color:var(--text-dim)}
+  .m-row .chev{margin-left:auto;color:var(--text-faint)}
+  .m-row.danger{color:var(--rose)}
+  .m-row.danger svg{color:var(--rose)}
+  /* segmented theme control inside modal */
+  .seg{margin-left:auto;display:inline-flex;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:9px;padding:3px}
+  .seg button{all:unset;cursor:pointer;padding:5px 11px;border-radius:7px;font-size:12px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:6px}
+  .seg button svg{width:14px;height:14px}
+  .seg button.on{background:var(--accent-soft);color:var(--accent)}
+
+  /* ---------- business tabs (single view) ---------- */
+  .biz-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
+  .biz-tab{
+    all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;
+    padding:10px 15px;border-radius:11px;border:1px solid var(--border-soft);
+    background:var(--surface);font-size:13.5px;font-weight:500;color:var(--text-dim);
+    transition:.16s;
+  }
+  .biz-tab:hover{background:var(--surface-hover);color:var(--text)}
+  .biz-tab.active{border-color:var(--accent-line);background:var(--accent-soft);color:#cdddff}
+  .biz-tab .glyph{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+
+  /* ---------- section ---------- */
+  .eyebrow{
+    font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+    color:var(--text-faint);margin:32px 0 13px;display:flex;align-items:center;gap:9px;
+  }
+  .eyebrow:first-of-type{margin-top:6px}
+  .eyebrow .count{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;
+    color:var(--text-dim);background:var(--surface-2);border:1px solid var(--border-soft);
+    padding:1px 7px;border-radius:20px;letter-spacing:0;text-transform:none;
+  }
+
+  /* ---------- panel card (wraps every section) ---------- */
+  .panel{
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+    margin-top:16px;overflow:hidden;
+  }
+  .panel > .p-head{
+    display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border-soft);
+  }
+  .panel > .p-head .p-ic{width:16px;height:16px;color:var(--accent);flex:none}
+  .panel > .p-head .p-t{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+  .panel > .p-head .count{
+    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:var(--text-dim);
+    background:var(--surface-2);border:1px solid var(--border-soft);padding:1px 7px;border-radius:20px;margin-left:auto;
+  }
+  .panel > .p-body{padding:16px 18px}
+  .panel > .p-body.flush{padding:0}
+
+  /* nested sub-cards (org chart card + department chart card inside company card) */
+  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .subcard{background:var(--bg-2);border:1px solid var(--border-soft);border-radius:var(--radius-sm);overflow:hidden}
+  .subcard .sc-head{
+    display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid var(--border-soft);
+  }
+  .subcard .sc-head svg{width:15px;height:15px;color:var(--accent);flex:none}
+  .subcard .sc-head .sc-t{font-size:12.5px;font-weight:600;color:var(--text)}
+  .subcard .sc-body{padding:15px}
+
+  /* ---------- card grids ---------- */
+  .grid{display:grid;gap:14px}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr)}
+  .grid.cols-4{grid-template-columns:repeat(4,1fr)}
+
+  .tile{
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+    padding:17px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;
+    transition:.16s;text-decoration:none;color:inherit;
+  }
+  .tile:hover{background:var(--surface-hover);border-color:var(--border);transform:translateY(-1px)}
+  .tile .ico{
+    width:40px;height:40px;border-radius:10px;flex:none;display:grid;place-items:center;
+    background:var(--surface-2);border:1px solid var(--border-soft);
+  }
+  .tile .ico svg{width:20px;height:20px}
+  .tile .body{min-width:0;display:flex;flex-direction:column;gap:2px}
+  .tile .t{font-size:14.5px;font-weight:600;letter-spacing:-.01em;display:block}
+  .tile .s{font-size:12.5px;color:var(--text-dim);display:block}
+  .tile .pill{align-self:flex-start;margin-top:4px}
+
+  /* ---------- company card (org + dept) ---------- */
+  .company-card{
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
+    overflow:hidden;
+  }
+  .company-card .cc-head{
+    display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border-soft);
+  }
+  .company-card .cc-head .badge{
+    width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:none;
+  }
+  .company-card .cc-head .t{font-size:14.5px;font-weight:600}
+  .company-card .cc-head .s{font-size:12px;color:var(--text-faint)}
+  .cc-split{display:grid;grid-template-columns:1fr 1fr}
+  .cc-pane{padding:16px 18px}
+  .cc-pane + .cc-pane{border-left:1px solid var(--border-soft)}
+  .cc-pane .pane-title{
+    font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px;
+    display:flex;align-items:center;gap:8px;
+  }
+  .cc-pane .pane-title svg{width:15px;height:15px;color:var(--accent)}
+
+  /* ---------- tree ---------- */
+  .tree{font-size:13px}
+  .tree ul{list-style:none;margin:0;padding-left:20px;position:relative}
+  .tree > ul{padding-left:4px}
+  .tree li{position:relative;padding:6px 0}
+  .tree ul ul li::before{
+    content:"";position:absolute;top:0;bottom:50%;left:-14px;width:12px;
+    border-left:1px solid var(--border);border-bottom:1px solid var(--border);
+    border-bottom-left-radius:6px;
+  }
+  .tree ul ul li:not(:last-child)::after{
+    content:"";position:absolute;top:0;bottom:-6px;left:-14px;border-left:1px solid var(--border);
+  }
+  .node{
+    display:inline-flex;align-items:center;gap:11px;padding:10px 14px;border-radius:11px;
+    background:var(--surface);border:1px solid var(--border);cursor:default;transition:.14s;
+    box-shadow:var(--shadow);min-width:120px;
+  }
+  .node:hover{border-color:var(--accent-line);background:var(--surface-hover);transform:translateY(-1px)}
+  .node .av{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
+  .node.root{background:var(--accent-soft);border-color:var(--accent-line)}
+  .node .txt{display:flex;flex-direction:column;line-height:1.25}
+  .node .nm{font-weight:600;letter-spacing:-.01em;font-size:13px}
+  .node .rl{color:var(--text-faint);font-size:11px}
+  .dept .node{min-width:0}
+  .dept .node .av{border-radius:8px}
+
+  /* ---------- task / lead rows ---------- */
+  .rows{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden}
+  .row{display:flex;align-items:center;gap:14px;padding:13px 17px;border-bottom:1px solid var(--border-soft);transition:.14s}
+  .row:last-child{border-bottom:none}
+  .row:hover{background:var(--surface-hover)}
+  .row .check{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--border);flex:none}
+  .row.done .check{background:var(--green);border-color:var(--green);position:relative}
+  .row.done .check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #0c0e11;border-width:0 2px 2px 0;transform:rotate(45deg)}
+  .row .main{flex:1;min-width:0}
+  .row .main .rt{font-size:13.5px;font-weight:500}
+  .row.done .main .rt{color:var(--text-dim);text-decoration:line-through}
+  .row .main .rs{font-size:12px;color:var(--text-faint);margin-top:1px}
+  .pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .pill.blue{background:var(--accent-soft);color:#a9c4ff}
+  .pill.amber{background:rgba(240,182,75,.14);color:var(--amber)}
+  .pill.green{background:rgba(84,201,138,.14);color:var(--green)}
+  .pill.rose{background:rgba(242,116,140,.14);color:var(--rose)}
+  .pill.gray{background:var(--surface-2);color:var(--text-dim)}
+  .val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--text)}
+
+  /* ---------- properties ---------- */
+  .props{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .prop{
+    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 17px;
+  }
+  .prop .k{font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
+  .prop .v{font-size:22px;font-weight:700;margin-top:8px;letter-spacing:-.02em;font-family:'JetBrains Mono',monospace}
+  .prop .d{font-size:12px;margin-top:4px;color:var(--text-dim)}
+  .prop .d.up{color:var(--green)}
+  .prop .d.down{color:var(--rose)}
+
+  /* ============ chart viewer (org / dept) ============ */
+  .sheet-overlay{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:50}
+  .sheet-overlay.open{display:flex;animation:fade .18s ease}
+  .sheet-head{
+    display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--border-soft);
+    background:var(--surface);flex:none;flex-wrap:wrap;
+  }
+  .sheet-head .back{all:unset;cursor:pointer;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--text-dim);border:1px solid var(--border)}
+  .sheet-head .back:hover{background:var(--surface-hover);color:var(--text)}
+  .sheet-head .sh-title{font-size:16px;font-weight:600;letter-spacing:-.01em}
+  .sheet-head .sh-sub{font-size:12.5px;color:var(--text-faint)}
+  .sheet-head .spacer{flex:1}
+  .seg2{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
+  .seg2 button{all:unset;cursor:pointer;padding:7px 14px;border-radius:7px;font-size:13px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:7px}
+  .seg2 button svg{width:15px;height:15px}
+  .seg2 button.on{background:var(--accent-soft);color:var(--accent)}
+  .sheet-body{flex:1;overflow:auto;padding:26px}
+
+  /* org tree (top-down) */
+  .orgchart{display:inline-block;min-width:100%;text-align:center}
+  .orgchart ul{display:flex;justify-content:center;padding-top:22px;position:relative;margin:0;list-style:none}
+  .orgchart li{list-style:none;position:relative;padding:22px 10px 0;text-align:center}
+  .orgchart li::before,.orgchart li::after{content:'';position:absolute;top:0;right:50%;width:50%;height:22px;border-top:2px solid var(--border)}
+  .orgchart li::after{right:auto;left:50%;border-left:2px solid var(--border)}
+  .orgchart li:only-child{padding-top:22px}
+  .orgchart li:only-child::before,.orgchart li:only-child::after{display:none}
+  .orgchart li:first-child::before,.orgchart li:last-child::after{border:0 none}
+  .orgchart li:last-child::before{border-right:2px solid var(--border);border-radius:0 8px 0 0}
+  .orgchart li:first-child::after{border-radius:8px 0 0 0}
+  .orgchart ul ul::before{content:'';position:absolute;top:0;left:50%;width:0;height:22px;border-left:2px solid var(--border)}
+  .orgchart > ul{padding-top:0}
+  .orgchart > ul > li::before,.orgchart > ul > li::after{display:none}
+
+  .pcard{
+    display:inline-flex;flex-direction:column;align-items:center;gap:7px;width:158px;padding:14px 12px;
+    border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);
+    cursor:pointer;transition:.15s;vertical-align:top;
+  }
+  .pcard:hover{border-color:var(--accent-line);transform:translateY(-2px)}
+  .pcard .pav{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:16px;position:relative}
+  .pcard .pav .on{position:absolute;bottom:0;right:0;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--surface)}
+  .pcard .pnm{font-size:13px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
+  .pcard .ptl{font-size:11px;color:var(--text-dim);line-height:1.3}
+  .pcard .pdt{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
+  .deptcard{background:var(--surface-2);border-style:dashed}
+  .deptcard .pnm{font-size:13.5px}
+
+  /* list view */
+  .plist{max-width:1000px;margin:0 auto;border:1px solid var(--border-soft);border-radius:14px;overflow:hidden;background:var(--surface)}
+  .plist .lh,.plist .lr{display:grid;grid-template-columns:2fr 1.6fr 1.1fr 1.4fr 90px;align-items:center;gap:12px;padding:12px 18px}
+  .plist .lh{border-bottom:1px solid var(--border-soft);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
+  .plist .lr{border-bottom:1px solid var(--border-soft);cursor:pointer;transition:.13s}
+  .plist .lr:last-child{border-bottom:none}
+  .plist .lr:hover{background:var(--surface-hover)}
+  .plist .who{display:flex;align-items:center;gap:11px;min-width:0}
+  .plist .who .pav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;flex:none}
+  .plist .who .n{font-size:13.5px;font-weight:600}
+  .plist .cell{font-size:13px;color:var(--text-dim)}
+  .plist .tag{display:inline-flex;align-items:center;gap:7px;font-size:12.5px}
+  .plist .tag .dt{width:8px;height:8px;border-radius:50%}
+  .plist .tag svg{width:14px;height:14px;color:var(--text-faint)}
+  .plist .contact{display:flex;gap:12px;color:var(--text-faint)}
+  .plist .contact svg{width:15px;height:15px;cursor:pointer}
+  .plist .contact svg:hover{color:var(--accent)}
+  .list-scroll{overflow-x:auto}
+
+  /* staff drawer */
+  .drawer-back{position:fixed;inset:0;background:rgba(6,8,12,.5);display:none;z-index:60}
+  .drawer-back.open{display:block;animation:fade .18s ease}
+  .drawer{
+    position:fixed;top:0;right:0;height:100%;width:380px;max-width:92vw;background:var(--surface);
+    border-left:1px solid var(--border);z-index:70;transform:translateX(100%);transition:transform .26s cubic-bezier(.2,.8,.3,1);
+    display:flex;flex-direction:column;
+  }
+  .drawer.open{transform:none}
+  .drawer .d-hero{padding:26px 24px;border-bottom:1px solid var(--border-soft);position:relative;text-align:center}
+  .drawer .d-hero .d-x{position:absolute;top:14px;right:14px;all:unset;cursor:pointer;color:var(--text-faint);font-size:22px;line-height:1}
+  .drawer .d-hero .d-x:hover{color:var(--text)}
+  .drawer .d-av{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:26px;margin:0 auto 12px;position:relative}
+  .drawer .d-av .on{position:absolute;bottom:3px;right:3px;width:15px;height:15px;border-radius:50%;background:var(--green);border:3px solid var(--surface)}
+  .drawer .d-nm{font-size:19px;font-weight:700;letter-spacing:-.02em}
+  .drawer .d-tl{font-size:13.5px;color:var(--text-dim);margin-top:2px}
+  .drawer .d-dept{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;padding:4px 12px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
+  .drawer .d-body{padding:8px 24px 24px;overflow:auto}
+  .drawer .d-field{padding:14px 0;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:13px}
+  .drawer .d-field:last-child{border-bottom:none}
+  .drawer .d-field svg{width:17px;height:17px;color:var(--text-faint);flex:none}
+  .drawer .d-field .fk{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+  .drawer .d-field .fv{font-size:13.5px;font-weight:500;margin-top:1px}
+  .drawer .d-actions{display:flex;gap:10px;padding:16px 24px;border-top:1px solid var(--border-soft);margin-top:auto}
+  .drawer .d-actions button{flex:1;all:unset;cursor:pointer;text-align:center;padding:10px;border-radius:10px;font-size:13px;font-weight:600;transition:.14s}
+  .drawer .d-actions .primary{background:var(--accent);color:#fff}
+  .drawer .d-actions .primary:hover{filter:brightness(1.08)}
+  .drawer .d-actions .ghost{background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim)}
+  .drawer .d-actions .ghost:hover{color:var(--text)}
+
+  @media(max-width:640px){
+    .plist .lh,.plist .lr{grid-template-columns:2fr 1.4fr 90px}
+    .plist .col-office,.plist .col-dept{display:none}
+  }
+
+  .hidden{display:none}
+
+  @media(max-width:860px){
+    .grid.cols-3,.grid.cols-4{grid-template-columns:repeat(2,1fr)}
+    .cc-split{grid-template-columns:1fr}
+    .cc-pane + .cc-pane{border-left:none;border-top:1px solid var(--border-soft)}
+    .props{grid-template-columns:repeat(2,1fr)}
+  }
+  @media(max-width:520px){
+    .grid.cols-3,.grid.cols-4,.grid.cols-2{grid-template-columns:1fr}
+    .props{grid-template-columns:1fr}
+    header.top{align-items:flex-start}
+  }
+
+  /* ---------- additions for portals/dashboards ---------- */
+  .portalbar{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;gap:2px;flex-wrap:wrap}
+  .portalbar button{all:unset;cursor:pointer;padding:8px 16px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:8px;transition:.16s}
+  .portalbar button svg{width:16px;height:16px}
+  .portalbar button:hover{color:var(--text)}
+  .portalbar button.active{background:var(--accent-soft);color:#bcd0ff}
+  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+  .kpi{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 17px}
+  .kpi .k{font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600;display:flex;align-items:center;gap:8px}
+  .kpi .k svg{width:15px;height:15px;color:var(--accent)}
+  .kpi .v{font-size:23px;font-weight:700;margin-top:9px;letter-spacing:-.02em;font-family:'JetBrains Mono',monospace}
+  .kpi .d{font-size:12px;margin-top:4px;color:var(--text-dim)}
+  .kpi .d.up{color:var(--green)} .kpi .d.down{color:var(--rose)}
+  /* data table */
+  .dtable{width:100%;border-collapse:collapse;font-size:13px}
+  .dtable th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);padding:10px 14px;border-bottom:1px solid var(--border-soft);white-space:nowrap}
+  .dtable td{padding:11px 14px;border-bottom:1px solid var(--border-soft);color:var(--text)}
+  .dtable tr:last-child td{border-bottom:none}
+  .dtable tbody tr:hover{background:var(--surface-hover)}
+  .dtable .r{text-align:right;font-family:'JetBrains Mono',monospace}
+  .who2{display:flex;align-items:center;gap:10px}
+  .who2 img,.who2 .av2{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:none}
+  .who2 .av2{display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
+  /* simple bar chart */
+  .bars{display:flex;align-items:flex-end;gap:6px;height:160px;padding:8px 4px 0}
+  .bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
+  .bars .bar .fill{width:100%;max-width:26px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--accent),#7a5bff);transition:.2s}
+  .bars .bar .lbl{font-size:10px;color:var(--text-faint);font-family:'JetBrains Mono',monospace}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-dim)}
+  .legend .li{display:flex;align-items:center;gap:7px}
+  .legend .sw{width:10px;height:10px;border-radius:3px}
+  /* provider / channel chips */
+  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--surface-2);color:var(--text-dim)}
+  .chip .sw{width:8px;height:8px;border-radius:50%}
+  .up-zone{border:1.5px dashed var(--border);border-radius:14px;padding:30px;text-align:center;color:var(--text-dim);background:var(--bg-2)}
+  .up-zone svg{width:30px;height:30px;color:var(--accent);margin-bottom:10px}
+  .split2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr)}.split2{grid-template-columns:1fr}}
+  @media(max-width:520px){.kpis{grid-template-columns:1fr}}
+  .embed{width:100%;height:calc(100vh - 150px);border:0;border-radius:12px;background:var(--surface)}
+  .sec-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  @media(max-width:640px){.sec-cards{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="shell">
+  <header class="top">
+    <div class="brand">
+      <div class="logo">LW</div>
+      <div>
+        <h1>LeavenWealth Group</h1>
+        <span>All-company portal &amp; dashboards</span>
+      </div>
+    </div>
+    <div class="controls">
+      <div class="portalbar" id="portalbar"></div>
+      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme"></button>
+      <button class="acct" onclick="openSettings()" title="Account" aria-label="Account">CD<span class="status"></span></button>
+    </div>
+  </header>
+
+  <div class="overlay" id="settings" onclick="if(event.target===this)closeSettings()">
+    <div class="modal" role="dialog" aria-modal="true">
+      <div class="m-top">
+        <span class="m-av">CD</span>
+        <div><div class="m-nm">Chris Delgado</div><div class="m-em">chris@leavenwealth.com</div></div>
+        <button class="m-x" onclick="closeSettings()" aria-label="Close">&times;</button>
+      </div>
+      <div class="m-sec">
+        <div class="m-label">Appearance</div>
+        <div class="m-row" style="cursor:default"><span id="apr-ico"></span> Theme
+          <div class="seg" id="themeSeg">
+            <button data-theme-set="light" onclick="setTheme('light')"><span class="seg-ic-l"></span>Light</button>
+            <button data-theme-set="dark" onclick="setTheme('dark')"><span class="seg-ic-d"></span>Dark</button>
+          </div>
+        </div>
+      </div>
+      <div class="m-sec">
+        <div class="m-label">Account</div>
+        <div class="m-row" data-ic="user">Profile <span class="chev">&rsaquo;</span></div>
+        <div class="m-row" data-ic="bell">Notifications <span class="chev">&rsaquo;</span></div>
+        <div class="m-row" data-ic="users">Team &amp; members <span class="chev">&rsaquo;</span></div>
+      </div>
+      <div class="m-sec" style="border-top:1px solid var(--border-soft)">
+        <div class="m-row danger" data-ic="out">Sign out</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="biz-bar hidden" id="bizBar"></div>
+  <main id="content"></main>
+</div>
+
+<div class="sheet-overlay" id="detail">
+  <div class="sheet-head">
+    <button class="back" onclick="closeDetail()" aria-label="Back">&larr;</button>
+    <div><div class="sh-title" id="detailTitle"></div><div class="sh-sub" id="detailSub"></div></div>
+    <div class="spacer"></div>
+  </div>
+  <div class="sheet-body" id="detailBody"></div>
+</div>
+
+<div class="drawer-back" id="drawerBack" onclick="closeStaff()"></div>
+<aside class="drawer" id="staffDrawer"></aside>
+
+<script>
+const I = {
+  dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.2a3 3 0 0 1 0 5.6M18.5 20a5 5 0 0 0-3-4.6"/></svg>',
+  building:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/></svg>',
+  dollar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M16 7.5C16 6 14.2 5 12 5S8 6 8 7.8s1.8 2.6 4 3 4 1.4 4 3.2S14.2 19 12 19s-4-1-4-2.5"/></svg>',
+  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".6" fill="currentColor"/></svg>',
+  gauge:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-4"/></svg>',
+  globe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/></svg>',
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
+  bolt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  bank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10l9-6 9 6"/><path d="M4 10v9M20 10v9M8 10v9M16 10v9M12 10v9M3 21h18"/></svg>',
+  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20V7M5 12l7-7 7 7"/></svg>',
+  trend:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>',
+  briefcase:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V6a4 4 0 0 1 8 0v1"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6 9 17l-5-5"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>',
+  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
+  out:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+  mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
+  phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5c0 9 6 15 15 15l2-3-4-2-2 2c-3-1.4-5.6-4-7-7l2-2-2-4z"/></svg>',
+};
+
+/* ===== brands ===== */
+const BRANDS = [
+  {id:'all', short:'ALL', name:'All Brands', color:'#5b8cff'},
+  {id:'leavenwealth', short:'LW', name:'LeavenWealth', color:'#5b8cff'},
+  {id:'leadli', short:'AI', name:'Leadli AI', color:'#a06bff'},
+  {id:'folio', short:'FE', name:'Folio Excel', color:'#3ec7c2'},
+  {id:'liquid', short:'LL', name:'Liquid Lending', color:'#f0b64b'},
+];
+const brandColor = id => (BRANDS.find(b=>b.id===id)||{}).color || '#5b8cff';
+const brandName = id => (BRANDS.find(b=>b.id===id)||{}).name || id;
+
+/* ===== seeded data (mirrors Supabase) ===== */
+const PROVIDERS = {closers:{n:'Closers.io',c:'#5b8cff'}, aia:{n:'AIA',c:'#a06bff'}, organic:{n:'Organic',c:'#54c98a'}, none:{n:'—',c:'#6b7280'}};
+
+const STAFF = [
+  {id:1,name:'Chris Delgado',title:'Founder & Principal',brand:'leavenwealth',email:'chris@leavenwealth.com',phone:'+1-402-555-0101',img:'https://i.pravatar.cc/150?img=12',desc:'Owner across all brands. Oversees real estate acquisitions, lending, and the service businesses.'},
+  {id:2,name:'Amanda Reyes',title:'Asset Manager',brand:'leavenwealth',email:'amanda@leavenwealth.com',phone:'+1-402-555-0102',img:'https://i.pravatar.cc/150?img=45',desc:'Manages the LeavenWealth property portfolio, NOI performance, and investor reporting.'},
+  {id:3,name:'Marcus Lee',title:'Closer',brand:'leadli',email:'marcus@leadliai.com',phone:'+1-402-555-0103',img:'https://i.pravatar.cc/150?img=33',desc:'Runs strategy calls and closes med-spa clients for Leadli AI.'},
+  {id:4,name:'Sarah Mitchell',title:'Setter',brand:'leadli',email:'sarah@leadliai.com',phone:'+1-402-555-0104',img:'https://i.pravatar.cc/150?img=47',desc:'Qualifies inbound leads and books appointments for the Leadli closers.'},
+  {id:5,name:'Jenny Cruz',title:'Senior Bookkeeper',brand:'folio',email:'jenny@folioexcel.com',phone:'+1-402-555-0105',img:'https://i.pravatar.cc/150?img=25',desc:'Leads bookkeeping and monthly close for Folio Excel clients.'},
+  {id:6,name:'David Okafor',title:'Loan Officer',brand:'liquid',email:'david@liquidlending.com',phone:'+1-402-555-0106',img:'https://i.pravatar.cc/150?img=15',desc:'Originates and services bridge loans for Liquid Lending Solutions.'},
+];
+
+const PROPS = [
+  {name:'Lincoln Portfolio',units:14,occ:93,noi:9800,brand:'leavenwealth'},
+  {name:'Midwest Portfolio 1',units:22,occ:95,noi:12600,brand:'leavenwealth'},
+  {name:'Midwest Portfolio 2',units:18,occ:89,noi:8900,brand:'leavenwealth'},
+  {name:'48 SF Unit Portfolio',units:48,occ:91,noi:24100,brand:'leavenwealth'},
+  {name:'Midwest Portfolio 5',units:16,occ:97,noi:10200,brand:'leavenwealth'},
+  {name:'Midwest Portfolio 8',units:12,occ:83,noi:6400,brand:'leavenwealth'},
+];
+const LOANS = [
+  {name:'FNB Term Loan - Lincoln',bal:512000,rate:6.25,maturity:'2029-04-01',status:'current'},
+  {name:'Bridge Loan - Midwest 1',bal:284000,rate:8.90,maturity:'2027-01-15',status:'current'},
+  {name:'Acquisition Loan - 48 SF',bal:1240000,rate:5.85,maturity:'2031-08-01',status:'current'},
+];
+const ACCOUNTS = [
+  {name:'LeavenWealth Operating Checking',inst:'First National Bank',last4:'4821',type:'checking',bal:196845.12},
+  {name:'LeavenWealth Reserve Savings',inst:'First National Bank',last4:'9012',type:'savings',bal:512750.00},
+  {name:'Leadli AI Amex Business',inst:'American Express',last4:'3007',type:'credit_card',bal:-8420.33},
+  {name:'Folio Excel Operating',inst:'Chase',last4:'5566',type:'checking',bal:43110.90},
+  {name:'Property Escrow (Loan 7a18)',inst:'First National Bank',last4:'7788',type:'escrow',bal:26500.00},
+];
+const TXNS = [
+  {date:'2026-07-14',desc:'Bookkeeping retainer - client A',party:'Folio client A',cat:'Consulting Fees',dir:'in',amt:7500,brand:'folio'},
+  {date:'2026-07-12',desc:'Monthly loan interest',party:'First National Bank',cat:'Loan Interest',dir:'out',amt:3100,brand:'leavenwealth'},
+  {date:'2026-07-10',desc:'July rent - Midwest Portfolio 1',party:'Tenant ACH batch',cat:'Rental Income',dir:'in',amt:12600,brand:'leavenwealth'},
+  {date:'2026-07-09',desc:'Monthly close - client B',party:'Folio client B',cat:'Consulting Fees',dir:'in',amt:4200,brand:'folio'},
+  {date:'2026-07-06',desc:'Landscaping - monthly',party:'GreenScape Landscaping',cat:'Repairs & Maintenance',dir:'out',amt:540,brand:'leavenwealth'},
+  {date:'2026-07-03',desc:'Meta Ads - Leadli campaigns',party:'Meta Platforms',cat:'Marketing & Ads',dir:'out',amt:6100,brand:'leadli'},
+  {date:'2026-07-02',desc:'July rent - Lincoln Portfolio',party:'Tenant ACH batch',cat:'Rental Income',dir:'in',amt:10150,brand:'leavenwealth'},
+  {date:'2026-06-25',desc:'Closer commission payout',party:'Marcus Lee',cat:'Payroll',dir:'out',amt:1500,brand:'leadli'},
+  {date:'2026-06-20',desc:'Roof repair - unit block',party:'Cornhusker Roofing',cat:'Repairs & Maintenance',dir:'out',amt:4800,brand:'leavenwealth'},
+  {date:'2026-06-14',desc:'Bookkeeping retainer - client A',party:'Folio client A',cat:'Consulting Fees',dir:'in',amt:7500,brand:'folio'},
+];
+const STATEMENTS = [
+  {type:'bank',who:'LeavenWealth Operating Checking',period:'Jun 2026',open:172100,close:184230,status:'reconciled'},
+  {type:'credit_card',who:'Leadli AI Amex Business',period:'Jun 2026',open:-6200,close:-8420,status:'processed'},
+  {type:'pm_income_expense',who:'AppFolio - Property 1e2c',period:'Jun 2026',open:null,close:null,status:'processed'},
+  {type:'loan',who:'First National Bank',period:'Jun 2026',open:null,close:null,status:'pending'},
+];
+const INVESTORS = [
+  {name:'Robert Hensley',email:'robert.hensley@example.com',stake:35,where:'Midwest Portfolio 1',primary:true},
+  {name:'Patel Family Trust',email:'contact@pateltrust.example.com',stake:20,where:'LeavenWealth (fund-level)',primary:false},
+  {name:'Diane Foster',email:'diane.foster@example.com',stake:15,where:'Lincoln Portfolio',primary:false},
+  {name:'Kwan Holdings LLC',email:'invest@kwanholdings.example.com',stake:25,where:'LeavenWealth (fund-level)',primary:false},
+  {name:'Miguel Santos',email:'miguel.santos@example.com',stake:5,where:'48 SF Portfolio',primary:false},
+];
+const LEADS = [
+  {name:'Olivia Bennett',prov:'closers',status:'Booked',pc:'blue',brand:'leadli',stage:'Call Booked',val:6000},
+  {name:'Ethan Carter',prov:'aia',status:'Application',pc:'amber',brand:'leadli',stage:'Application Completed',val:0},
+  {name:'Sophia Nguyen',prov:'organic',status:'New',pc:'gray',brand:'leadli',stage:'New Lead',val:0},
+  {name:'Liam Patel',prov:'closers',status:'Won',pc:'green',brand:'leadli',stage:'Closed Won',val:6000},
+  {name:'Ava Thompson',prov:'aia',status:'No Show',pc:'rose',brand:'leadli',stage:'No Show',val:0},
+  {name:'Noah Rivera',prov:'organic',status:'Nurturing',pc:'gray',brand:'leadli',stage:'Nurture',val:0},
+  {name:'Mia Flores',prov:'closers',status:'Booked',pc:'blue',brand:'leadli',stage:'Call Booked',val:6000},
+  {name:'Lucas Kim',prov:'aia',status:'Lost',pc:'gray',brand:'leadli',stage:'Closed Lost',val:0},
+  {name:'james jenet',prov:'closers',status:'Application',pc:'amber',brand:'leadli',stage:'Application',val:0},
+  {name:'Grace Holloway',prov:'none',status:'New',pc:'gray',brand:'folio',stage:'New Inquiry',val:0},
+  {name:'Daniel Reed',prov:'none',status:'Contacted',pc:'blue',brand:'folio',stage:'Contacted',val:0},
+  {name:'Marcus Webb',prov:'none',status:'Application',pc:'amber',brand:'liquid',stage:'Application',val:0},
+];
+const APPTS = [
+  {name:'Olivia Bennett',cal:'Strategy Call with Leadli AI',start:'Jul 21, 3:00 PM',status:'confirmed'},
+  {name:'Mia Flores',cal:'Strategy Call with Leadli AI',start:'Jul 22, 6:00 PM',status:'confirmed'},
+  {name:'Liam Patel',cal:'Strategy Call with Leadli AI',start:'Jul 8, 4:00 PM',status:'completed'},
+  {name:'Ryan McGuire',cal:'Strategy Call with Leadli AI',start:'Jul 20, 11:00 AM',status:'confirmed'},
+];
+/* 14 days ads (mirrors generated seed) */
+const ADS = Array.from({length:14},(_,i)=>{
+  const spend=180+((i*7)%90), imp=8000+((i*533)%6000), clicks=120+((i*13)%100), leads=3+(i%6);
+  return {day:i+1, date:'Jul '+(i+1), spend, imp, clicks, leads, cpl:+(spend/leads).toFixed(2), ctr:+((clicks/imp)*100).toFixed(2)};
+});
+const TASKS = [
+  {name:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'in_progress',pc:'blue',due:'Jul 25'},
+  {name:'June close - Folio client A',cat:'Bookkeeping',status:'open',pc:'amber',due:'Jul 20'},
+  {name:'Q2 investor distributions',cat:'Investor Relations',status:'open',pc:'amber',due:'Jul 31'},
+  {name:'Loan 7a18 rate review',cat:'Lending',status:'open',pc:'gray',due:'Aug 5'},
+  {name:'Ship lead-scoring update',cat:'Leadli Ops',status:'in_progress',pc:'blue',due:'Jul 24'},
+  {name:'Reconcile June statements',cat:'Accounting',status:'done',pc:'green',due:'Jul 10'},
+  {name:'Onboard new Folio client B',cat:'Bookkeeping',status:'done',pc:'green',due:'Jul 9'},
+  {name:'Send Q2 investor update',cat:'Investor Relations',status:'done',pc:'green',due:'Jul 5'},
+];
+
+/* ===== helpers ===== */
+const money=n=> (n<0?'-$':'$')+Math.abs(Number(n)).toLocaleString('en-US',{maximumFractionDigits:0});
+const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
+const initials=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+const inBrand=x=> brand==='all' || x.brand===brand;
+function panel(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body">${body}</div></div>`;}
+function panelFlush(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body flush">${body}</div></div>`;}
+function kpi(ic,k,v,d,dc){return `<div class="kpi"><div class="k">${ic||''} ${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;}
+function pill(t,c){return `<span class="pill ${c}">${t}</span>`;}
+function table(head,rows){return `<div class="list-scroll"><table class="dtable"><thead><tr>${head.map(h=>`<th class="${h.r?'r':''}">${h.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;}
+
+/* ===== dashboards registry ===== */
+const DASHBOARDS = [
+  {id:'exec', ic:'gauge', t:'Executive overview', s:'Cross-brand KPIs'},
+  {id:'props', ic:'home', t:'Properties', s:'Portfolio, occupancy, NOI'},
+  {id:'loans', ic:'bank', t:'Loans', s:'Balances & maturities'},
+  {id:'fin', ic:'dollar', t:'Financials', s:'Transactions & statements'},
+  {id:'leads', ic:'target', t:'Leads', s:'Pipeline by provider'},
+  {id:'appts', ic:'cal', t:'Appointments', s:'Bookings & show rate'},
+  {id:'ads', ic:'trend', t:'Marketing / Ads', s:'Meta spend & CPL'},
+  {id:'tasks', ic:'check', t:'Tasks', s:'ClickUp tasks'},
+];
+
+const RENDER = {
+  exec(){
+    const leadsN=LEADS.filter(inBrand).length, booked=LEADS.filter(l=>inBrand(l)&&l.status==='Booked').length;
+    const spend=ADS.reduce((a,b)=>a+b.spend,0), adleads=ADS.reduce((a,b)=>a+b.leads,0);
+    const noi=PROPS.reduce((a,p)=>a+p.noi,0);
+    const rev=TXNS.filter(t=>t.dir==='in').reduce((a,t)=>a+t.amt,0);
+    const byBrand=BRANDS.slice(1).map(b=>({b, v: TXNS.filter(t=>t.dir==='in'&&t.brand===b.id).reduce((a,t)=>a+t.amt,0) + (b.id==='leadli'?12000:0) + (b.id==='liquid'?5000:0)}));
+    const max=Math.max(...byBrand.map(x=>x.v),1);
+    const kpis=`<div class="kpis">
+      ${kpi(I.building,'Businesses','4','All active','')}
+      ${kpi(I.users,'Headcount','6','+2 this quarter','up')}
+      ${kpi(I.target,'Leads (open)',leadsN,booked+' booked calls','up')}
+      ${kpi(I.dollar,'Ad spend (14d)',moneyk(spend),adleads+' leads @ '+money(spend/adleads)+' CPL','')}
+      ${kpi(I.home,'Properties','66','224 units','')}
+      ${kpi(I.trend,'Portfolio NOI',moneyk(noi),'monthly','up')}
+      ${kpi(I.dollar,'Cash on hand',moneyk(709595),'across 5 accounts','')}
+      ${kpi(I.check,'Open tasks','4','2 due this week','')}
+    </div>`;
+    const bars=`<div class="bars">${byBrand.map(x=>`<div class="bar"><div class="fill" style="height:${Math.round(x.v/max*100)}%;background:${x.b.color}"></div><div class="lbl">${x.b.short}</div></div>`).join('')}</div>
+      <div class="legend">${byBrand.map(x=>`<span class="li"><span class="sw" style="background:${x.b.color}"></span>${x.b.name} · ${money(x.v)}</span>`).join('')}</div>`;
+    return kpis + `<div class="split2" style="margin-top:16px">${panel(I.chart,'Revenue by brand (MTD)',null,bars)}${panel(I.check,'Open tasks',TASKS.filter(t=>t.status!=='done').length, taskRows(TASKS.filter(t=>t.status!=='done')))}</div>`;
+  },
+  props(){
+    const units=PROPS.reduce((a,p)=>a+p.units,0), occ=Math.round(PROPS.reduce((a,p)=>a+p.occ,0)/PROPS.length), noi=PROPS.reduce((a,p)=>a+p.noi,0);
+    const kpis=`<div class="kpis">${kpi(I.home,'Properties','66','portfolio total','')}${kpi(I.building,'Units','224','','')}${kpi(I.gauge,'Avg occupancy',occ+'%','','up')}${kpi(I.dollar,'Monthly NOI',moneyk(noi),'seeded sample','up')}</div>`;
+    const cards=`<div class="grid cols-3" style="margin-top:16px">${PROPS.map(p=>`
+      <div class="tile"><span class="ico" style="color:var(--accent)">${I.home}</span>
+      <span class="body"><span class="t">${p.name}</span><span class="s">${p.units} units · ${p.occ}% occupied</span><span class="pill ${p.occ>=90?'green':p.occ>=85?'amber':'rose'}">NOI ${money(p.noi)}/mo</span></span></div>`).join('')}</div>`;
+    return kpis+cards;
+  },
+  loans(){
+    const total=LOANS.reduce((a,l)=>a+l.bal,0), avg=(LOANS.reduce((a,l)=>a+l.rate,0)/LOANS.length).toFixed(2);
+    const kpis=`<div class="kpis">${kpi(I.bank,'Total debt',moneyk(total),LOANS.length+' loans','')}${kpi(I.gauge,'Avg rate',avg+'%','','')}${kpi(I.cal,'Next maturity','Jan 2027','Bridge - Midwest 1','')}${kpi(I.check,'All current','100%','no delinquencies','up')}</div>`;
+    const rows=LOANS.map(l=>`<tr><td>${l.name}</td><td class="r val">${money(l.bal)}</td><td class="r">${l.rate}%</td><td>${l.maturity}</td><td>${pill('current','green')}</td></tr>`).join('');
+    return kpis+`<div style="margin-top:16px">${panelFlush(I.bank,'Loan book',LOANS.length,table([{t:'Loan'},{t:'Balance',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows))}</div>`;
+  },
+  fin(){
+    const inc=TXNS.filter(t=>t.dir==='in'&&inBrand(t)).reduce((a,t)=>a+t.amt,0);
+    const exp=TXNS.filter(t=>t.dir==='out'&&inBrand(t)).reduce((a,t)=>a+t.amt,0);
+    const cash=ACCOUNTS.reduce((a,x)=>a+x.bal,0);
+    const kpis=`<div class="kpis">${kpi(I.bank,'Cash on hand',moneyk(cash),'5 accounts','')}${kpi(I.up,'Income (recent)',moneyk(inc),'','up')}${kpi(I.dollar,'Expenses (recent)',moneyk(exp),'','down')}${kpi(I.trend,'Net',moneyk(inc-exp),'','up')}</div>`;
+    /* income vs expense by category */
+    const cats={}; TXNS.filter(inBrand).forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+(t.dir==='in'?t.amt:-t.amt);});
+    const entries=Object.entries(cats); const max=Math.max(...entries.map(([,v])=>Math.abs(v)),1);
+    const catbars=`<div class="bars" style="height:150px">${entries.map(([k,v])=>`<div class="bar"><div class="fill" style="height:${Math.round(Math.abs(v)/max*100)}%;background:${v>=0?'var(--green)':'var(--rose)'}"></div><div class="lbl">${k.split(' ')[0]}</div></div>`).join('')}</div>`;
+    const txr=TXNS.filter(inBrand).map(t=>`<tr><td>${t.date}</td><td>${t.desc}<div style="font-size:11px;color:var(--text-faint)">${t.party}</div></td><td>${pill(t.cat.split(' ')[0],'gray')}</td><td class="r val" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('');
+    const acc=ACCOUNTS.map(a=>`<tr><td>${a.name}<div style="font-size:11px;color:var(--text-faint)">${a.inst} ····${a.last4}</div></td><td>${pill(a.type.replace('_',' '),'blue')}</td><td class="r val" style="color:${a.bal<0?'var(--rose)':'var(--text)'}">${money(a.bal)}</td></tr>`).join('');
+    const stmts=STATEMENTS.map(s=>`<tr><td>${pill(s.type.replace('_',' '),'gray')}</td><td>${s.who}</td><td>${s.period}</td><td>${pill(s.status,s.status==='reconciled'?'green':s.status==='pending'?'amber':'blue')}</td></tr>`).join('');
+    return kpis+
+      `<div style="margin-top:16px">${panel(I.chart,'Income vs expense by category',null,catbars)}</div>`+
+      `<div style="margin-top:16px">${panelFlush(I.dollar,'Recent transactions',TXNS.filter(inBrand).length,table([{t:'Date'},{t:'Description'},{t:'Category'},{t:'Amount',r:1}],txr))}</div>`+
+      `<div class="split2" style="margin-top:16px">${panelFlush(I.bank,'Accounts',ACCOUNTS.length,table([{t:'Account'},{t:'Type'},{t:'Balance',r:1}],acc))}${panelFlush(I.file,'Statements',STATEMENTS.length,table([{t:'Type'},{t:'Source'},{t:'Period'},{t:'Status'}],stmts))}</div>`;
+  },
+  leads(){
+    const L=LEADS.filter(inBrand);
+    const booked=L.filter(l=>l.status==='Booked').length, won=L.filter(l=>l.status==='Won').length;
+    const kpis=`<div class="kpis">${kpi(I.target,'Total leads',L.length,'','')}${kpi(I.cal,'Booked',booked,'','up')}${kpi(I.check,'Won',won,'','up')}${kpi(I.dollar,'Avg CPL',money(ADS.reduce((a,b)=>a+b.spend,0)/ADS.reduce((a,b)=>a+b.leads,0)),'from ads','')}</div>`;
+    /* by provider */
+    const provs={}; L.forEach(l=>{provs[l.prov]=(provs[l.prov]||0)+1;});
+    const chips=`<div style="display:flex;gap:10px;flex-wrap:wrap">${Object.entries(provs).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROVIDERS[p].c}"></span>${PROVIDERS[p].n} · ${n}</span>`).join('')}</div>`;
+    const rows=L.map((l,i)=>`<tr onclick="openLead(${LEADS.indexOf(l)})" style="cursor:pointer">
+      <td><span class="who2"><span class="av2" style="background:${brandColor(l.brand)}">${initials(l.name)}</span>${l.name}</span></td>
+      <td><span class="chip"><span class="sw" style="background:${PROVIDERS[l.prov].c}"></span>${PROVIDERS[l.prov].n}</span></td>
+      <td>${l.stage}</td><td>${pill(l.status,l.pc)}</td><td class="r val">${l.val?money(l.val):'—'}</td></tr>`).join('');
+    return kpis+`<div style="margin-top:16px">${panel(I.target,'By provider',null,chips)}</div>`+
+      `<div style="margin-top:16px">${panelFlush(I.users,'Leads',L.length,table([{t:'Name'},{t:'Provider'},{t:'Stage'},{t:'Status'},{t:'Value',r:1}],rows))}</div>`;
+  },
+  appts(){
+    const up=APPTS.filter(a=>a.status==='confirmed').length, done=APPTS.filter(a=>a.status==='completed').length;
+    const kpis=`<div class="kpis">${kpi(I.cal,'Upcoming',up,'','')}${kpi(I.check,'Completed',done,'','')}${kpi(I.gauge,'Show rate','80%','last 30d','up')}${kpi(I.target,'No-shows','1','','down')}</div>`;
+    const rows=APPTS.map(a=>`<tr><td><span class="who2"><span class="av2" style="background:#a06bff">${initials(a.name)}</span>${a.name}</span></td><td>${a.cal}</td><td>${a.start}</td><td>${pill(a.status,a.status==='confirmed'?'blue':'green')}</td></tr>`).join('');
+    return kpis+`<div style="margin-top:16px">${panelFlush(I.cal,'Appointments',APPTS.length,table([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],rows))}</div>`;
+  },
+  ads(){
+    const spend=ADS.reduce((a,b)=>a+b.spend,0), leads=ADS.reduce((a,b)=>a+b.leads,0), ctr=(ADS.reduce((a,b)=>a+b.ctr,0)/ADS.length).toFixed(2);
+    const kpis=`<div class="kpis">${kpi(I.dollar,'Spend (14d)',money(spend),'','')}${kpi(I.target,'Leads (14d)',leads,'','up')}${kpi(I.trend,'Avg CPL',money(spend/leads),'','down')}${kpi(I.gauge,'Avg CTR',ctr+'%','','')}</div>`;
+    const max=Math.max(...ADS.map(a=>a.spend));
+    const bars=`<div class="bars">${ADS.map(a=>`<div class="bar"><div class="fill" style="height:${Math.round(a.spend/max*100)}%"></div><div class="lbl">${a.day}</div></div>`).join('')}</div><div class="legend"><span class="li"><span class="sw" style="background:var(--accent)"></span>Daily spend (Jul 1-14)</span></div>`;
+    const rows=ADS.slice().reverse().map(a=>`<tr><td>${a.date}</td><td class="r val">${money(a.spend)}</td><td class="r">${a.imp.toLocaleString()}</td><td class="r">${a.clicks}</td><td class="r">${a.leads}</td><td class="r val">${money(a.cpl)}</td></tr>`).join('');
+    return kpis+`<div style="margin-top:16px">${panel(I.trend,'Daily spend',null,bars)}</div>`+
+      `<div style="margin-top:16px">${panelFlush(I.chart,'Campaign: B2B - FA $15M AUM',ADS.length,table([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],rows))}</div>`;
+  },
+  tasks(){
+    const groups=[['open','To do','amber'],['in_progress','In progress','blue'],['done','Done','green']];
+    return `<div class="split2" style="grid-template-columns:1fr">${groups.map(([st,label])=>{
+      const t=TASKS.filter(x=>x.status===st); if(!t.length)return '';
+      return panelFlush(I.check,label,t.length,`<div class="rows">${t.map(x=>`<div class="row ${x.status==='done'?'done':''}"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`);
+    }).join('')}</div>`;
+  },
+};
+function taskRows(list){return `<div class="rows">${list.map(x=>`<div class="row"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`;}
+function nodeHtml(name,role,color){return `<span class="node"><span class="av" style="background:${color||'#5b8cff'}">${initials(name)}</span><span class="txt"><span class="nm">${name}</span><span class="rl">${role}</span></span></span>`;}
+RENDER.org=function(){
+  const root=STAFF[0];
+  const kids=STAFF.slice(1).map(p=>`<li>${nodeHtml(p.name,p.title,brandColor(p.brand))}</li>`).join('');
+  return `<div class="tree" style="padding:6px"><ul><li>${nodeHtml(root.name,root.title,brandColor(root.brand))}<ul>${kids}</ul></li></ul></div>`;
+};
+RENDER.dept=function(){
+  const groups=BRANDS.slice(1).map(b=>({b,people:STAFF.filter(s=>s.brand===b.id)})).filter(g=>g.people.length);
+  return `<div class="tree" style="padding:6px"><ul>${groups.map(g=>`<li>${nodeHtml(g.b.name,g.people.length+(g.people.length===1?' person':' people'),g.b.color)}<ul>${g.people.map(p=>`<li>${nodeHtml(p.name,p.title,g.b.color)}</li>`).join('')}</ul></li>`).join('')}</ul></div>`;
+};
+RENDER.pmreports=function(){
+  const pm=STATEMENTS.filter(s=>s.type==='pm_income_expense');
+  const kpis=`<div class="kpis">${kpi(I.home,'Reports',pm.length,'PM income/expense','')}${kpi(I.up,'Gross income',moneyk(22400),'Jun sample','up')}${kpi(I.dollar,'Operating exp',moneyk(8150),'Jun sample','down')}${kpi(I.trend,'NOI',moneyk(14250),'Jun sample','up')}</div>`;
+  const rows=PROPS.map(p=>`<tr><td>${p.name}</td><td class="r">${p.occ}%</td><td class="r val">${money(Math.round(p.noi*1.6))}</td><td class="r val" style="color:var(--rose)">${money(Math.round(p.noi*0.6))}</td><td class="r val" style="color:var(--green)">${money(p.noi)}</td></tr>`).join('');
+  const stmts=pm.map(s=>`<tr><td>${s.who}</td><td>${s.period}</td><td>${pill(s.status,'blue')}</td></tr>`).join('')||`<tr><td colspan="3" style="color:var(--text-faint)">No PM statements yet</td></tr>`;
+  return kpis+
+    `<div style="margin-top:16px">${panelFlush(I.home,'Property P&amp;L (monthly)',PROPS.length,table([{t:'Property'},{t:'Occ',r:1},{t:'Income',r:1},{t:'Op Ex',r:1},{t:'NOI',r:1}],rows))}</div>`+
+    `<div style="margin-top:16px">${panelFlush(I.file,'Ingested PM reports',pm.length,table([{t:'Source'},{t:'Period'},{t:'Status'}],stmts))}</div>`+
+    `<div style="margin-top:12px;font-size:12px;color:var(--text-faint)">Live AppFolio / Buildium sync deferred; these populate from uploaded statements today.</div>`;
+};
+
+/* ===== portals ===== */
+const PORTALS=[{id:'ops',ic:'dash',t:'Internal Ops'},{id:'investor',ic:'briefcase',t:'Investor'},{id:'client',ic:'globe',t:'Client'}];
+let portal='ops', brand='all';
+
+function card(ic,t,s,onclick){return `<a class="tile" onclick="${onclick}"><span class="ico" style="color:var(--accent)">${I[ic]}</span><span class="body"><span class="t">${t}</span><span class="s">${s}</span></span></a>`;}
+function section(title,cards){return `<div class="eyebrow">${title} <span class="count">${cards.length}</span></div><div class="sec-cards">${cards.join('')}</div>`;}
+function renderOps(){
+  const chips=`<div class="biz-bar" style="margin-bottom:22px">${BRANDS.map(b=>`<button class="biz-tab ${b.id===brand?'active':''}" onclick="setBrand('${b.id}')"><span class="glyph" style="background:${b.color}">${b.short}</span>${b.name}</button>`).join('')}</div>`;
+  const company = section('Company', [
+    card('org','Organization chart','Reporting structure',"openDetail('org')"),
+    card('tree','Department chart','By brand & function',"openDetail('dept')"),
+  ]);
+  const dashboards = section('Dashboards', [
+    card('gauge','Executive overview','Cross-brand KPIs',"openDetail('exec')"),
+    card('trend','Marketing / Ads','Meta spend, CPL, leads',"openDetail('ads')"),
+  ]);
+  const financials = section('Transactions &amp; Financials', [
+    card('dollar','Internal financials','Transactions, accounts, statements',"openDetail('fin')"),
+    card('file','Property financial reports','PM income &amp; expense (AppFolio)',"openDetail('pmreports')"),
+  ]);
+  const properties = section('Properties', [
+    card('home','Properties','Live properties view (ops dashboard)',"openEmbed('"+DASHBOARD_URL+"#tab=properties','Properties')"),
+    card('bank','Loans','Balances, rates, maturities',"openDetail('loans')"),
+  ]);
+  const leads = section('Leads', [
+    card('target','Leads','Pipeline by provider',"openDetail('leads')"),
+    card('cal','Appointments','Bookings & show rate',"openDetail('appts')"),
+  ]);
+  const team = `<div class="eyebrow" style="margin-top:30px">Team <span class="count">${STAFF.filter(inBrand).length}</span></div>
+    <div class="grid cols-3">${STAFF.filter(inBrand).map(p=>`<div class="tile" onclick="openStaffCard(${p.id})"><img class="ico" style="border-radius:50%;padding:0;object-fit:cover" src="${p.img}" alt=""><span class="body"><span class="t">${p.name}</span><span class="s">${p.title}</span><span class="pill blue" style="align-self:flex-start;margin-top:4px">${brandName(p.brand)}</span></span></div>`).join('')}</div>`;
+  return chips + company + dashboards + financials + properties + leads + team;
+}
+function renderInvestor(){
+  const total=INVESTORS.reduce((a,i)=>a+i.stake,0);
+  const kpis=`<div class="kpis">${kpi(I.users,'Investors',INVESTORS.length,'','')}${kpi(I.dollar,'Committed capital','$4.2M','across entities','')}${kpi(I.trend,'Q2 distribution','$118K','paid Jul 5','up')}${kpi(I.gauge,'Allocated',total+'%','of fund','')}</div>`;
+  const rows=INVESTORS.map(i=>`<tr><td><span class="who2"><span class="av2" style="background:#5b8cff">${initials(i.name)}</span>${i.name}</span></td><td>${i.where}</td><td class="r val">${i.stake}%</td><td>${i.primary?pill('primary','green'):pill('LP','gray')}</td></tr>`).join('');
+  const docs=`<div class="rows">${['Q2 2026 Investor Report.pdf','June Distribution Notice.pdf','K-1 (2025).pdf','Operating Agreement.pdf'].map(d=>`<div class="row"><span class="main"><span class="rt">${d}</span><span class="rs">LeavenWealth · shared</span></span>${pill('PDF','blue')}</div>`).join('')}</div>`;
+  return kpis+`<div style="margin-top:16px">${panelFlush(I.users,'Investors',INVESTORS.length,table([{t:'Investor'},{t:'Position'},{t:'Stake',r:1},{t:'Role'}],rows))}</div>`+
+    `<div style="margin-top:16px">${panelFlush(I.file,'Documents','4',docs)}</div>`;
+}
+function renderClient(){
+  const kpis=`<div class="kpis">${kpi(I.briefcase,'Active engagements','7','Folio + Leadli','')}${kpi(I.file,'Files this month','23','uploaded','up')}${kpi(I.check,'Deliverables due','3','this week','')}${kpi(I.gauge,'On-time rate','96%','','up')}</div>`;
+  const up=`<div class="up-zone">${I.file}<div style="font-weight:600;color:var(--text)">Drag &amp; drop files to upload</div><div style="font-size:12.5px;margin-top:4px">Bank statements, receipts, reports · PDF, CSV, XLSX</div></div>`;
+  const rows=[['June_Bank_Statement.pdf','Jenny Cruz','manual','Jul 14'],['Q2_Financials.xlsx','Automated sync','automated','Jul 12'],['Receipts_June.zip','client A','manual','Jul 10'],['Payroll_June.csv','Jenny Cruz','manual','Jul 8']]
+    .map(([f,by,m,d])=>`<tr><td>${f}</td><td>${by}</td><td>${pill(m,m==='manual'?'blue':'green')}</td><td>${d}</td></tr>`).join('');
+  return kpis+`<div style="margin-top:16px">${panel(I.file,'Upload',null,up)}</div>`+
+    `<div style="margin-top:16px">${panelFlush(I.file,'Recent uploads','4',table([{t:'File'},{t:'Uploaded by'},{t:'Source'},{t:'Date'}],rows))}</div>`;
+}
+
+/* ===== detail sheet ===== */
+const DASHBOARD_URL='/ops'; /* ops dashboard is served same-origin at /ops */
+const DASH_TITLES={exec:'Executive overview',ads:'Marketing / Ads',fin:'Internal financials',pmreports:'Property financial reports',loans:'Loans',leads:'Leads',appts:'Appointments',org:'Organization chart',dept:'Department chart'};
+function openSheet(){document.getElementById('detail').classList.add('open');document.body.style.overflow='hidden';}
+function openDetail(id){
+  document.getElementById('detailTitle').textContent=DASH_TITLES[id]||id;
+  document.getElementById('detailSub').textContent = brand==='all'?'All brands':brandName(brand);
+  document.getElementById('detailBody').innerHTML=RENDER[id]();
+  openSheet();
+}
+function openEmbed(url,title){
+  document.getElementById('detailTitle').textContent=title;
+  document.getElementById('detailSub').textContent='Live · ops dashboard';
+  document.getElementById('detailBody').innerHTML=`<div style="font-size:12.5px;color:var(--text-faint);margin-bottom:10px">Served from the operations dashboard at <span class="mono">${url}</span></div><iframe class="embed" src="${url}" title="${title}"></iframe>`;
+  openSheet();
+}
+function closeDetail(){document.getElementById('detail').classList.remove('open');document.body.style.overflow='';}
+
+/* ===== drawers ===== */
+function openStaffCard(id){const p=STAFF.find(x=>x.id===id);drawer(`
+  <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
+    <img class="d-av" style="object-fit:cover" src="${p.img}" alt="">
+    <div class="d-nm">${p.name}</div><div class="d-tl">${p.title}</div>
+    <div class="d-dept">${brandName(p.brand)}</div></div>
+  <div class="d-body">
+    <div class="d-field">${I.file}<div><div class="fk">About</div><div class="fv">${p.desc}</div></div></div>
+    <div class="d-field">${I.mail}<div><div class="fk">Email</div><div class="fv">${p.email}</div></div></div>
+    <div class="d-field">${I.phone}<div><div class="fk">Phone</div><div class="fv">${p.phone}</div></div></div>
+  </div>
+  <div class="d-actions"><button class="primary">Message</button><button class="ghost">View profile</button></div>`);}
+function openLead(i){const l=LEADS[i];drawer(`
+  <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
+    <div class="d-av" style="background:${brandColor(l.brand)}">${initials(l.name)}</div>
+    <div class="d-nm">${l.name}</div><div class="d-tl">${l.stage}</div>
+    <div class="d-dept">${brandName(l.brand)}</div></div>
+  <div class="d-body">
+    <div class="d-field">${I.target}<div><div class="fk">Provider</div><div class="fv">${PROVIDERS[l.prov].n}</div></div></div>
+    <div class="d-field">${I.check}<div><div class="fk">Status</div><div class="fv">${l.status}</div></div></div>
+    <div class="d-field">${I.dollar}<div><div class="fk">Value</div><div class="fv">${l.val?money(l.val):'—'}</div></div></div>
+  </div>
+  <div class="d-actions"><button class="primary">Open in GHL</button><button class="ghost">Log call</button></div>`);}
+function drawer(html){document.getElementById('staffDrawer').innerHTML=html;document.getElementById('staffDrawer').classList.add('open');document.getElementById('drawerBack').classList.add('open');}
+function closeStaff(){document.getElementById('staffDrawer').classList.remove('open');document.getElementById('drawerBack').classList.remove('open');}
+
+/* ===== nav / render ===== */
+function buildPortalbar(){document.getElementById('portalbar').innerHTML=PORTALS.map(p=>`<button class="${p.id===portal?'active':''}" onclick="setPortal('${p.id}')">${I[p.ic]}${p.t}</button>`).join('');}
+function render(){buildPortalbar();const c=document.getElementById('content');c.innerHTML = portal==='ops'?renderOps():portal==='investor'?renderInvestor():renderClient();}
+function setPortal(p){portal=p;render();}
+function setBrand(b){brand=b;render();}
+
+/* ===== theme / settings (from original) ===== */
+let theme='dark';
+function applyTheme(){document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;document.querySelectorAll('#themeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.themeSet===theme));document.querySelectorAll('.seg-ic-l').forEach(e=>e.innerHTML=I.sun);document.querySelectorAll('.seg-ic-d').forEach(e=>e.innerHTML=I.moon);const apr=document.getElementById('apr-ico');if(apr)apr.innerHTML=theme==='dark'?I.moon:I.sun;}
+function toggleTheme(){theme=theme==='dark'?'light':'dark';applyTheme();}
+function setTheme(t){theme=t;applyTheme();}
+function openSettings(){document.getElementById('settings').classList.add('open');}
+function closeSettings(){document.getElementById('settings').classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;const d=document.getElementById('staffDrawer');if(d.classList.contains('open')){closeStaff();return;}if(document.getElementById('detail').classList.contains('open')){closeDetail();return;}closeSettings();});
+document.querySelectorAll('.m-row[data-ic]').forEach(r=>r.insertAdjacentHTML('afterbegin',I[r.dataset.ic]||''));
+applyTheme();render();
+</script>
+</body>
+</html>

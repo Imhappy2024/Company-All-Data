@@ -1,0 +1,16 @@
+# Secrets — never commit real env values
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+*.log
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
