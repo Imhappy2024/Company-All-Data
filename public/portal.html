@@ -829,9 +829,58 @@ RENDER.org=function(){
   </div></div>`;
   return toggle + (orgView==='tree'?orgTreeHtml():orgListHtml());
 };
+/* ===== Department chart: brand hierarchy (tree) <-> directory (list) ===== */
+/* Coloured by BRAND (vs the Organization view's by-depth colours). */
+const BRAND_GRADS={
+  all:'linear-gradient(135deg,#5b8cff,#7a5bff)',
+  leavenwealth:'linear-gradient(135deg,#5b8cff,#7a5bff)',
+  leadli:'linear-gradient(135deg,#a06bff,#7a5bff)',
+  folio:'linear-gradient(135deg,#3ec7c2,#54c98a)',
+  liquid:'linear-gradient(135deg,#f0b64b,#f0894b)',
+};
+const brandGrad=id=>BRAND_GRADS[id]||`linear-gradient(135deg,${brandColor(id)},${brandColor(id)})`;
+let deptView='tree';
+function setDeptView(v){deptView=v;const b=document.getElementById('detailBody');if(b)b.innerHTML=RENDER.dept();}
+function deptGroups(){
+  return BRANDS.slice(1)
+    .map(b=>({b,people:STAFF.filter(s=>s.brand===b.id).sort((x,y)=>x.name.localeCompare(y.name))}))
+    .filter(g=>g.people.length);
+}
+function deptTreeHtml(){
+  const brandNodes=deptGroups().map(g=>{
+    const grad=brandGrad(g.b.id);
+    const people=g.people.map(p=>`<li><div class="onode" onclick="openStaffCard(${p.id})" title="${p.name} · ${p.title}">
+        <span class="oav" style="background:${grad}"><img src="${p.img}" alt=""></span>
+        <div class="olabel" style="background:${grad}"><span class="onm">${p.name}</span><span class="otl">${p.title}</span></div>
+      </div></li>`).join('');
+    return `<li><div class="onode">
+        <span class="oav" style="background:${grad}"><span class="ini" style="background:${g.b.color}">${g.b.short}</span></span>
+        <div class="olabel" style="background:${grad}"><span class="onm">${g.b.name}</span><span class="otl">${g.people.length} ${g.people.length===1?'person':'people'}</span></div>
+      </div><ul>${people}</ul></li>`;
+  }).join('');
+  const rootGrad=brandGrad('all');
+  return `<div class="orgwrap"><div class="orgchart"><ul><li>
+    <div class="onode"><span class="oav" style="background:${rootGrad}"><span class="ini" style="background:#5b8cff">LW</span></span>
+      <div class="olabel" style="background:${rootGrad}"><span class="onm">LeavenWealth Group</span><span class="otl">All brands</span></div></div>
+    <ul>${brandNodes}</ul>
+  </li></ul></div></div>`;
+}
+function deptListHtml(){
+  return deptGroups().map(g=>{
+    const rows=g.people.map(p=>`<tr onclick="openStaffCard(${p.id})" style="cursor:pointer">
+      <td><span class="who2"><img src="${p.img}" alt="">${p.name}</span></td>
+      <td>${p.title}</td>
+      <td><span class="contact2" onclick="event.stopPropagation()"><a href="mailto:${p.email}" title="${p.email}">${I.mail}</a><a href="tel:${p.phone}" title="${p.phone}">${I.phone}</a></span></td>
+    </tr>`).join('');
+    return `<div style="margin-top:16px">${panelFlush(I.building,g.b.name,g.people.length,table([{t:'Name'},{t:'Title'},{t:'Contact'}],rows))}</div>`;
+  }).join('');
+}
 RENDER.dept=function(){
-  const groups=BRANDS.slice(1).map(b=>({b,people:STAFF.filter(s=>s.brand===b.id)})).filter(g=>g.people.length);
-  return `<div class="tree" style="padding:6px"><ul>${groups.map(g=>`<li>${nodeHtml(g.b.name,g.people.length+(g.people.length===1?' person':' people'),g.b.color)}<ul>${g.people.map(p=>`<li>${nodeHtml(p.name,p.title,g.b.color)}</li>`).join('')}</ul></li>`).join('')}</ul></div>`;
+  const toggle=`<div class="orgtoggle"><div class="seg2">
+    <button class="${deptView==='tree'?'on':''}" onclick="setDeptView('tree')">${I.sitemap}Tree</button>
+    <button class="${deptView==='list'?'on':''}" onclick="setDeptView('list')">${I.list}List</button>
+  </div></div>`;
+  return toggle + (deptView==='tree'?deptTreeHtml():deptListHtml());
 };
 RENDER.pmreports=function(){
   const pm=STATEMENTS.filter(s=>s.type==='pm_income_expense');
