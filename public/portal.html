@@ -805,12 +805,12 @@ async function loadLoans(){
   const el=document.getElementById('loansBody'); if(!el) return;
   try{
     const r=await fetch('/api/loans',{headers:{'Accept':'application/json'}});
-    if(!r.ok) throw new Error('HTTP '+r.status);
-    const data=await r.json();
+    let data=null; try{ data=await r.json(); }catch(_){}
+    if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
     if(data && data.error) throw new Error(data.error);
     el.innerHTML=renderLoansHtml((data&&data.loans)||[]);
   }catch(e){
-    el.innerHTML=`<div style="padding:10px 2px;color:var(--rose);font-size:13px">Couldn't load loans from Supabase (${escapeHtml(e.message)}).<br><span style="color:var(--text-faint)">Ensure DATA_SOURCE=supabase and a valid SUPABASE_DB_URL are set on the server.</span></div>`;
+    el.innerHTML=`<div style="padding:10px 2px;color:var(--rose);font-size:13px">Couldn't load loans (${escapeHtml(e.message)}).<br><span style="color:var(--text-faint)">Check <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a> and <a href="/api/_selfcheck" target="_blank" style="color:var(--accent)">/api/_selfcheck</a>. Needs DATA_SOURCE=supabase and a valid Postgres SUPABASE_DB_URL.</span></div>`;
   }
 }
 function loanPillClass(s){const x=String(s||'').toLowerCase();if(x==='active'||x==='current')return 'green';if(x==='pending')return 'amber';return 'gray';}

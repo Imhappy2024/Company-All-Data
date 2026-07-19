@@ -3048,18 +3048,12 @@ async function checkAuth() {
 }
 
 function applyAuthGate() {
+  // Viewing is OPEN — property / loan / task reads come from Supabase (or the
+  // shared server token), so the dashboard is never walled behind ClickUp sign-in.
+  // Sign-in is only needed to POST changes (writes prompt for it on demand).
   const gate = document.getElementById('authGate');
-  const loading = document.getElementById('loadingOverlay');
-  if (!gate) return;
-  if (currentUser) {
-    gate.style.display = 'none';
-    document.body.style.overflow = '';
-  } else {
-    // Hide loading overlay so the gate is visible
-    if (loading) loading.classList.add('hidden');
-    gate.style.display = 'flex';
-    document.body.style.overflow = 'hidden';
-  }
+  if (gate) gate.style.display = 'none';
+  document.body.style.overflow = '';
 }
 
 function renderAuthUI() {
@@ -3087,7 +3081,8 @@ function renderAuthUI() {
       <button class="sync-btn desktop-only" onclick="logout()" title="Sign out">Sign out</button>
     `;
   } else {
-    el.innerHTML = '';
+    // Not signed in: viewing still works; offer sign-in only for making changes.
+    el.innerHTML = '<button class="sync-btn" onclick="window.location.href=\'/auth/clickup\'" title="Sign in with ClickUp to make changes">Sign in</button>';
   }
 }
 
@@ -7772,14 +7767,11 @@ setInterval(() => {
 // the very first render — no full-screen loading freeze.
 (async () => {
   await checkAuth();
-  if (currentUser) {
-    // Hide the initial full-screen overlay as soon as we know the user is in.
-    document.getElementById('loadingOverlay')?.classList.add('hidden');
-    // Render whatever localStorage has (instant), then kick off the live fetch
-    // (which will show the inline banner + skeleton placeholders).
-    loadFromClientCache();
-    fetchData().then(scheduleAutoRefresh);
-  }
+  // Viewing is open whether or not signed in — reads use Supabase / the shared
+  // token. Always paint cached data instantly, then fetch fresh in the background.
+  document.getElementById('loadingOverlay')?.classList.add('hidden');
+  loadFromClientCache();
+  fetchData().then(scheduleAutoRefresh);
 })();
 </script>
 
