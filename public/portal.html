@@ -980,7 +980,7 @@ function renderOps(){
     statCard(C.fin,'file','Property financial reports','PM income &amp; expense',moneyk(noi),'NOI/mo','up',"openDetail('pmreports')"),
   ]);
   const properties = section('Properties',C.prop,[
-    statCard(C.prop,'home','Properties','Live view · ops dashboard','','','',"openEmbed('"+DASHBOARD_URL+"#tab=properties','Properties')",true),
+    statCard(C.prop,'home','Properties','Live view · ops dashboard','','','',"openEmbed('"+DASHBOARD_URL+"#tab=properties&embed=1','Properties')",true),
     statCard(C.prop,'bank','Loans','Live from Supabase','','','',"openDetail('loans')",true),
   ]);
   const leads = section('Leads',C.leads,[

@@ -4,6 +4,9 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover"/>
 <title>Dashboard</title>
+<!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
+     class in <head> BEFORE render so the dashboard chrome never flashes. -->
+<script>try{if(/[#&]embed=(1|properties)/.test(location.hash))document.documentElement.classList.add('embed-only');}catch(e){}</script>
 <!-- PWA: installable, standalone home-screen app -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
@@ -1604,6 +1607,12 @@
   body.props-active .filter-date,
   body.props-active .filter-bar > .filter-label { display: none !important; }
   @media (min-width: 641px) { body.props-active .filter-bar { display: none; } }
+  /* Embed mode: show ONLY the Properties view (no header, no top-level tabs, no
+     task filter bar). Triggered by /ops#tab=properties&embed=1 (portal iframe). */
+  html.embed-only .header,
+  html.embed-only .tabs-bar,
+  html.embed-only .filter-bar { display: none !important; }
+  html.embed-only .frozen-top { padding-top: 10px; }
 
   #view-properties .main { gap: 14px; }
   .prop-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
