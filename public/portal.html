@@ -848,13 +848,13 @@ RENDER.pmreports=function(){
 const PORTALS=[{id:'ops',ic:'dash',t:'Internal Ops'},{id:'investor',ic:'briefcase',t:'Investor'},{id:'client',ic:'globe',t:'Client'}];
 let portal='ops', brand='all';
 
-function card(ic,t,s,onclick){return `<a class="tile" onclick="${onclick}"><span class="ico" style="color:var(--accent)">${I[ic]}</span><span class="body"><span class="t">${t}</span><span class="s">${s}</span></span></a>`;}
+function card(ic,t,s,onclick){return `<a class="tile" onclick="${onclick}"><span class="ico" style="color:var(--accent)">${I[ic]||''}</span><span class="body"><span class="t">${t}</span><span class="s">${s}</span></span></a>`;}
 function section(title,cards){return `<div class="eyebrow">${title} <span class="count">${cards.length}</span></div><div class="sec-cards">${cards.join('')}</div>`;}
 function renderOps(){
   const chips=`<div class="biz-bar" style="margin-bottom:22px">${BRANDS.map(b=>`<button class="biz-tab ${b.id===brand?'active':''}" onclick="setBrand('${b.id}')"><span class="glyph" style="background:${b.color}">${b.short}</span>${b.name}</button>`).join('')}</div>`;
   const company = section('Company', [
-    card('org','Organization chart','Reporting structure',"openDetail('org')"),
-    card('tree','Department chart','By brand & function',"openDetail('dept')"),
+    card('sitemap','Organization chart','Reporting structure',"openDetail('org')"),
+    card('building','Department chart','By brand & function',"openDetail('dept')"),
   ]);
   const dashboards = section('Dashboards', [
     card('gauge','Executive overview','Cross-brand KPIs',"openDetail('exec')"),
