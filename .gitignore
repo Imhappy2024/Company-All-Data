@@ -2,6 +2,10 @@
 .env
 .env.*
 !.env.example
+# Stray Windows-friendly copies that may hold real values
+env.example.txt
+gitignore.txt
+*.secret.txt
 
 # Node
 node_modules/
