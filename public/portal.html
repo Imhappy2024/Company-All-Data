@@ -467,6 +467,24 @@
   .contact2 svg{width:16px;height:16px}
   .contact2 a:hover{color:var(--accent)}
   .who2 img{border:1px solid var(--border-soft)}
+
+  /* ---------- stat cards + section dots (design refresh) ---------- */
+  .eyebrow .sec-dot{width:8px;height:8px;border-radius:50%;background:var(--c,#5b8cff);box-shadow:0 0 8px var(--c,#5b8cff);flex:none}
+  .scard{position:relative;display:flex;align-items:center;gap:15px;padding:18px 20px 18px 22px;border:1px solid var(--border-soft);border-radius:15px;background:var(--surface);cursor:pointer;text-decoration:none;color:inherit;transition:transform .16s,border-color .16s,box-shadow .16s;overflow:hidden}
+  .scard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c,#5b8cff)}
+  .scard:hover{transform:translateY(-2px);border-color:var(--c,#5b8cff);box-shadow:0 8px 24px rgba(0,0,0,.28)}
+  .scard-ic{width:46px;height:46px;border-radius:13px;flex:none;display:grid;place-items:center}
+  .scard-ic svg{width:22px;height:22px}
+  .scard-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .scard-t{font-size:15px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
+  .scard-s{font-size:12.5px;color:var(--text-dim)}
+  .scard-metric{display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right;flex:none}
+  .scard-v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;letter-spacing:-.01em}
+  .scard-d{font-size:11.5px;color:var(--text-faint)}
+  .scard-d.up{color:var(--green)} .scard-d.down{color:var(--rose)}
+  .livedot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex:none}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(84,201,138,.5)}70%{box-shadow:0 0 0 6px rgba(84,201,138,0)}100%{box-shadow:0 0 0 0 rgba(84,201,138,0)}}
+  @media(max-width:600px){.scard-metric{display:none}}
 </style>
 </head>
 <body>
@@ -559,6 +577,8 @@ const I = {
   sitemap:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v3.5M5 17v-1.5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1V17"/></svg>',
   list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
 };
+I.org='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v4M6 17v-2h12v2M12 15v-4"/></svg>';
+I.tree='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/><path d="M6 3v18M6 5.5h8M6 18.5h8"/></svg>';
 
 /* ===== brands ===== */
 const BRANDS = [
@@ -669,6 +689,7 @@ const TASKS = [
 const money=n=> (n<0?'-$':'$')+Math.abs(Number(n)).toLocaleString('en-US',{maximumFractionDigits:0});
 const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
 const initials=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+const escapeHtml=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const inBrand=x=> brand==='all' || x.brand===brand;
 function panel(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body">${body}</div></div>`;}
 function panelFlush(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body flush">${body}</div></div>`;}
@@ -719,10 +740,9 @@ const RENDER = {
     return kpis+cards;
   },
   loans(){
-    const total=LOANS.reduce((a,l)=>a+l.bal,0), avg=(LOANS.reduce((a,l)=>a+l.rate,0)/LOANS.length).toFixed(2);
-    const kpis=`<div class="kpis">${kpi(I.bank,'Total debt',moneyk(total),LOANS.length+' loans','')}${kpi(I.gauge,'Avg rate',avg+'%','','')}${kpi(I.cal,'Next maturity','Jan 2027','Bridge - Midwest 1','')}${kpi(I.check,'All current','100%','no delinquencies','up')}</div>`;
-    const rows=LOANS.map(l=>`<tr><td>${l.name}</td><td class="r val">${money(l.bal)}</td><td class="r">${l.rate}%</td><td>${l.maturity}</td><td>${pill('current','green')}</td></tr>`).join('');
-    return kpis+`<div style="margin-top:16px">${panelFlush(I.bank,'Loan book',LOANS.length,table([{t:'Loan'},{t:'Balance',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows))}</div>`;
+    // Live from Supabase via /api/loans (async — fills #loansBody once loaded).
+    setTimeout(loadLoans,0);
+    return `<div id="loansBody"><div style="padding:10px 2px;color:var(--text-dim);font-size:13px">Loading loans from Supabase…</div></div>`;
   },
   fin(){
     const inc=TXNS.filter(t=>t.dir==='in'&&inBrand(t)).reduce((a,t)=>a+t.amt,0);
@@ -779,6 +799,39 @@ const RENDER = {
   },
 };
 function taskRows(list){return `<div class="rows">${list.map(x=>`<div class="row"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`;}
+
+/* ===== Loans — live from Supabase via /api/loans ===== */
+async function loadLoans(){
+  const el=document.getElementById('loansBody'); if(!el) return;
+  try{
+    const r=await fetch('/api/loans',{headers:{'Accept':'application/json'}});
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    const data=await r.json();
+    if(data && data.error) throw new Error(data.error);
+    el.innerHTML=renderLoansHtml((data&&data.loans)||[]);
+  }catch(e){
+    el.innerHTML=`<div style="padding:10px 2px;color:var(--rose);font-size:13px">Couldn't load loans from Supabase (${escapeHtml(e.message)}).<br><span style="color:var(--text-faint)">Ensure DATA_SOURCE=supabase and a valid SUPABASE_DB_URL are set on the server.</span></div>`;
+  }
+}
+function loanPillClass(s){const x=String(s||'').toLowerCase();if(x==='active'||x==='current')return 'green';if(x==='pending')return 'amber';return 'gray';}
+function renderLoansHtml(loans){
+  if(!loans.length) return `<div style="padding:10px 2px;color:var(--text-faint);font-size:13px">No loans found in Supabase.</div>`;
+  const num=v=>(v==null||v==='')?null:Number(v);
+  const total=loans.reduce((a,l)=>a+(num(l.currentDebt)||0),0);
+  const rated=loans.filter(l=>num(l.interestRatePct)!=null);
+  const avg=rated.length?(rated.reduce((a,l)=>a+num(l.interestRatePct),0)/rated.length).toFixed(2)+'%':'—';
+  const mats=loans.map(l=>l.maturityDate).filter(Boolean).sort();
+  const active=loans.filter(l=>String(l.status||'').toLowerCase()==='active').length;
+  const kpis=`<div class="kpis">${kpi(I.bank,'Total debt',moneyk(total),loans.length+' loans','')}${kpi(I.gauge,'Avg rate',avg,'','')}${kpi(I.cal,'Next maturity',mats.length?mats[0]:'—','','')}${kpi(I.check,'Active',active,'of '+loans.length,'')}</div>`;
+  const rows=loans.slice().sort((a,b)=>(num(b.currentDebt)||0)-(num(a.currentDebt)||0)).map(l=>{
+    const name=l.name||l.lender||l.loanNumber||('Loan '+String(l.id).slice(0,8));
+    const sub=[l.lender,l.positionLabel].filter(Boolean).map(escapeHtml).join(' · ');
+    const debt=num(l.currentDebt)!=null?money(num(l.currentDebt)):'—';
+    const rate=num(l.interestRatePct)!=null?num(l.interestRatePct)+'%':'—';
+    return `<tr><td>${escapeHtml(name)}${sub?`<div style="font-size:11px;color:var(--text-faint)">${sub}</div>`:''}</td><td class="r val">${debt}</td><td class="r">${rate}</td><td>${l.maturityDate||'—'}</td><td>${pill(l.status||'None',loanPillClass(l.status))}</td></tr>`;
+  }).join('');
+  return kpis+`<div style="margin-top:16px">${panelFlush(I.bank,'Loan book',loans.length,table([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows))}</div>`;
+}
 function nodeHtml(name,role,color){return `<span class="node"><span class="av" style="background:${color||'#5b8cff'}">${initials(name)}</span><span class="txt"><span class="nm">${name}</span><span class="rl">${role}</span></span></span>`;}
 /* ===== Organization: hierarchical tree <-> directory list, toggled ===== */
 /* Ring/label gradients by depth (CEO -> managers -> leads -> ICs), mirroring
@@ -897,31 +950,44 @@ RENDER.pmreports=function(){
 const PORTALS=[{id:'ops',ic:'dash',t:'Internal Ops'},{id:'investor',ic:'briefcase',t:'Investor'},{id:'client',ic:'globe',t:'Client'}];
 let portal='ops', brand='all';
 
-function card(ic,t,s,onclick){return `<a class="tile" onclick="${onclick}"><span class="ico" style="color:var(--accent)">${I[ic]||''}</span><span class="body"><span class="t">${t}</span><span class="s">${s}</span></span></a>`;}
-function section(title,cards){return `<div class="eyebrow">${title} <span class="count">${cards.length}</span></div><div class="sec-cards">${cards.join('')}</div>`;}
+function statCard(color,ic,title,sub,metric,delta,dcls,onclick,live){
+  return `<a class="scard" style="--c:${color}" onclick="${onclick}">
+    <span class="scard-ic" style="background:${color}1f;color:${color}">${I[ic]||''}</span>
+    <span class="scard-main"><span class="scard-t">${title}${live?' <span class="livedot" title="Live data"></span>':''}</span><span class="scard-s">${sub}</span></span>
+    <span class="scard-metric">${metric!=null&&metric!==''?`<span class="scard-v">${metric}</span>`:''}${delta?`<span class="scard-d ${dcls||''}">${delta}</span>`:''}</span>
+  </a>`;
+}
+function section(title,color,cards){return `<div class="eyebrow"><span class="sec-dot" style="--c:${color}"></span>${title} <span class="count">${cards.length}</span></div><div class="sec-cards">${cards.join('')}</div>`;}
 function renderOps(){
+  const C={company:'#5b8cff',dash:'#a06bff',fin:'#54c98a',prop:'#3ec7c2',leads:'#f0b64b'};
+  const revIn=TXNS.filter(t=>t.dir==='in').reduce((a,t)=>a+t.amt,0);
+  const spend=ADS.reduce((a,b)=>a+b.spend,0), adleads=ADS.reduce((a,b)=>a+b.leads,0), cpl=adleads?spend/adleads:0;
+  const cash=ACCOUNTS.reduce((a,x)=>a+x.bal,0);
+  const noi=PROPS.reduce((a,p)=>a+p.noi,0);
+  const brandsWith=BRANDS.slice(1).filter(b=>STAFF.some(s=>s.brand===b.id)).length;
+  const booked=LEADS.filter(l=>l.status==='Booked').length;
   const chips=`<div class="biz-bar" style="margin-bottom:22px">${BRANDS.map(b=>`<button class="biz-tab ${b.id===brand?'active':''}" onclick="setBrand('${b.id}')"><span class="glyph" style="background:${b.color}">${b.short}</span>${b.name}</button>`).join('')}</div>`;
-  const company = section('Company', [
-    card('sitemap','Organization chart','Reporting structure',"openDetail('org')"),
-    card('building','Department chart','By brand & function',"openDetail('dept')"),
+  const company = section('Company',C.company,[
+    statCard(C.company,'org','Organization chart','Reporting structure',STAFF.length,'people','',"openDetail('org')"),
+    statCard(C.company,'tree','Department chart','By brand &amp; function',brandsWith,'brands','',"openDetail('dept')"),
   ]);
-  const dashboards = section('Dashboards', [
-    card('gauge','Executive overview','Cross-brand KPIs',"openDetail('exec')"),
-    card('trend','Marketing / Ads','Meta spend, CPL, leads',"openDetail('ads')"),
+  const dashboards = section('Dashboards',C.dash,[
+    statCard(C.dash,'gauge','Executive overview','Cross-brand KPIs',moneyk(revIn),'MTD','up',"openDetail('exec')"),
+    statCard(C.dash,'trend','Marketing / Ads','Meta spend, CPL, leads',moneyk(spend),money(cpl)+' CPL','',"openDetail('ads')"),
   ]);
-  const financials = section('Transactions &amp; Financials', [
-    card('dollar','Internal financials','Transactions, accounts, statements',"openDetail('fin')"),
-    card('file','Property financial reports','PM income &amp; expense (AppFolio)',"openDetail('pmreports')"),
+  const financials = section('Transactions &amp; Financials',C.fin,[
+    statCard(C.fin,'dollar','Internal financials','Transactions, accounts, statements',moneyk(cash),'cash','',"openDetail('fin')"),
+    statCard(C.fin,'file','Property financial reports','PM income &amp; expense',moneyk(noi),'NOI/mo','up',"openDetail('pmreports')"),
   ]);
-  const properties = section('Properties', [
-    card('home','Properties','Live properties view (ops dashboard)',"openEmbed('"+DASHBOARD_URL+"#tab=properties','Properties')"),
-    card('bank','Loans','Balances, rates, maturities',"openDetail('loans')"),
+  const properties = section('Properties',C.prop,[
+    statCard(C.prop,'home','Properties','Live view · ops dashboard','','','',"openEmbed('"+DASHBOARD_URL+"#tab=properties','Properties')",true),
+    statCard(C.prop,'bank','Loans','Live from Supabase','','','',"openDetail('loans')",true),
   ]);
-  const leads = section('Leads', [
-    card('target','Leads','Pipeline by provider',"openDetail('leads')"),
-    card('cal','Appointments','Bookings & show rate',"openDetail('appts')"),
+  const leads = section('Leads',C.leads,[
+    statCard(C.leads,'target','Leads','Pipeline by provider',LEADS.length,booked+' booked','',"openDetail('leads')"),
+    statCard(C.leads,'cal','Appointments','Bookings &amp; show rate',APPTS.length,'80% show','up',"openDetail('appts')"),
   ]);
-  const team = `<div class="eyebrow" style="margin-top:30px">Team <span class="count">${STAFF.filter(inBrand).length}</span></div>
+  const team = `<div class="eyebrow" style="margin-top:30px"><span class="sec-dot" style="--c:#9aa1ad"></span>Team <span class="count">${STAFF.filter(inBrand).length}</span></div>
     <div class="grid cols-3">${STAFF.filter(inBrand).map(p=>`<div class="tile" onclick="openStaffCard(${p.id})"><img class="ico" style="border-radius:50%;padding:0;object-fit:cover" src="${p.img}" alt=""><span class="body"><span class="t">${p.name}</span><span class="s">${p.title}</span><span class="pill blue" style="align-self:flex-start;margin-top:4px">${brandName(p.brand)}</span></span></div>`).join('')}</div>`;
   return chips + company + dashboards + financials + properties + leads + team;
 }

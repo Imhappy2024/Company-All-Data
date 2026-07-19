@@ -1,0 +1,46 @@
+{
+  "_comment": "Maps canonical dashboard concepts to lists of alternative field names that may exist in any space. The dashboard finds a task's value for canonical concept X by looking for any custom field whose name matches any alias in X. Lowercase, case-insensitive matching.",
+  "team": [
+    "primary team",
+    "team",
+    "department",
+    "group",
+    "org",
+    "owning team"
+  ],
+  "itemType": [
+    "item type",
+    "type",
+    "task type",
+    "category",
+    "work type"
+  ],
+  "capitalAtStake": [
+    "capital at stake",
+    "capital",
+    "deal value",
+    "investment amount",
+    "loan amount"
+  ],
+  "kpi": [
+    "kpi",
+    "success metric",
+    "measure of success"
+  ],
+  "defineDone": [
+    "define done",
+    "definition of done",
+    "acceptance criteria",
+    "done when"
+  ],
+  "initiative": [
+    "initiative",
+    "strategic initiative",
+    "objective"
+  ],
+  "quarter": [
+    "quarter",
+    "period",
+    "qtr"
+  ]
+}
