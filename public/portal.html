@@ -447,6 +447,26 @@
   .embed{width:100%;height:calc(100vh - 150px);border:0;border-radius:12px;background:var(--surface)}
   .sec-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
   @media(max-width:640px){.sec-cards{grid-template-columns:1fr}}
+
+  /* ---------- org chart (tree view) + directory toggle ---------- */
+  .orgtoggle{display:flex;justify-content:center;margin-bottom:22px}
+  .orgwrap{overflow-x:auto;padding:6px 4px 18px}
+  .onode{display:inline-flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .15s}
+  .onode:hover{transform:translateY(-2px)}
+  .onode:hover .olabel{filter:brightness(1.06)}
+  .oav{display:grid;place-items:center;width:78px;height:78px;border-radius:50%;padding:4px;box-sizing:border-box;box-shadow:var(--shadow)}
+  .oav img,.oav .ini{width:100%;height:100%;border-radius:50%;object-fit:cover;border:3px solid var(--surface);background:var(--surface-2)}
+  .oav .ini{display:grid;place-items:center;color:#fff;font-weight:700;font-size:21px}
+  .olabel{margin-top:10px;text-align:center;color:#fff;border-radius:12px;padding:8px 15px;min-width:132px;max-width:170px;box-shadow:var(--shadow)}
+  .olabel .onm{display:block;font-weight:700;font-size:12.5px;letter-spacing:-.01em;line-height:1.25}
+  .olabel .otl{display:block;font-size:10px;opacity:.92;margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
+  .obadge{margin-top:8px;font-size:10.5px;font-weight:600;padding:2px 11px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border-soft);color:var(--text-dim)}
+  /* directory (list view) contact icons */
+  .contact2{display:flex;gap:15px;color:var(--text-faint)}
+  .contact2 a{color:inherit;display:inline-flex}
+  .contact2 svg{width:16px;height:16px}
+  .contact2 a:hover{color:var(--accent)}
+  .who2 img{border:1px solid var(--border-soft)}
 </style>
 </head>
 <body>
@@ -536,6 +556,8 @@ const I = {
   out:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
   mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
   phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5c0 9 6 15 15 15l2-3-4-2-2 2c-3-1.4-5.6-4-7-7l2-2-2-4z"/></svg>',
+  sitemap:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v3.5M5 17v-1.5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1V17"/></svg>',
+  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
 };
 
 /* ===== brands ===== */
@@ -552,13 +574,14 @@ const brandName = id => (BRANDS.find(b=>b.id===id)||{}).name || id;
 /* ===== seeded data (mirrors Supabase) ===== */
 const PROVIDERS = {closers:{n:'Closers.io',c:'#5b8cff'}, aia:{n:'AIA',c:'#a06bff'}, organic:{n:'Organic',c:'#54c98a'}, none:{n:'—',c:'#6b7280'}};
 
+// mgr = id of the person this staff member reports to (null = top of the org).
 const STAFF = [
-  {id:1,name:'Chris Delgado',title:'Founder & Principal',brand:'leavenwealth',email:'chris@leavenwealth.com',phone:'+1-402-555-0101',img:'https://i.pravatar.cc/150?img=12',desc:'Owner across all brands. Oversees real estate acquisitions, lending, and the service businesses.'},
-  {id:2,name:'Amanda Reyes',title:'Asset Manager',brand:'leavenwealth',email:'amanda@leavenwealth.com',phone:'+1-402-555-0102',img:'https://i.pravatar.cc/150?img=45',desc:'Manages the LeavenWealth property portfolio, NOI performance, and investor reporting.'},
-  {id:3,name:'Marcus Lee',title:'Closer',brand:'leadli',email:'marcus@leadliai.com',phone:'+1-402-555-0103',img:'https://i.pravatar.cc/150?img=33',desc:'Runs strategy calls and closes med-spa clients for Leadli AI.'},
-  {id:4,name:'Sarah Mitchell',title:'Setter',brand:'leadli',email:'sarah@leadliai.com',phone:'+1-402-555-0104',img:'https://i.pravatar.cc/150?img=47',desc:'Qualifies inbound leads and books appointments for the Leadli closers.'},
-  {id:5,name:'Jenny Cruz',title:'Senior Bookkeeper',brand:'folio',email:'jenny@folioexcel.com',phone:'+1-402-555-0105',img:'https://i.pravatar.cc/150?img=25',desc:'Leads bookkeeping and monthly close for Folio Excel clients.'},
-  {id:6,name:'David Okafor',title:'Loan Officer',brand:'liquid',email:'david@liquidlending.com',phone:'+1-402-555-0106',img:'https://i.pravatar.cc/150?img=15',desc:'Originates and services bridge loans for Liquid Lending Solutions.'},
+  {id:1,mgr:null,name:'Chris Delgado',title:'Founder & Principal',brand:'leavenwealth',email:'chris@leavenwealth.com',phone:'+1-402-555-0101',img:'https://i.pravatar.cc/150?img=12',desc:'Owner across all brands. Oversees real estate acquisitions, lending, and the service businesses.'},
+  {id:2,mgr:1,name:'Amanda Reyes',title:'Asset Manager',brand:'leavenwealth',email:'amanda@leavenwealth.com',phone:'+1-402-555-0102',img:'https://i.pravatar.cc/150?img=45',desc:'Manages the LeavenWealth property portfolio, NOI performance, and investor reporting.'},
+  {id:3,mgr:1,name:'Marcus Lee',title:'Closer',brand:'leadli',email:'marcus@leadliai.com',phone:'+1-402-555-0103',img:'https://i.pravatar.cc/150?img=33',desc:'Runs strategy calls and closes med-spa clients for Leadli AI.'},
+  {id:4,mgr:3,name:'Sarah Mitchell',title:'Setter',brand:'leadli',email:'sarah@leadliai.com',phone:'+1-402-555-0104',img:'https://i.pravatar.cc/150?img=47',desc:'Qualifies inbound leads and books appointments for the Leadli closers.'},
+  {id:5,mgr:1,name:'Jenny Cruz',title:'Senior Bookkeeper',brand:'folio',email:'jenny@folioexcel.com',phone:'+1-402-555-0105',img:'https://i.pravatar.cc/150?img=25',desc:'Leads bookkeeping and monthly close for Folio Excel clients.'},
+  {id:6,mgr:1,name:'David Okafor',title:'Loan Officer',brand:'liquid',email:'david@liquidlending.com',phone:'+1-402-555-0106',img:'https://i.pravatar.cc/150?img=15',desc:'Originates and services bridge loans for Liquid Lending Solutions.'},
 ];
 
 const PROPS = [
@@ -757,10 +780,54 @@ const RENDER = {
 };
 function taskRows(list){return `<div class="rows">${list.map(x=>`<div class="row"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`;}
 function nodeHtml(name,role,color){return `<span class="node"><span class="av" style="background:${color||'#5b8cff'}">${initials(name)}</span><span class="txt"><span class="nm">${name}</span><span class="rl">${role}</span></span></span>`;}
+/* ===== Organization: hierarchical tree <-> directory list, toggled ===== */
+/* Ring/label gradients by depth (CEO -> managers -> leads -> ICs), mirroring
+   the reference org charts while staying close to the portal palette. */
+const ORG_RINGS=[
+  'linear-gradient(135deg,#f2748c,#e0559d)',
+  'linear-gradient(135deg,#f0b64b,#f0894b)',
+  'linear-gradient(135deg,#54c98a,#3ec7c2)',
+  'linear-gradient(135deg,#3ec7c2,#5b8cff)',
+];
+let orgView='tree';
+function setOrgView(v){orgView=v;const b=document.getElementById('detailBody');if(b)b.innerHTML=RENDER.org();}
+function orgReports(id){return STAFF.filter(s=>s.mgr===id).sort((a,b)=>a.name.localeCompare(b.name));}
+function orgAvatar(p,grad){
+  const inner=p.img?`<img src="${p.img}" alt="">`:`<span class="ini" style="background:${brandColor(p.brand)}">${initials(p.name)}</span>`;
+  return `<span class="oav" style="background:${grad}">${inner}</span>`;
+}
+function orgNode(p,depth){
+  const grad=ORG_RINGS[Math.min(depth,ORG_RINGS.length-1)];
+  const kids=orgReports(p.id);
+  const childHtml=kids.length?`<ul>${kids.map(k=>orgNode(k,depth+1)).join('')}</ul>`:'';
+  return `<li><div class="onode" onclick="openStaffCard(${p.id})" title="${p.name} · ${p.title}">
+      ${orgAvatar(p,grad)}
+      <div class="olabel" style="background:${grad}"><span class="onm">${p.name}</span><span class="otl">${p.title}</span></div>
+      <span class="obadge">${brandName(p.brand)}</span>
+    </div>${childHtml}</li>`;
+}
+function orgTreeHtml(){
+  const roots=STAFF.filter(s=>!s.mgr).sort((a,b)=>a.name.localeCompare(b.name));
+  return `<div class="orgwrap"><div class="orgchart"><ul>${roots.map(r=>orgNode(r,0)).join('')}</ul></div></div>`;
+}
+function orgListHtml(){
+  const people=STAFF.slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const mgrName=id=>{const m=STAFF.find(s=>s.id===id);return m?m.name:'—';};
+  const rows=people.map(p=>`<tr onclick="openStaffCard(${p.id})" style="cursor:pointer">
+    <td><span class="who2"><img src="${p.img}" alt="">${p.name}</span></td>
+    <td>${p.title}</td>
+    <td><span class="chip"><span class="sw" style="background:${brandColor(p.brand)}"></span>${brandName(p.brand)}</span></td>
+    <td>${p.mgr?mgrName(p.mgr):'<span style="color:var(--text-faint)">—</span>'}</td>
+    <td><span class="contact2" onclick="event.stopPropagation()"><a href="mailto:${p.email}" title="${p.email}">${I.mail}</a><a href="tel:${p.phone}" title="${p.phone}">${I.phone}</a></span></td>
+  </tr>`).join('');
+  return panelFlush(I.users,'People',people.length,table([{t:'Name'},{t:'Title'},{t:'Brand'},{t:'Reports to'},{t:'Contact'}],rows));
+}
 RENDER.org=function(){
-  const root=STAFF[0];
-  const kids=STAFF.slice(1).map(p=>`<li>${nodeHtml(p.name,p.title,brandColor(p.brand))}</li>`).join('');
-  return `<div class="tree" style="padding:6px"><ul><li>${nodeHtml(root.name,root.title,brandColor(root.brand))}<ul>${kids}</ul></li></ul></div>`;
+  const toggle=`<div class="orgtoggle"><div class="seg2">
+    <button class="${orgView==='tree'?'on':''}" onclick="setOrgView('tree')">${I.sitemap}Tree</button>
+    <button class="${orgView==='list'?'on':''}" onclick="setOrgView('list')">${I.list}List</button>
+  </div></div>`;
+  return toggle + (orgView==='tree'?orgTreeHtml():orgListHtml());
 };
 RENDER.dept=function(){
   const groups=BRANDS.slice(1).map(b=>({b,people:STAFF.filter(s=>s.brand===b.id)})).filter(g=>g.people.length);
