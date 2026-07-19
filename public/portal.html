@@ -7,6 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<!-- Supabase browser client (for live reads; RLS-gated). Deferred + optional: if it
+     fails to load, the app falls back to baked data and never breaks. -->
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
   :root{
     --bg:#0c0e11;
@@ -485,6 +488,21 @@
   .livedot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex:none}
   @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(84,201,138,.5)}70%{box-shadow:0 0 0 6px rgba(84,201,138,0)}100%{box-shadow:0 0 0 0 rgba(84,201,138,0)}}
   @media(max-width:600px){.scard-metric{display:none}}
+
+  /* bio "See more" (staff drawer) */
+  .bio{font-size:13.5px;line-height:1.5;color:var(--text)}
+  .bio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .bio-toggle{margin-top:6px;all:unset;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)}
+  .bio-toggle:hover{text-decoration:underline}
+  .bio-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+  /* org/dept node interaction: focus ring for clickable people; static (non-clickable) headers */
+  .onode:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:14px}
+  .onode.static{cursor:default}
+  .onode.static:hover{transform:none}
+  .onode.static:hover .olabel{filter:none}
+  /* ads campaign select */
+  .filter-select{background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:600 13px 'Inter',system-ui,sans-serif;padding:8px 12px;border-radius:10px;cursor:pointer}
+  .filter-select:focus{outline:none;border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
 </style>
 </head>
 <body>
@@ -670,10 +688,16 @@ const APPTS = [
   {name:'Ryan McGuire',cal:'Strategy Call with Leadli AI',start:'Jul 20, 11:00 AM',status:'confirmed'},
 ];
 /* 14 days ads (mirrors generated seed) */
-const ADS = Array.from({length:14},(_,i)=>{
-  const spend=180+((i*7)%90), imp=8000+((i*533)%6000), clicks=120+((i*13)%100), leads=3+(i%6);
-  return {day:i+1, date:'Jul '+(i+1), spend, imp, clicks, leads, cpl:+(spend/leads).toFixed(2), ctr:+((clicks/imp)*100).toFixed(2)};
-});
+/* Meta ads — baked demo (mirrors the 3 Leadli campaigns in meta_ads_insight).
+   Used as the fallback until an authenticated Supabase read is available. */
+function mkAdDay(spend,imp,clicks,leads,i){return {date:'Jul '+(i+1),spend,imp,clicks,leads,cpl:leads?+(spend/leads).toFixed(2):0,ctr:imp?+((clicks/imp)*100).toFixed(2):0};}
+const ADS_CAMPAIGNS=[
+  {id:'120000000000001',name:'B2B - FA $15M AUM',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(180+((i*7)%90),8000+((i*533)%6000),120+((i*13)%100),3+(i%6),i))},
+  {id:'120000000000002',name:'Med-Spa - Prospecting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(95+((i*7)%40),5000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
+  {id:'120000000000003',name:'Med-Spa - Retargeting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(60+((i*7)%40),3000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
+];
+function adsAggregate(camps){return Array.from({length:14},(_,i)=>{let s=0,im=0,c=0,l=0;camps.forEach(cp=>{const d=cp.days[i];if(d){s+=d.spend;im+=d.imp;c+=d.clicks;l+=d.leads;}});return mkAdDay(s,im,c,l,i);});}
+const ADS = adsAggregate(ADS_CAMPAIGNS); /* per-day aggregate, used by exec/leads */
 const TASKS = [
   {name:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'in_progress',pc:'blue',due:'Jul 25'},
   {name:'June close - Folio client A',cat:'Bookkeeping',status:'open',pc:'amber',due:'Jul 20'},
@@ -782,13 +806,9 @@ const RENDER = {
     return kpis+`<div style="margin-top:16px">${panelFlush(I.cal,'Appointments',APPTS.length,table([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],rows))}</div>`;
   },
   ads(){
-    const spend=ADS.reduce((a,b)=>a+b.spend,0), leads=ADS.reduce((a,b)=>a+b.leads,0), ctr=(ADS.reduce((a,b)=>a+b.ctr,0)/ADS.length).toFixed(2);
-    const kpis=`<div class="kpis">${kpi(I.dollar,'Spend (14d)',money(spend),'','')}${kpi(I.target,'Leads (14d)',leads,'','up')}${kpi(I.trend,'Avg CPL',money(spend/leads),'','down')}${kpi(I.gauge,'Avg CTR',ctr+'%','','')}</div>`;
-    const max=Math.max(...ADS.map(a=>a.spend));
-    const bars=`<div class="bars">${ADS.map(a=>`<div class="bar"><div class="fill" style="height:${Math.round(a.spend/max*100)}%"></div><div class="lbl">${a.day}</div></div>`).join('')}</div><div class="legend"><span class="li"><span class="sw" style="background:var(--accent)"></span>Daily spend (Jul 1-14)</span></div>`;
-    const rows=ADS.slice().reverse().map(a=>`<tr><td>${a.date}</td><td class="r val">${money(a.spend)}</td><td class="r">${a.imp.toLocaleString()}</td><td class="r">${a.clicks}</td><td class="r">${a.leads}</td><td class="r val">${money(a.cpl)}</td></tr>`).join('');
-    return kpis+`<div style="margin-top:16px">${panel(I.trend,'Daily spend',null,bars)}</div>`+
-      `<div style="margin-top:16px">${panelFlush(I.chart,'Campaign: B2B - FA $15M AUM',ADS.length,table([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],rows))}</div>`;
+    adsCampaign='all'; adsRows=null; adsMode='baked';
+    setTimeout(loadAds,0);          // try live (Supabase) in the background; baked renders instantly
+    return `<div id="adsBody">${renderAdsBody()}</div>`;
   },
   tasks(){
     const groups=[['open','To do','amber'],['in_progress','In progress','blue'],['done','Done','green']];
@@ -832,6 +852,83 @@ function renderLoansHtml(loans){
   }).join('');
   return kpis+`<div style="margin-top:16px">${panelFlush(I.bank,'Loan book',loans.length,table([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows))}</div>`;
 }
+/* ===== Marketing / Ads — live from Supabase meta_ads_insight, baked fallback ===== */
+const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
+// Publishable anon key — SAFE for the browser (RLS enforces access). Never the service role.
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
+// Shared browser Supabase client. The auth task can reuse window.__sb for sign-in —
+// once there's a session, the reads below return live data (until then: baked fallback).
+function getSb(){ if(window.__sb) return window.__sb; if(window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY){ try{ window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY); return window.__sb; }catch(e){} } return null; }
+const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
+const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;   // 'all' -> null (no company filter)
+function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
+
+let adsCampaign='all';   // 'all' | campaign_id
+let adsRows=null;        // live rows (null => use baked)
+let adsMode='baked';     // 'baked' | 'live'
+function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBody');if(el)el.innerHTML=renderAdsBody();}
+
+// Flatten the current scope to uniform rows {date,spend,imp,clicks,leads,cid,cname}.
+function adsScopedRows(){
+  if(adsMode==='live'&&adsRows){
+    return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id),cname:r.campaign_name||('Campaign '+r.campaign_id)}))};
+  }
+  const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);   // baked, brand-scoped
+  const rows=[];
+  camps.forEach(c=>c.days.forEach(d=>rows.push({date:d.date,spend:d.spend,imp:d.imp,clicks:d.clicks,leads:d.leads,cid:c.id,cname:c.name})));
+  return {source:'baked',rows};
+}
+async function loadAds(){
+  const el=document.getElementById('adsBody'); if(!el) return;
+  const sb=getSb();
+  let session=null;
+  if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
+  if(!sb||!session){ adsRows=null; adsMode='baked'; el.innerHTML=renderAdsBody(); return; }  // not authed -> baked
+  el.innerHTML=`<div style="padding:12px 2px;color:var(--text-dim);font-size:13px">Loading ad data…</div>`;
+  try{
+    const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);   // last 14 days
+    let q=sb.from('meta_ads_insight')
+      .select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name')
+      .gte('date_start',since);
+    const cid=brandCompanyId(brand); if(cid) q=q.eq('company_id',cid);   // respect brand filter
+    const {data,error}=await q;
+    if(error) throw error;
+    adsRows=data||[]; adsMode='live';
+  }catch(e){ adsRows=null; adsMode='baked'; }   // any failure -> baked, never blank
+  el.innerHTML=renderAdsBody();
+}
+function renderAdsBody(){
+  const {source,rows}=adsScopedRows();
+  if(!rows.length){
+    const who=brand==='all'?'this date range':brandName(brand);
+    return `<div class="up-zone" style="padding:40px 24px">${I.trend}<div style="font-weight:600;color:var(--text)">No ad data for ${escapeHtml(who)} yet</div><div style="font-size:12.5px;margin-top:4px">Meta ad insights will appear here once synced.</div></div>`;
+  }
+  const campMap=new Map(); rows.forEach(r=>{if(!campMap.has(r.cid))campMap.set(r.cid,r.cname);});
+  if(adsCampaign!=='all'&&!campMap.has(adsCampaign)) adsCampaign='all';
+  const scoped=adsCampaign==='all'?rows:rows.filter(r=>r.cid===adsCampaign);
+  const spend=scoped.reduce((a,r)=>a+r.spend,0), leads=scoped.reduce((a,r)=>a+r.leads,0);
+  const imp=scoped.reduce((a,r)=>a+r.imp,0), clicks=scoped.reduce((a,r)=>a+r.clicks,0);
+  const cpl=leads?spend/leads:0, ctr=imp?(clicks/imp)*100:0;
+  const kpis=`<div class="kpis">${kpi(I.dollar,'Spend (14d)',money(spend),source==='live'?'live':'sample','')}${kpi(I.target,'Leads (14d)',leads,'','up')}${kpi(I.trend,'Avg CPL',leads?money(cpl):'—','','down')}${kpi(I.gauge,'Avg CTR',imp?ctr.toFixed(2)+'%':'—','','')}</div>`;
+  const opts=['<option value="all">All campaigns</option>'].concat([...campMap.entries()].map(([id,nm])=>`<option value="${escapeHtml(id)}"${adsCampaign===id?' selected':''}>${escapeHtml(nm)}</option>`)).join('');
+  const srcLabel=source==='live'?'Live · meta_ads_insight <span class="livedot" title="Live from Supabase"></span>':'Sample data';
+  const controls=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap"><select class="filter-select" aria-label="Campaign" onchange="setAdsCampaign(this.value)">${opts}</select><span style="font-size:12px;color:var(--text-faint);display:inline-flex;align-items:center;gap:6px">${srcLabel}</span></div>`;
+  const byDate=new Map(); scoped.forEach(r=>byDate.set(r.date,(byDate.get(r.date)||0)+r.spend));
+  const dates=[...byDate.keys()].sort();
+  const max=Math.max(...dates.map(d=>byDate.get(d)),1);
+  const bars=`<div class="bars">${dates.map(d=>`<div class="bar"><div class="fill" style="height:${Math.round(byDate.get(d)/max*100)}%"></div><div class="lbl">${escapeHtml(adShortDay(d)).replace(/^\w+ /,'')}</div></div>`).join('')}</div><div class="legend"><span class="li"><span class="sw" style="background:var(--accent)"></span>Daily spend</span></div>`;
+  let tbl;
+  if(adsCampaign==='all'){
+    const per=new Map();
+    rows.forEach(r=>{const p=per.get(r.cid)||{name:r.cname,spend:0,imp:0,clicks:0,leads:0};p.spend+=r.spend;p.imp+=r.imp;p.clicks+=r.clicks;p.leads+=r.leads;per.set(r.cid,p);});
+    const trs=[...per.entries()].map(([id,p])=>`<tr onclick="setAdsCampaign('${escapeHtml(id)}')" style="cursor:pointer"><td>${escapeHtml(p.name)}</td><td class="r val">${money(p.spend)}</td><td class="r">${p.imp.toLocaleString()}</td><td class="r">${p.clicks.toLocaleString()}</td><td class="r">${p.leads}</td><td class="r val">${p.leads?money(p.spend/p.leads):'—'}</td></tr>`).join('');
+    tbl=panelFlush(I.chart,'By campaign',per.size,table([{t:'Campaign'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs));
+  }else{
+    const trs=scoped.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(r=>`<tr><td>${escapeHtml(adShortDay(r.date))}</td><td class="r val">${money(r.spend)}</td><td class="r">${r.imp.toLocaleString()}</td><td class="r">${r.clicks.toLocaleString()}</td><td class="r">${r.leads}</td><td class="r val">${r.leads?money(r.spend/r.leads):'—'}</td></tr>`).join('');
+    tbl=panelFlush(I.chart,'Campaign: '+escapeHtml(campMap.get(adsCampaign)||'Campaign'),scoped.length,table([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs));
+  }
+  return kpis+controls+`<div style="margin-top:16px">${panel(I.trend,'Daily spend',null,bars)}</div>`+`<div style="margin-top:16px">${tbl}</div>`;
+}
 function nodeHtml(name,role,color){return `<span class="node"><span class="av" style="background:${color||'#5b8cff'}">${initials(name)}</span><span class="txt"><span class="nm">${name}</span><span class="rl">${role}</span></span></span>`;}
 /* ===== Organization: hierarchical tree <-> directory list, toggled ===== */
 /* Ring/label gradients by depth (CEO -> managers -> leads -> ICs), mirroring
@@ -853,10 +950,10 @@ function orgNode(p,depth){
   const grad=ORG_RINGS[Math.min(depth,ORG_RINGS.length-1)];
   const kids=orgReports(p.id);
   const childHtml=kids.length?`<ul>${kids.map(k=>orgNode(k,depth+1)).join('')}</ul>`:'';
-  return `<li><div class="onode" onclick="openStaffCard(${p.id})" title="${p.name} · ${p.title}">
+  return `<li><div class="onode" role="button" tabindex="0" onclick="openStaffCard(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaffCard(${p.id})}" title="${escapeHtml(p.name)} · ${escapeHtml(p.title)}" aria-label="Open profile for ${escapeHtml(p.name)}">
       ${orgAvatar(p,grad)}
-      <div class="olabel" style="background:${grad}"><span class="onm">${p.name}</span><span class="otl">${p.title}</span></div>
-      <span class="obadge">${brandName(p.brand)}</span>
+      <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(p.name)}</span><span class="otl">${escapeHtml(p.title)}</span></div>
+      <span class="obadge">${escapeHtml(brandName(p.brand))}</span>
     </div>${childHtml}</li>`;
 }
 function orgTreeHtml(){
@@ -902,18 +999,18 @@ function deptGroups(){
 function deptTreeHtml(){
   const brandNodes=deptGroups().map(g=>{
     const grad=brandGrad(g.b.id);
-    const people=g.people.map(p=>`<li><div class="onode" onclick="openStaffCard(${p.id})" title="${p.name} · ${p.title}">
+    const people=g.people.map(p=>`<li><div class="onode" role="button" tabindex="0" onclick="openStaffCard(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaffCard(${p.id})}" title="${escapeHtml(p.name)} · ${escapeHtml(p.title)}" aria-label="Open profile for ${escapeHtml(p.name)}">
         <span class="oav" style="background:${grad}"><img src="${p.img}" alt=""></span>
-        <div class="olabel" style="background:${grad}"><span class="onm">${p.name}</span><span class="otl">${p.title}</span></div>
+        <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(p.name)}</span><span class="otl">${escapeHtml(p.title)}</span></div>
       </div></li>`).join('');
-    return `<li><div class="onode">
+    return `<li><div class="onode static">
         <span class="oav" style="background:${grad}"><span class="ini" style="background:${g.b.color}">${g.b.short}</span></span>
-        <div class="olabel" style="background:${grad}"><span class="onm">${g.b.name}</span><span class="otl">${g.people.length} ${g.people.length===1?'person':'people'}</span></div>
+        <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(g.b.name)}</span><span class="otl">${g.people.length} ${g.people.length===1?'person':'people'}</span></div>
       </div><ul>${people}</ul></li>`;
   }).join('');
   const rootGrad=brandGrad('all');
   return `<div class="orgwrap"><div class="orgchart"><ul><li>
-    <div class="onode"><span class="oav" style="background:${rootGrad}"><span class="ini" style="background:#5b8cff">LW</span></span>
+    <div class="onode static"><span class="oav" style="background:${rootGrad}"><span class="ini" style="background:#5b8cff">LW</span></span>
       <div class="olabel" style="background:${rootGrad}"><span class="onm">LeavenWealth Group</span><span class="otl">All brands</span></div></div>
     <ul>${brandNodes}</ul>
   </li></ul></div></div>`;
@@ -1027,17 +1124,22 @@ function openEmbed(url,title){
 function closeDetail(){document.getElementById('detail').classList.remove('open');document.body.style.overflow='';}
 
 /* ===== drawers ===== */
-function openStaffCard(id){const p=STAFF.find(x=>x.id===id);drawer(`
+function openStaffCard(id){const p=STAFF.find(x=>x.id===id);if(!p)return;drawer(`
   <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
     <img class="d-av" style="object-fit:cover" src="${p.img}" alt="">
-    <div class="d-nm">${p.name}</div><div class="d-tl">${p.title}</div>
-    <div class="d-dept">${brandName(p.brand)}</div></div>
+    <div class="d-nm">${escapeHtml(p.name)}</div><div class="d-tl">${escapeHtml(p.title)}</div>
+    <div class="d-dept">${escapeHtml(brandName(p.brand))}</div></div>
   <div class="d-body">
-    <div class="d-field">${I.file}<div><div class="fk">About</div><div class="fv">${p.desc}</div></div></div>
-    <div class="d-field">${I.mail}<div><div class="fk">Email</div><div class="fv">${p.email}</div></div></div>
-    <div class="d-field">${I.phone}<div><div class="fk">Phone</div><div class="fv">${p.phone}</div></div></div>
+    <div class="d-field" style="align-items:flex-start">${I.file}<div style="min-width:0"><div class="fk">About</div>
+      <div class="bio clamp" id="bioText">${escapeHtml(p.desc||'')}</div>
+      <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button></div></div>
+    <div class="d-field">${I.mail}<div><div class="fk">Email</div><div class="fv">${escapeHtml(p.email||'')}</div></div></div>
+    <div class="d-field">${I.phone}<div><div class="fk">Phone</div><div class="fv">${escapeHtml(p.phone||'')}</div></div></div>
   </div>
-  <div class="d-actions"><button class="primary">Message</button><button class="ghost">View profile</button></div>`);}
+  <div class="d-actions"><button class="primary">Message</button><button class="ghost">View profile</button></div>`);
+  // Bio always starts collapsed; hide the toggle when the text fits within ~4 lines.
+  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});}
+function toggleBio(){const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(!t||!b)return;const clamped=t.classList.toggle('clamp');b.textContent=clamped?'See more':'See less';}
 function openLead(i){const l=LEADS[i];drawer(`
   <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
     <div class="d-av" style="background:${brandColor(l.brand)}">${initials(l.name)}</div>
