@@ -1,826 +1,455 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Company Portal</title>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LeavenWealth Group</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<!-- Supabase browser client (for live reads; RLS-gated). Deferred + optional: if it
-     fails to load, the app falls back to baked data and never breaks. -->
+<!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails
+     to load, the app falls back to baked data and never breaks. -->
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-  :root{
-    --bg:#0c0e11;
-    --bg-2:#101318;
-    --surface:#15181e;
-    --surface-2:#1a1e26;
-    --surface-hover:#1e232c;
-    --border:#252a33;
-    --border-soft:#1e222a;
-    --text:#e7eaef;
-    --text-dim:#9aa1ad;
-    --text-faint:#6b7280;
-    --accent:#5b8cff;
-    --accent-soft:rgba(91,140,255,.14);
-    --accent-line:rgba(91,140,255,.35);
-    --teal:#3ec7c2;
-    --amber:#f0b64b;
-    --green:#54c98a;
-    --rose:#f2748c;
-    --radius:14px;
-    --radius-sm:10px;
-    --shadow:0 1px 3px rgba(0,0,0,.28);
-  }
-  [data-theme="light"]{
-    --bg:#f3f5f8;
-    --bg-2:#eceef2;
-    --surface:#ffffff;
-    --surface-2:#f4f6f9;
-    --surface-hover:#eef1f5;
-    --border:#dde1e8;
-    --border-soft:#e7eaf0;
-    --text:#181b21;
-    --text-dim:#565d6b;
-    --text-faint:#8a91a0;
-    --accent:#3d6ff5;
-    --accent-soft:rgba(61,111,245,.12);
-    --accent-line:rgba(61,111,245,.4);
-    --shadow:0 1px 3px rgba(20,30,60,.08);
-  }
-  *{box-sizing:border-box}
-  html,body{margin:0;padding:0}
-  body{
-    background:var(--bg);
-    color:var(--text);
-    font-family:'Inter',system-ui,-apple-system,sans-serif;
-    -webkit-font-smoothing:antialiased;
-    line-height:1.45;
-  }
-  .mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+*{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f4f5f7; --side:#ffffff; --panel:#ffffff; --panel-2:#fafbfc;
+  --border:#e7e9ee; --border-2:#eef0f4;
+  --text:#171a1f; --dim:#666e7a; --faint:#98a0ac;
+  --accent:#4f6bed; --accent-soft:#eef1fd; --accent-line:#c9d4fb;
+  --green:#12a150; --green-soft:#e7f6ee; --amber:#c67c11; --amber-soft:#fdf3e2;
+  --rose:#d1435b; --rose-soft:#fce8ec; --radius:14px;
+  --shadow:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.05);
+}
+[data-theme="dark"]{
+  --bg:#0e1015; --side:#14171e; --panel:#171b22; --panel-2:#1b1f27;
+  --border:#272c36; --border-2:#20242d;
+  --text:#e7e9ee; --dim:#98a1ae; --faint:#6a7280;
+  --green-soft:#12351f; --amber-soft:#3a2c12; --rose-soft:#3a1720; --accent-soft:#1e2740;
+  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.35);
+}
+body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:14px}
+.app{display:grid;grid-template-columns:250px 1fr;height:100vh;overflow:hidden}
 
-  /* ---------- shell ---------- */
-  .shell{max-width:1180px;margin:0 auto;padding:28px 22px 80px}
-  header.top{
-    display:flex;align-items:center;justify-content:space-between;
-    gap:20px;flex-wrap:wrap;margin-bottom:26px;
-  }
-  .brand{display:flex;align-items:center;gap:12px}
-  .brand .logo{
-    width:38px;height:38px;border-radius:11px;flex:none;
-    background:linear-gradient(140deg,var(--accent),#7a5bff);
-    display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;
-    box-shadow:0 4px 16px rgba(91,140,255,.28);
-  }
-  .brand h1{font-size:17px;font-weight:600;margin:0;letter-spacing:-.01em}
-  .brand span{display:block;font-size:12px;color:var(--text-faint);font-weight:400}
+/* sidebar */
+.side{background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow:hidden}
+.brandpick{padding:14px 14px 10px;border-bottom:1px solid var(--border-2)}
+.bp-btn{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border-radius:11px;background:var(--panel-2);border:1px solid var(--border);cursor:pointer;transition:.15s}
+.bp-btn:hover{background:var(--panel-2)}
+.bp-glyph{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:none}
+.bp-meta{text-align:left;flex:1;min-width:0}
+.bp-name{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.bp-sub{font-size:11px;color:var(--faint)}
+.bp-caret{color:var(--faint);flex:none}
+.bp-menu{display:none;flex-direction:column;gap:2px;margin-top:8px}
+.bp-menu.open{display:flex}
+.bp-item{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:9px;cursor:pointer;font-size:13px;color:var(--dim)}
+.bp-item:hover{background:var(--panel-2)}
+.bp-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.bp-dot{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:9px;flex:none}
 
-  /* ---------- toggle ---------- */
-  .view-toggle{
-    display:inline-flex;background:var(--surface);border:1px solid var(--border);
-    border-radius:12px;padding:4px;gap:2px;
-  }
-  .view-toggle button{
-    all:unset;cursor:pointer;padding:8px 18px;border-radius:9px;
-    font-size:13.5px;font-weight:500;color:var(--text-dim);
-    display:flex;align-items:center;gap:8px;transition:.16s;
-  }
-  .view-toggle button:hover{color:var(--text)}
-  .view-toggle button.active{background:var(--accent-soft);color:#bcd0ff}
-  .view-toggle button.active .dot{background:var(--accent)}
-  .view-toggle .dot{width:7px;height:7px;border-radius:50%;background:var(--text-faint)}
+.nav{flex:1;overflow-y:auto;padding:12px 10px}
+.nav::-webkit-scrollbar{width:8px}.nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
+.nav-lbl{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:14px 10px 6px}
+.nav-item{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;cursor:pointer;color:var(--dim);font-size:13.5px;font-weight:500;transition:.12s;position:relative}
+.nav-item svg{width:17px;height:17px;flex:none}
+.nav-item:hover{background:var(--panel-2);color:var(--text)}
+.nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.nav-item .badge{margin-left:auto;font-size:11px;font-weight:600;background:var(--panel-2);color:var(--faint);padding:1px 8px;border-radius:20px}
+.nav-item.active .badge{background:var(--side);color:var(--accent)}
+.side-foot{border-top:1px solid var(--border-2);padding:10px 14px;display:flex;align-items:center;gap:10px}
+.avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;flex:none}
+.avatar.mono{display:grid;place-items:center;background:var(--accent);color:#fff;font-weight:700;font-size:12px}
 
-  /* header controls cluster */
-  .controls{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .icon-btn{
-    all:unset;cursor:pointer;width:40px;height:40px;border-radius:11px;display:grid;place-items:center;
-    background:var(--surface);border:1px solid var(--border);color:var(--text-dim);transition:.16s;
-  }
-  .icon-btn:hover{color:var(--text);background:var(--surface-hover);border-color:var(--border)}
-  .icon-btn svg{width:19px;height:19px}
-  .acct{
-    all:unset;cursor:pointer;width:40px;height:40px;border-radius:50%;display:grid;place-items:center;
-    color:#fff;font-weight:700;font-size:14px;background:linear-gradient(140deg,#5b8cff,#7a5bff);
-    box-shadow:0 3px 12px rgba(91,140,255,.3);position:relative;transition:transform .16s;
-  }
-  .acct:hover{transform:scale(1.05)}
-  .acct .status{position:absolute;bottom:-1px;right:-1px;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--bg)}
+/* main */
+.main{overflow-y:auto;height:100vh}
+.topbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:16px}
+.crumb{font-size:13px;color:var(--faint)}.crumb b{color:var(--text);font-weight:600}
+.search{flex:1;max-width:420px;display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--faint);font-size:13px}
+.search svg{width:15px;height:15px}
+.tb-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
+.tb-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--panel);display:grid;place-items:center;cursor:pointer;color:var(--dim)}
+.tb-btn:hover{color:var(--text)}
+.tb-btn svg{width:17px;height:17px}
+.content{padding:26px 28px 60px;max-width:1200px}
+.content.wide{max-width:none}
+.page-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;gap:16px;flex-wrap:wrap}
+.page-t{font-size:23px;font-weight:700;letter-spacing:-.02em}
+.page-s{font-size:13.5px;color:var(--dim);margin-top:3px}
+.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
+.btn svg{width:15px;height:15px}
+.btn.ghost{background:var(--panel);color:var(--text);border:1px solid var(--border)}
 
-  /* settings modal */
-  .overlay{
-    position:fixed;inset:0;background:rgba(6,8,12,.6);backdrop-filter:blur(3px);
-    display:none;align-items:flex-start;justify-content:center;padding:70px 18px;z-index:50;
-  }
-  .overlay.open{display:flex;animation:fade .18s ease}
-  @keyframes fade{from{opacity:0}to{opacity:1}}
-  .modal{
-    width:100%;max-width:420px;background:var(--surface);border:1px solid var(--border);
-    border-radius:16px;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.5);
-    animation:pop .2s cubic-bezier(.2,.8,.3,1);
-  }
-  @keyframes pop{from{opacity:0;transform:translateY(-8px) scale(.98)}to{opacity:1;transform:none}}
-  .modal .m-top{display:flex;align-items:center;gap:14px;padding:20px;border-bottom:1px solid var(--border-soft)}
-  .modal .m-top .m-av{width:48px;height:48px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:17px;background:linear-gradient(140deg,#5b8cff,#7a5bff);flex:none}
-  .modal .m-top .m-nm{font-size:15px;font-weight:600}
-  .modal .m-top .m-em{font-size:12.5px;color:var(--text-faint)}
-  .modal .m-top .m-x{margin-left:auto;all:unset;cursor:pointer;color:var(--text-faint);font-size:20px;line-height:1;padding:6px}
-  .modal .m-x:hover{color:var(--text)}
-  .m-sec{padding:8px 12px}
-  .m-label{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text-faint);padding:10px 8px 6px}
-  .m-row{display:flex;align-items:center;gap:12px;padding:11px 10px;border-radius:10px;cursor:pointer;transition:.14s;font-size:13.5px;font-weight:500}
-  .m-row:hover{background:var(--surface-hover)}
-  .m-row svg{width:17px;height:17px;color:var(--text-dim)}
-  .m-row .chev{margin-left:auto;color:var(--text-faint)}
-  .m-row.danger{color:var(--rose)}
-  .m-row.danger svg{color:var(--rose)}
-  /* segmented theme control inside modal */
-  .seg{margin-left:auto;display:inline-flex;background:var(--surface-2);border:1px solid var(--border-soft);border-radius:9px;padding:3px}
-  .seg button{all:unset;cursor:pointer;padding:5px 11px;border-radius:7px;font-size:12px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:6px}
-  .seg button svg{width:14px;height:14px}
-  .seg button.on{background:var(--accent-soft);color:var(--accent)}
+/* components */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.kpi{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
+.kpi .k{font-size:11.5px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px}
+.kpi .k svg{width:15px;height:15px;color:var(--accent)}
+.kpi .v{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-top:10px;letter-spacing:-.02em}
+.kpi .d{font-size:12px;margin-top:4px;color:var(--dim)}
+.kpi .d.up{color:var(--green)}.kpi .d.down{color:var(--rose)}
+.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
+.card-h{padding:15px 18px;border-bottom:1px solid var(--border-2);display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px}
+.card-h svg{width:16px;height:16px;color:var(--accent)}
+.card-h .badge{margin-left:auto;font-size:11px;color:var(--faint);background:var(--panel-2);padding:2px 9px;border-radius:20px;font-weight:600}
+.card-b{padding:16px 18px}.card-b.flush{padding:0}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);padding:11px 18px;border-bottom:1px solid var(--border-2);white-space:nowrap}
+td{padding:12px 18px;border-bottom:1px solid var(--border-2)}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover{background:var(--panel-2)}
+.r{text-align:right;font-family:'JetBrains Mono',monospace}
+.who{display:flex;align-items:center;gap:10px}
+.who img,.who .mo{width:30px;height:30px;border-radius:50%;flex:none;object-fit:cover}
+.who .mo{display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px}
+.pill.green{background:var(--green-soft);color:var(--green)}.pill.amber{background:var(--amber-soft);color:var(--amber)}
+.pill.blue{background:var(--accent-soft);color:var(--accent)}.pill.rose{background:var(--rose-soft);color:var(--rose)}
+.pill.gray{background:var(--panel-2);color:var(--dim)}
+.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--dim)}
+.chip .sw{width:8px;height:8px;border-radius:50%}
+.tilegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.ptile{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}
+.ptile:hover{transform:translateY(-2px);border-color:var(--accent-line);box-shadow:0 6px 20px rgba(16,24,40,.08)}
+.ptile .pt{font-weight:600;font-size:14.5px}
+.ptile .ps{font-size:12.5px;color:var(--dim);margin:3px 0 10px}
+.people{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.person{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);cursor:pointer;display:flex;gap:13px;align-items:center;transition:.15s}
+.person:hover{border-color:var(--accent-line);box-shadow:0 6px 18px rgba(16,24,40,.08)}
+.person img{width:48px;height:48px;border-radius:12px;object-fit:cover;flex:none}
+.person .pn{font-weight:600;font-size:14px}.person .pr{font-size:12px;color:var(--dim);margin-top:2px}
+.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
+.col{background:var(--panel-2);border:1px solid var(--border);border-radius:14px;padding:10px}
+.col-h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding:6px 8px 10px}
+.col-h .cnt{color:var(--faint);font-weight:600}
+.col-add{margin-left:auto;color:var(--faint);cursor:pointer}.col-add svg{width:14px;height:14px}
+.col-dot{width:8px;height:8px;border-radius:50%;flex:none}
+.tcard{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:12px;box-shadow:var(--shadow);margin-bottom:9px;cursor:pointer;transition:.12s}
+.tcard:hover{border-color:var(--accent-line);transform:translateY(-1px)}
+.tcard .tt{font-weight:600;font-size:13.5px;margin:8px 0;line-height:1.35}
+.tcard .tf{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--faint);text-transform:capitalize}
+.tcard .tf svg{width:13px;height:13px}
+.tcard .tf .due{margin-left:auto;display:flex;align-items:center;gap:6px}
+.prio{width:8px;height:8px;border-radius:50%;flex:none}
+.miniav{width:22px;height:22px;border-radius:50%;object-fit:cover}
+@media(max-width:900px){.board{grid-template-columns:1fr}}
+.segbtn{all:unset;cursor:pointer;padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--dim)}
+.segbtn.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
+.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;margin-bottom:20px}
+.orgwrap{overflow-x:auto;padding:6px 2px 10px}
+.org{display:inline-flex;flex-direction:column;align-items:center;min-width:100%}
+.org-level{display:flex;justify-content:center;gap:18px;flex-wrap:nowrap}
+.onode{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;min-width:190px;position:relative;transition:.12s}
+.onode:hover{border-color:var(--accent-line);transform:translateY(-1px)}
+.onode:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.onode img{width:36px;height:36px;border-radius:9px;object-fit:cover;flex:none}
+.onode .on{font-weight:600;font-size:13px;white-space:nowrap}
+.onode .or{font-size:11px;color:var(--dim);white-space:nowrap}
+.org-trunk{width:2px;height:22px;background:var(--border)}
+.org-children{position:relative;display:flex;justify-content:center;gap:16px;flex-wrap:nowrap;padding-top:22px}
+.org-children::before{content:"";position:absolute;top:0;left:9%;right:9%;height:2px;background:var(--border)}
+.org-children>.onode::before{content:"";position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:2px;height:22px;background:var(--border)}
+.deptgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.deptcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
+.deptcard .dh{padding:12px 14px;border-bottom:1px solid var(--border-2);font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
+.deptcard .dh .cnt{margin-left:auto;font-size:11px;color:var(--faint);font-weight:600}
+.deptcard .dm{padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px}
+.deptcard .dm:hover{background:var(--panel-2)}
+.deptcard .dm img{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:none}
+.deptcard .dm .lead{margin-left:auto;font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.03em}
+@media(max-width:900px){.deptgrid{grid-template-columns:1fr}}
+.bars{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:8px}
+.bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
+.bars .bar .fill{width:100%;max-width:22px;border-radius:5px 5px 0 0;background:var(--accent)}
+.bars .bar .bl{font-size:10px;color:var(--faint);font-family:'JetBrains Mono',monospace}
+.selectbox{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font:600 13px Inter,sans-serif;color:var(--text);cursor:pointer}
+.livedot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,161,80,.5)}70%{box-shadow:0 0 0 6px rgba(18,161,80,0)}100%{box-shadow:0 0 0 0 rgba(18,161,80,0)}}
+.muted{font-size:12.5px;color:var(--faint)}
+.embedframe{width:100%;height:calc(100vh - 172px);min-height:520px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel)}
+.placeholder{background:var(--panel);border:1px dashed var(--border);border-radius:var(--radius);padding:44px;text-align:center;color:var(--faint)}
+.placeholder svg{width:34px;height:34px;margin-bottom:12px;color:var(--accent-line)}
 
-  /* ---------- business tabs (single view) ---------- */
-  .biz-bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:24px}
-  .biz-tab{
-    all:unset;cursor:pointer;display:flex;align-items:center;gap:10px;
-    padding:10px 15px;border-radius:11px;border:1px solid var(--border-soft);
-    background:var(--surface);font-size:13.5px;font-weight:500;color:var(--text-dim);
-    transition:.16s;
-  }
-  .biz-tab:hover{background:var(--surface-hover);color:var(--text)}
-  .biz-tab.active{border-color:var(--accent-line);background:var(--accent-soft);color:#cdddff}
-  .biz-tab .glyph{width:22px;height:22px;border-radius:6px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
-
-  /* ---------- section ---------- */
-  .eyebrow{
-    font-size:11.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
-    color:var(--text-faint);margin:32px 0 13px;display:flex;align-items:center;gap:9px;
-  }
-  .eyebrow:first-of-type{margin-top:6px}
-  .eyebrow .count{
-    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;
-    color:var(--text-dim);background:var(--surface-2);border:1px solid var(--border-soft);
-    padding:1px 7px;border-radius:20px;letter-spacing:0;text-transform:none;
-  }
-
-  /* ---------- panel card (wraps every section) ---------- */
-  .panel{
-    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
-    margin-top:16px;overflow:hidden;
-  }
-  .panel > .p-head{
-    display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--border-soft);
-  }
-  .panel > .p-head .p-ic{width:16px;height:16px;color:var(--accent);flex:none}
-  .panel > .p-head .p-t{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
-  .panel > .p-head .count{
-    font-family:'JetBrains Mono',monospace;font-size:10.5px;font-weight:500;color:var(--text-dim);
-    background:var(--surface-2);border:1px solid var(--border-soft);padding:1px 7px;border-radius:20px;margin-left:auto;
-  }
-  .panel > .p-body{padding:16px 18px}
-  .panel > .p-body.flush{padding:0}
-
-  /* nested sub-cards (org chart card + department chart card inside company card) */
-  .subgrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  .subcard{background:var(--bg-2);border:1px solid var(--border-soft);border-radius:var(--radius-sm);overflow:hidden}
-  .subcard .sc-head{
-    display:flex;align-items:center;gap:9px;padding:12px 15px;border-bottom:1px solid var(--border-soft);
-  }
-  .subcard .sc-head svg{width:15px;height:15px;color:var(--accent);flex:none}
-  .subcard .sc-head .sc-t{font-size:12.5px;font-weight:600;color:var(--text)}
-  .subcard .sc-body{padding:15px}
-
-  /* ---------- card grids ---------- */
-  .grid{display:grid;gap:14px}
-  .grid.cols-3{grid-template-columns:repeat(3,1fr)}
-  .grid.cols-2{grid-template-columns:repeat(2,1fr)}
-  .grid.cols-4{grid-template-columns:repeat(4,1fr)}
-
-  .tile{
-    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
-    padding:17px 18px;display:flex;align-items:flex-start;gap:14px;cursor:pointer;
-    transition:.16s;text-decoration:none;color:inherit;
-  }
-  .tile:hover{background:var(--surface-hover);border-color:var(--border);transform:translateY(-1px)}
-  .tile .ico{
-    width:40px;height:40px;border-radius:10px;flex:none;display:grid;place-items:center;
-    background:var(--surface-2);border:1px solid var(--border-soft);
-  }
-  .tile .ico svg{width:20px;height:20px}
-  .tile .body{min-width:0;display:flex;flex-direction:column;gap:2px}
-  .tile .t{font-size:14.5px;font-weight:600;letter-spacing:-.01em;display:block}
-  .tile .s{font-size:12.5px;color:var(--text-dim);display:block}
-  .tile .pill{align-self:flex-start;margin-top:4px}
-
-  /* ---------- company card (org + dept) ---------- */
-  .company-card{
-    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);
-    overflow:hidden;
-  }
-  .company-card .cc-head{
-    display:flex;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid var(--border-soft);
-  }
-  .company-card .cc-head .badge{
-    width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:none;
-  }
-  .company-card .cc-head .t{font-size:14.5px;font-weight:600}
-  .company-card .cc-head .s{font-size:12px;color:var(--text-faint)}
-  .cc-split{display:grid;grid-template-columns:1fr 1fr}
-  .cc-pane{padding:16px 18px}
-  .cc-pane + .cc-pane{border-left:1px solid var(--border-soft)}
-  .cc-pane .pane-title{
-    font-size:12px;font-weight:600;color:var(--text-dim);margin-bottom:12px;
-    display:flex;align-items:center;gap:8px;
-  }
-  .cc-pane .pane-title svg{width:15px;height:15px;color:var(--accent)}
-
-  /* ---------- tree ---------- */
-  .tree{font-size:13px}
-  .tree ul{list-style:none;margin:0;padding-left:20px;position:relative}
-  .tree > ul{padding-left:4px}
-  .tree li{position:relative;padding:6px 0}
-  .tree ul ul li::before{
-    content:"";position:absolute;top:0;bottom:50%;left:-14px;width:12px;
-    border-left:1px solid var(--border);border-bottom:1px solid var(--border);
-    border-bottom-left-radius:6px;
-  }
-  .tree ul ul li:not(:last-child)::after{
-    content:"";position:absolute;top:0;bottom:-6px;left:-14px;border-left:1px solid var(--border);
-  }
-  .node{
-    display:inline-flex;align-items:center;gap:11px;padding:10px 14px;border-radius:11px;
-    background:var(--surface);border:1px solid var(--border);cursor:default;transition:.14s;
-    box-shadow:var(--shadow);min-width:120px;
-  }
-  .node:hover{border-color:var(--accent-line);background:var(--surface-hover);transform:translateY(-1px)}
-  .node .av{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;font-size:11px;font-weight:700;color:#fff;flex:none}
-  .node.root{background:var(--accent-soft);border-color:var(--accent-line)}
-  .node .txt{display:flex;flex-direction:column;line-height:1.25}
-  .node .nm{font-weight:600;letter-spacing:-.01em;font-size:13px}
-  .node .rl{color:var(--text-faint);font-size:11px}
-  .dept .node{min-width:0}
-  .dept .node .av{border-radius:8px}
-
-  /* ---------- task / lead rows ---------- */
-  .rows{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden}
-  .row{display:flex;align-items:center;gap:14px;padding:13px 17px;border-bottom:1px solid var(--border-soft);transition:.14s}
-  .row:last-child{border-bottom:none}
-  .row:hover{background:var(--surface-hover)}
-  .row .check{width:17px;height:17px;border-radius:5px;border:1.5px solid var(--border);flex:none}
-  .row.done .check{background:var(--green);border-color:var(--green);position:relative}
-  .row.done .check::after{content:"";position:absolute;left:5px;top:2px;width:4px;height:8px;border:solid #0c0e11;border-width:0 2px 2px 0;transform:rotate(45deg)}
-  .row .main{flex:1;min-width:0}
-  .row .main .rt{font-size:13.5px;font-weight:500}
-  .row.done .main .rt{color:var(--text-dim);text-decoration:line-through}
-  .row .main .rs{font-size:12px;color:var(--text-faint);margin-top:1px}
-  .pill{font-size:11px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap}
-  .pill.blue{background:var(--accent-soft);color:#a9c4ff}
-  .pill.amber{background:rgba(240,182,75,.14);color:var(--amber)}
-  .pill.green{background:rgba(84,201,138,.14);color:var(--green)}
-  .pill.rose{background:rgba(242,116,140,.14);color:var(--rose)}
-  .pill.gray{background:var(--surface-2);color:var(--text-dim)}
-  .val{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:600;color:var(--text)}
-
-  /* ---------- properties ---------- */
-  .props{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-  .prop{
-    background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 17px;
-  }
-  .prop .k{font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600}
-  .prop .v{font-size:22px;font-weight:700;margin-top:8px;letter-spacing:-.02em;font-family:'JetBrains Mono',monospace}
-  .prop .d{font-size:12px;margin-top:4px;color:var(--text-dim)}
-  .prop .d.up{color:var(--green)}
-  .prop .d.down{color:var(--rose)}
-
-  /* ============ chart viewer (org / dept) ============ */
-  .sheet-overlay{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:50}
-  .sheet-overlay.open{display:flex;animation:fade .18s ease}
-  .sheet-head{
-    display:flex;align-items:center;gap:14px;padding:16px 22px;border-bottom:1px solid var(--border-soft);
-    background:var(--surface);flex:none;flex-wrap:wrap;
-  }
-  .sheet-head .back{all:unset;cursor:pointer;width:36px;height:36px;border-radius:10px;display:grid;place-items:center;color:var(--text-dim);border:1px solid var(--border)}
-  .sheet-head .back:hover{background:var(--surface-hover);color:var(--text)}
-  .sheet-head .sh-title{font-size:16px;font-weight:600;letter-spacing:-.01em}
-  .sheet-head .sh-sub{font-size:12.5px;color:var(--text-faint)}
-  .sheet-head .spacer{flex:1}
-  .seg2{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px}
-  .seg2 button{all:unset;cursor:pointer;padding:7px 14px;border-radius:7px;font-size:13px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:7px}
-  .seg2 button svg{width:15px;height:15px}
-  .seg2 button.on{background:var(--accent-soft);color:var(--accent)}
-  .sheet-body{flex:1;overflow:auto;padding:26px}
-
-  /* org tree (top-down) */
-  .orgchart{display:inline-block;min-width:100%;text-align:center}
-  .orgchart ul{display:flex;justify-content:center;padding-top:22px;position:relative;margin:0;list-style:none}
-  .orgchart li{list-style:none;position:relative;padding:22px 10px 0;text-align:center}
-  .orgchart li::before,.orgchart li::after{content:'';position:absolute;top:0;right:50%;width:50%;height:22px;border-top:2px solid var(--border)}
-  .orgchart li::after{right:auto;left:50%;border-left:2px solid var(--border)}
-  .orgchart li:only-child{padding-top:22px}
-  .orgchart li:only-child::before,.orgchart li:only-child::after{display:none}
-  .orgchart li:first-child::before,.orgchart li:last-child::after{border:0 none}
-  .orgchart li:last-child::before{border-right:2px solid var(--border);border-radius:0 8px 0 0}
-  .orgchart li:first-child::after{border-radius:8px 0 0 0}
-  .orgchart ul ul::before{content:'';position:absolute;top:0;left:50%;width:0;height:22px;border-left:2px solid var(--border)}
-  .orgchart > ul{padding-top:0}
-  .orgchart > ul > li::before,.orgchart > ul > li::after{display:none}
-
-  .pcard{
-    display:inline-flex;flex-direction:column;align-items:center;gap:7px;width:158px;padding:14px 12px;
-    border:1px solid var(--border);border-radius:14px;background:var(--surface);box-shadow:var(--shadow);
-    cursor:pointer;transition:.15s;vertical-align:top;
-  }
-  .pcard:hover{border-color:var(--accent-line);transform:translateY(-2px)}
-  .pcard .pav{width:46px;height:46px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:16px;position:relative}
-  .pcard .pav .on{position:absolute;bottom:0;right:0;width:11px;height:11px;border-radius:50%;background:var(--green);border:2px solid var(--surface)}
-  .pcard .pnm{font-size:13px;font-weight:600;letter-spacing:-.01em;line-height:1.25}
-  .pcard .ptl{font-size:11px;color:var(--text-dim);line-height:1.3}
-  .pcard .pdt{font-size:10px;font-weight:600;padding:2px 8px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
-  .deptcard{background:var(--surface-2);border-style:dashed}
-  .deptcard .pnm{font-size:13.5px}
-
-  /* list view */
-  .plist{max-width:1000px;margin:0 auto;border:1px solid var(--border-soft);border-radius:14px;overflow:hidden;background:var(--surface)}
-  .plist .lh,.plist .lr{display:grid;grid-template-columns:2fr 1.6fr 1.1fr 1.4fr 90px;align-items:center;gap:12px;padding:12px 18px}
-  .plist .lh{border-bottom:1px solid var(--border-soft);font-size:11px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--text-faint)}
-  .plist .lr{border-bottom:1px solid var(--border-soft);cursor:pointer;transition:.13s}
-  .plist .lr:last-child{border-bottom:none}
-  .plist .lr:hover{background:var(--surface-hover)}
-  .plist .who{display:flex;align-items:center;gap:11px;min-width:0}
-  .plist .who .pav{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:12px;flex:none}
-  .plist .who .n{font-size:13.5px;font-weight:600}
-  .plist .cell{font-size:13px;color:var(--text-dim)}
-  .plist .tag{display:inline-flex;align-items:center;gap:7px;font-size:12.5px}
-  .plist .tag .dt{width:8px;height:8px;border-radius:50%}
-  .plist .tag svg{width:14px;height:14px;color:var(--text-faint)}
-  .plist .contact{display:flex;gap:12px;color:var(--text-faint)}
-  .plist .contact svg{width:15px;height:15px;cursor:pointer}
-  .plist .contact svg:hover{color:var(--accent)}
-  .list-scroll{overflow-x:auto}
-
-  /* staff drawer */
-  .drawer-back{position:fixed;inset:0;background:rgba(6,8,12,.5);display:none;z-index:60}
-  .drawer-back.open{display:block;animation:fade .18s ease}
-  .drawer{
-    position:fixed;top:0;right:0;height:100%;width:380px;max-width:92vw;background:var(--surface);
-    border-left:1px solid var(--border);z-index:70;transform:translateX(100%);transition:transform .26s cubic-bezier(.2,.8,.3,1);
-    display:flex;flex-direction:column;
-  }
-  .drawer.open{transform:none}
-  .drawer .d-hero{padding:26px 24px;border-bottom:1px solid var(--border-soft);position:relative;text-align:center}
-  .drawer .d-hero .d-x{position:absolute;top:14px;right:14px;all:unset;cursor:pointer;color:var(--text-faint);font-size:22px;line-height:1}
-  .drawer .d-hero .d-x:hover{color:var(--text)}
-  .drawer .d-av{width:76px;height:76px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:26px;margin:0 auto 12px;position:relative}
-  .drawer .d-av .on{position:absolute;bottom:3px;right:3px;width:15px;height:15px;border-radius:50%;background:var(--green);border:3px solid var(--surface)}
-  .drawer .d-nm{font-size:19px;font-weight:700;letter-spacing:-.02em}
-  .drawer .d-tl{font-size:13.5px;color:var(--text-dim);margin-top:2px}
-  .drawer .d-dept{display:inline-block;margin-top:10px;font-size:12px;font-weight:600;padding:4px 12px;border-radius:20px;background:var(--accent-soft);color:var(--accent)}
-  .drawer .d-body{padding:8px 24px 24px;overflow:auto}
-  .drawer .d-field{padding:14px 0;border-bottom:1px solid var(--border-soft);display:flex;align-items:center;gap:13px}
-  .drawer .d-field:last-child{border-bottom:none}
-  .drawer .d-field svg{width:17px;height:17px;color:var(--text-faint);flex:none}
-  .drawer .d-field .fk{font-size:11px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.05em;font-weight:600}
-  .drawer .d-field .fv{font-size:13.5px;font-weight:500;margin-top:1px}
-  .drawer .d-actions{display:flex;gap:10px;padding:16px 24px;border-top:1px solid var(--border-soft);margin-top:auto}
-  .drawer .d-actions button{flex:1;all:unset;cursor:pointer;text-align:center;padding:10px;border-radius:10px;font-size:13px;font-weight:600;transition:.14s}
-  .drawer .d-actions .primary{background:var(--accent);color:#fff}
-  .drawer .d-actions .primary:hover{filter:brightness(1.08)}
-  .drawer .d-actions .ghost{background:var(--surface-2);border:1px solid var(--border);color:var(--text-dim)}
-  .drawer .d-actions .ghost:hover{color:var(--text)}
-
-  @media(max-width:640px){
-    .plist .lh,.plist .lr{grid-template-columns:2fr 1.4fr 90px}
-    .plist .col-office,.plist .col-dept{display:none}
-  }
-
-  .hidden{display:none}
-
-  @media(max-width:860px){
-    .grid.cols-3,.grid.cols-4{grid-template-columns:repeat(2,1fr)}
-    .cc-split{grid-template-columns:1fr}
-    .cc-pane + .cc-pane{border-left:none;border-top:1px solid var(--border-soft)}
-    .props{grid-template-columns:repeat(2,1fr)}
-  }
-  @media(max-width:520px){
-    .grid.cols-3,.grid.cols-4,.grid.cols-2{grid-template-columns:1fr}
-    .props{grid-template-columns:1fr}
-    header.top{align-items:flex-start}
-  }
-
-  /* ---------- additions for portals/dashboards ---------- */
-  .portalbar{display:inline-flex;background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:4px;gap:2px;flex-wrap:wrap}
-  .portalbar button{all:unset;cursor:pointer;padding:8px 16px;border-radius:9px;font-size:13.5px;font-weight:500;color:var(--text-dim);display:flex;align-items:center;gap:8px;transition:.16s}
-  .portalbar button svg{width:16px;height:16px}
-  .portalbar button:hover{color:var(--text)}
-  .portalbar button.active{background:var(--accent-soft);color:#bcd0ff}
-  .kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
-  .kpi{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 17px}
-  .kpi .k{font-size:11.5px;color:var(--text-faint);text-transform:uppercase;letter-spacing:.06em;font-weight:600;display:flex;align-items:center;gap:8px}
-  .kpi .k svg{width:15px;height:15px;color:var(--accent)}
-  .kpi .v{font-size:23px;font-weight:700;margin-top:9px;letter-spacing:-.02em;font-family:'JetBrains Mono',monospace}
-  .kpi .d{font-size:12px;margin-top:4px;color:var(--text-dim)}
-  .kpi .d.up{color:var(--green)} .kpi .d.down{color:var(--rose)}
-  /* data table */
-  .dtable{width:100%;border-collapse:collapse;font-size:13px}
-  .dtable th{text-align:left;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text-faint);padding:10px 14px;border-bottom:1px solid var(--border-soft);white-space:nowrap}
-  .dtable td{padding:11px 14px;border-bottom:1px solid var(--border-soft);color:var(--text)}
-  .dtable tr:last-child td{border-bottom:none}
-  .dtable tbody tr:hover{background:var(--surface-hover)}
-  .dtable .r{text-align:right;font-family:'JetBrains Mono',monospace}
-  .who2{display:flex;align-items:center;gap:10px}
-  .who2 img,.who2 .av2{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:none}
-  .who2 .av2{display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
-  /* simple bar chart */
-  .bars{display:flex;align-items:flex-end;gap:6px;height:160px;padding:8px 4px 0}
-  .bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
-  .bars .bar .fill{width:100%;max-width:26px;border-radius:6px 6px 0 0;background:linear-gradient(180deg,var(--accent),#7a5bff);transition:.2s}
-  .bars .bar .lbl{font-size:10px;color:var(--text-faint);font-family:'JetBrains Mono',monospace}
-  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;font-size:12px;color:var(--text-dim)}
-  .legend .li{display:flex;align-items:center;gap:7px}
-  .legend .sw{width:10px;height:10px;border-radius:3px}
-  /* provider / channel chips */
-  .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--surface-2);color:var(--text-dim)}
-  .chip .sw{width:8px;height:8px;border-radius:50%}
-  .up-zone{border:1.5px dashed var(--border);border-radius:14px;padding:30px;text-align:center;color:var(--text-dim);background:var(--bg-2)}
-  .up-zone svg{width:30px;height:30px;color:var(--accent);margin-bottom:10px}
-  .split2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-  @media(max-width:860px){.kpis{grid-template-columns:repeat(2,1fr)}.split2{grid-template-columns:1fr}}
-  @media(max-width:520px){.kpis{grid-template-columns:1fr}}
-  .embed{width:100%;height:calc(100vh - 150px);border:0;border-radius:12px;background:var(--surface)}
-  .sec-cards{display:grid;grid-template-columns:1fr 1fr;gap:14px}
-  @media(max-width:640px){.sec-cards{grid-template-columns:1fr}}
-
-  /* ---------- org chart (tree view) + directory toggle ---------- */
-  .orgtoggle{display:flex;justify-content:center;margin-bottom:22px}
-  .orgwrap{overflow-x:auto;padding:6px 4px 18px}
-  .onode{display:inline-flex;flex-direction:column;align-items:center;cursor:pointer;transition:transform .15s}
-  .onode:hover{transform:translateY(-2px)}
-  .onode:hover .olabel{filter:brightness(1.06)}
-  .oav{display:grid;place-items:center;width:78px;height:78px;border-radius:50%;padding:4px;box-sizing:border-box;box-shadow:var(--shadow)}
-  .oav img,.oav .ini{width:100%;height:100%;border-radius:50%;object-fit:cover;border:3px solid var(--surface);background:var(--surface-2)}
-  .oav .ini{display:grid;place-items:center;color:#fff;font-weight:700;font-size:21px}
-  .olabel{margin-top:10px;text-align:center;color:#fff;border-radius:12px;padding:8px 15px;min-width:132px;max-width:170px;box-shadow:var(--shadow)}
-  .olabel .onm{display:block;font-weight:700;font-size:12.5px;letter-spacing:-.01em;line-height:1.25}
-  .olabel .otl{display:block;font-size:10px;opacity:.92;margin-top:2px;text-transform:uppercase;letter-spacing:.05em}
-  .obadge{margin-top:8px;font-size:10.5px;font-weight:600;padding:2px 11px;border-radius:20px;background:var(--surface-2);border:1px solid var(--border-soft);color:var(--text-dim)}
-  /* directory (list view) contact icons */
-  .contact2{display:flex;gap:15px;color:var(--text-faint)}
-  .contact2 a{color:inherit;display:inline-flex}
-  .contact2 svg{width:16px;height:16px}
-  .contact2 a:hover{color:var(--accent)}
-  .who2 img{border:1px solid var(--border-soft)}
-
-  /* ---------- stat cards + section dots (design refresh) ---------- */
-  .eyebrow .sec-dot{width:8px;height:8px;border-radius:50%;background:var(--c,#5b8cff);box-shadow:0 0 8px var(--c,#5b8cff);flex:none}
-  .scard{position:relative;display:flex;align-items:center;gap:15px;padding:18px 20px 18px 22px;border:1px solid var(--border-soft);border-radius:15px;background:var(--surface);cursor:pointer;text-decoration:none;color:inherit;transition:transform .16s,border-color .16s,box-shadow .16s;overflow:hidden}
-  .scard::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--c,#5b8cff)}
-  .scard:hover{transform:translateY(-2px);border-color:var(--c,#5b8cff);box-shadow:0 8px 24px rgba(0,0,0,.28)}
-  .scard-ic{width:46px;height:46px;border-radius:13px;flex:none;display:grid;place-items:center}
-  .scard-ic svg{width:22px;height:22px}
-  .scard-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-  .scard-t{font-size:15px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:9px}
-  .scard-s{font-size:12.5px;color:var(--text-dim)}
-  .scard-metric{display:flex;flex-direction:column;align-items:flex-end;gap:1px;text-align:right;flex:none}
-  .scard-v{font-family:'JetBrains Mono',monospace;font-size:18px;font-weight:700;letter-spacing:-.01em}
-  .scard-d{font-size:11.5px;color:var(--text-faint)}
-  .scard-d.up{color:var(--green)} .scard-d.down{color:var(--rose)}
-  .livedot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;flex:none}
-  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(84,201,138,.5)}70%{box-shadow:0 0 0 6px rgba(84,201,138,0)}100%{box-shadow:0 0 0 0 rgba(84,201,138,0)}}
-  @media(max-width:600px){.scard-metric{display:none}}
-
-  /* bio "See more" (staff drawer) */
-  .bio{font-size:13.5px;line-height:1.5;color:var(--text)}
-  .bio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-  .bio-toggle{margin-top:6px;all:unset;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent)}
-  .bio-toggle:hover{text-decoration:underline}
-  .bio-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
-  /* org/dept node interaction: focus ring for clickable people; static (non-clickable) headers */
-  .onode:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:14px}
-  .onode.static{cursor:default}
-  .onode.static:hover{transform:none}
-  .onode.static:hover .olabel{filter:none}
-  /* ads campaign select */
-  .filter-select{background:var(--surface-2);border:1px solid var(--border);color:var(--text);font:600 13px 'Inter',system-ui,sans-serif;padding:8px 12px;border-radius:10px;cursor:pointer}
-  .filter-select:focus{outline:none;border-color:var(--accent-line);box-shadow:0 0 0 3px var(--accent-soft)}
-</style>
-</head>
+/* drawer (profile) */
+.scrim{position:fixed;inset:0;background:rgba(16,24,40,.35);opacity:0;pointer-events:none;transition:.2s;z-index:40}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;height:100vh;width:390px;max-width:92vw;background:var(--panel);border-left:1px solid var(--border);transform:translateX(100%);transition:.24s cubic-bezier(.4,0,.2,1);z-index:41;overflow-y:auto}
+.drawer.open{transform:none}
+.dr-hero{padding:26px 24px 20px;text-align:center;border-bottom:1px solid var(--border-2);position:relative}
+.dr-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:18px;color:var(--dim);line-height:1}
+.dr-av{width:80px;height:80px;border-radius:20px;object-fit:cover;margin:0 auto 12px;display:block}
+.dr-nm{font-size:18px;font-weight:700}
+.dr-rl{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px}
+.dr-tag{display:inline-block;margin-top:10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--dim);padding:3px 11px;border-radius:20px}
+.dr-b{padding:20px 24px}
+.dr-sec{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
+.bio{font-size:13.5px;line-height:1.55;color:var(--text)}
+.bio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.bio-toggle{margin-top:7px;background:none;border:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent);padding:0}
+.dr-field{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--border-2);font-size:13.5px}
+.dr-field svg{width:16px;height:16px;color:var(--faint);flex:none}
+.dr-field .fk{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
+@media(max-width:900px){.app{grid-template-columns:64px 1fr}.bp-meta,.nav-lbl,.nav-item span:not(.badge),.bp-name,.bp-sub,.bp-caret{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3,.tilegrid,.people{grid-template-columns:1fr}}
+</style></head>
 <body>
-<div class="shell">
-  <header class="top">
-    <div class="brand">
-      <div class="logo">LW</div>
-      <div>
-        <h1>LeavenWealth Group</h1>
-        <span>All-company portal &amp; dashboards</span>
-      </div>
+<div class="app">
+  <aside class="side">
+    <div class="brandpick">
+      <button class="bp-btn" onclick="document.getElementById('bpMenu').classList.toggle('open')">
+        <span class="bp-glyph" id="bpGlyph">LW</span>
+        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth Group</span><span class="bp-sub">Switch workspace</span></span>
+        <span class="bp-caret">&#9662;</span>
+      </button>
+      <div class="bp-menu" id="bpMenu"></div>
     </div>
-    <div class="controls">
-      <div class="portalbar" id="portalbar"></div>
-      <button class="icon-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme" aria-label="Toggle theme"></button>
-      <button class="acct" onclick="openSettings()" title="Account" aria-label="Account">CD<span class="status"></span></button>
+    <nav class="nav" id="nav"></nav>
+    <div class="side-foot">
+      <div class="avatar mono">CP</div>
+      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">Chris Pomerleau</div><div style="font-size:11px;color:var(--faint)">Owner &middot; Admin</div></div>
     </div>
-  </header>
+  </aside>
 
-  <div class="overlay" id="settings" onclick="if(event.target===this)closeSettings()">
-    <div class="modal" role="dialog" aria-modal="true">
-      <div class="m-top">
-        <span class="m-av">CD</span>
-        <div><div class="m-nm">Chris Delgado</div><div class="m-em">chris@leavenwealth.com</div></div>
-        <button class="m-x" onclick="closeSettings()" aria-label="Close">&times;</button>
-      </div>
-      <div class="m-sec">
-        <div class="m-label">Appearance</div>
-        <div class="m-row" style="cursor:default"><span id="apr-ico"></span> Theme
-          <div class="seg" id="themeSeg">
-            <button data-theme-set="light" onclick="setTheme('light')"><span class="seg-ic-l"></span>Light</button>
-            <button data-theme-set="dark" onclick="setTheme('dark')"><span class="seg-ic-d"></span>Dark</button>
-          </div>
-        </div>
-      </div>
-      <div class="m-sec">
-        <div class="m-label">Account</div>
-        <div class="m-row" data-ic="user">Profile <span class="chev">&rsaquo;</span></div>
-        <div class="m-row" data-ic="bell">Notifications <span class="chev">&rsaquo;</span></div>
-        <div class="m-row" data-ic="users">Team &amp; members <span class="chev">&rsaquo;</span></div>
-      </div>
-      <div class="m-sec" style="border-top:1px solid var(--border-soft)">
-        <div class="m-row danger" data-ic="out">Sign out</div>
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
+      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg> Search&hellip;</div>
+      <div class="tb-actions">
+        <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
+        <div class="tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></div>
       </div>
     </div>
-  </div>
-
-  <div class="biz-bar hidden" id="bizBar"></div>
-  <main id="content"></main>
+    <div class="content" id="content"></div>
+  </main>
 </div>
 
-<div class="sheet-overlay" id="detail">
-  <div class="sheet-head">
-    <button class="back" onclick="closeDetail()" aria-label="Back">&larr;</button>
-    <div><div class="sh-title" id="detailTitle"></div><div class="sh-sub" id="detailSub"></div></div>
-    <div class="spacer"></div>
-  </div>
-  <div class="sheet-body" id="detailBody"></div>
-</div>
-
-<div class="drawer-back" id="drawerBack" onclick="closeStaff()"></div>
-<aside class="drawer" id="staffDrawer"></aside>
+<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer"></aside>
 
 <script>
-const I = {
-  dash:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
-  chart:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>',
-  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.2a3 3 0 0 1 0 5.6M18.5 20a5 5 0 0 0-3-4.6"/></svg>',
-  building:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h.01M15 16h.01"/></svg>',
-  dollar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M16 7.5C16 6 14.2 5 12 5S8 6 8 7.8s1.8 2.6 4 3 4 1.4 4 3.2S14.2 19 12 19s-4-1-4-2.5"/></svg>',
+const I={
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
+  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
+  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
   target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".6" fill="currentColor"/></svg>',
-  gauge:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-4"/></svg>',
-  globe:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 2.5 15 0 18M12 3c-2.5 2.5-2.5 15 0 18"/></svg>',
-  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/><path d="M9 20v-6h6v6"/></svg>',
-  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
-  bolt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg>',
+  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.2a3 3 0 0 1 0 5.6M18.5 20a5 5 0 0 0-3-4.6"/></svg>',
+  layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M2 13l10 5 10-5M2 18l10 5 10-5"/></svg>',
+  wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0-5.4 5L3 17.6 6.4 21l6.3-6.3a4 4 0 0 0 5-5.4l-2.5 2.5-2.3-.6-.6-2.3 2.5-2.5z"/></svg>',
+  dollar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M16 7.5C16 6 14.2 5 12 5S8 6 8 7.8s1.8 2.6 4 3 4 1.4 4 3.2S14.2 19 12 19s-4-1-4-2.5"/></svg>',
   file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
+  building:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6"/></svg>',
   bank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10l9-6 9 6"/><path d="M4 10v9M20 10v9M8 10v9M16 10v9M12 10v9M3 21h18"/></svg>',
-  up:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 20V7M5 12l7-7 7 7"/></svg>',
+  hand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9M8 21a6 6 0 0 1 8 0"/><circle cx="12" cy="14" r="7"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>',
+  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
   trend:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>',
-  briefcase:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V6a4 4 0 0 1 8 0v1"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M20 6 9 17l-5-5"/></svg>',
-  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
-  user:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>',
-  bell:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 0 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg>',
-  out:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>',
+  card:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
+  gauge:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-4"/></svg>',
+  org:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v4M6 17v-2h12v2M12 15v-4"/></svg>',
+  plug:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>',
+  lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
   mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
   phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5c0 9 6 15 15 15l2-3-4-2-2 2c-3-1.4-5.6-4-7-7l2-2-2-4z"/></svg>',
-  sitemap:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="2" width="6" height="5" rx="1"/><rect x="2" y="17" width="6" height="5" rx="1"/><rect x="16" y="17" width="6" height="5" rx="1"/><path d="M12 7v3.5M5 17v-1.5a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1V17"/></svg>',
-  list:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
+  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
+  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
 };
-I.org='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v4M6 17v-2h12v2M12 15v-4"/></svg>';
-I.tree='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="16" width="7" height="5" rx="1"/><path d="M6 3v18M6 5.5h8M6 18.5h8"/></svg>';
 
-/* ===== brands ===== */
-const BRANDS = [
-  {id:'all', short:'ALL', name:'All Brands', color:'#5b8cff'},
-  {id:'leavenwealth', short:'LW', name:'LeavenWealth', color:'#5b8cff'},
-  {id:'leadli', short:'AI', name:'Leadli AI', color:'#a06bff'},
-  {id:'folio', short:'FE', name:'Folio Excel', color:'#3ec7c2'},
-  {id:'liquid', short:'LL', name:'Liquid Lending', color:'#f0b64b'},
-];
-const brandColor = id => (BRANDS.find(b=>b.id===id)||{}).color || '#5b8cff';
-const brandName = id => (BRANDS.find(b=>b.id===id)||{}).name || id;
+const BRANDS={
+  all:{name:'All Brands',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
+  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
+  leadli:{name:'Leadli AI',short:'AI',color:'#8b5cf6',soft:'#f1ecfe',line:'#dccbfb'},
+  folio:{name:'Folio Excel',short:'FE',color:'#0d9488',soft:'#e4f5f2',line:'#b8e6df'},
+  liquid:{name:'Liquid Lending',short:'LL',color:'#e08a0b',soft:'#fdf1de',line:'#f5d79f'},
+};
+/* portal brand id -> Supabase company_id (CLAUDE.md) */
+const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
+const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
+const OPS_URL='/ops';
 
-/* ===== seeded data (mirrors Supabase) ===== */
-const PROVIDERS = {closers:{n:'Closers.io',c:'#5b8cff'}, aia:{n:'AIA',c:'#a06bff'}, organic:{n:'Organic',c:'#54c98a'}, none:{n:'—',c:'#6b7280'}};
+/* nav menus per brand */
+const CORE=[
+  {id:'tasks',ic:'check',label:'Tasks',badge:'8'},
+  {id:'leads',ic:'target',label:'Leads',badge:'37'},
+  {id:'team',ic:'users',label:'Team'},
+  {id:'departments',ic:'org',label:'Departments'},
+  {id:'tools',ic:'wrench',label:'Tools & Apps'},
+  {id:'financials',ic:'dollar',label:'Financials'},
+  {id:'documents',ic:'file',label:'Documents'},
+];
+const MENUS={
+  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{id:'investors',ic:'hand',label:'Investors'},{lbl:'Admin'},{id:'integrations',ic:'plug',label:'Integrations'},{id:'access',ic:'lock',label:'Access & Roles'}],
+  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties',badge:'66'},{id:'loans',ic:'bank',label:'Loans',badge:'83'},{id:'investors',ic:'hand',label:'Investors',badge:'5'},{id:'insurance',ic:'shield',label:'Insurance / Risk'},{lbl:'Workspace'},...CORE],
+  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'}],
+  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+};
 
-// mgr = id of the person this staff member reports to (null = top of the org).
-const STAFF = [
-  {id:1,mgr:null,name:'Chris Delgado',title:'Founder & Principal',brand:'leavenwealth',email:'chris@leavenwealth.com',phone:'+1-402-555-0101',img:'https://i.pravatar.cc/150?img=12',desc:'Owner across all brands. Oversees real estate acquisitions, lending, and the service businesses.'},
-  {id:2,mgr:1,name:'Amanda Reyes',title:'Asset Manager',brand:'leavenwealth',email:'amanda@leavenwealth.com',phone:'+1-402-555-0102',img:'https://i.pravatar.cc/150?img=45',desc:'Manages the LeavenWealth property portfolio, NOI performance, and investor reporting.'},
-  {id:3,mgr:1,name:'Marcus Lee',title:'Closer',brand:'leadli',email:'marcus@leadliai.com',phone:'+1-402-555-0103',img:'https://i.pravatar.cc/150?img=33',desc:'Runs strategy calls and closes med-spa clients for Leadli AI.'},
-  {id:4,mgr:3,name:'Sarah Mitchell',title:'Setter',brand:'leadli',email:'sarah@leadliai.com',phone:'+1-402-555-0104',img:'https://i.pravatar.cc/150?img=47',desc:'Qualifies inbound leads and books appointments for the Leadli closers.'},
-  {id:5,mgr:1,name:'Jenny Cruz',title:'Senior Bookkeeper',brand:'folio',email:'jenny@folioexcel.com',phone:'+1-402-555-0105',img:'https://i.pravatar.cc/150?img=25',desc:'Leads bookkeeping and monthly close for Folio Excel clients.'},
-  {id:6,mgr:1,name:'David Okafor',title:'Loan Officer',brand:'liquid',email:'david@liquidlending.com',phone:'+1-402-555-0106',img:'https://i.pravatar.cc/150?img=15',desc:'Originates and services bridge loans for Liquid Lending Solutions.'},
+/* ---- data (mirrors seeded Supabase) ---- */
+const STAFF=[
+  {id:1,name:'Chris Pomerleau',role:'Co-Founder & Director of Investment Strategy',brand:'leavenwealth',img:'https://static.showit.co/400/IBC54nCgkZafZf0Y6UStUg/328551/chris_pomerleau_headshot.jpg',email:'chris@leavenwealth.com',phone:'—',bio:'Co-founder leading acquisitions, portfolio strategy, and long-term growth. Former U.S. Army and attorney (J.D. plus M.S. in Negotiation from Creighton). Has helped acquire 3,300+ units worth $330M+, and co-founded Point Guard Omaha and Liquid Lending Solutions. Known for disciplined underwriting and a long-term hold philosophy.'},
+  {id:2,name:'Collin Schwartz',role:'Co-Founder & Director of Business Development',brand:'leavenwealth',img:'https://static.showit.co/400/UQt7sNMvf4sQUDEi7F4aeg/328551/collin_schwartz_headshot.jpg',email:'collin@leavenwealth.com',phone:'—',bio:'Co-founder leading growth strategy, investor relations, and operational expansion across a $330M+ multifamily portfolio spanning 3,300+ units in the Midwest. Co-founded Liquid Lending Solutions ($100M+ deployed in hard money loans) and Point Guard Omaha, and created Nebraska’s largest real estate meetup with 6,500+ members.'},
+  {id:3,name:'Jason Belt',role:'Director of Capital Resources',brand:'leavenwealth',img:'https://static.showit.co/400/neN0-2ol9v8xYO6kLl3SNw/328551/jason_belt_headshot.jpg',email:'jason@leavenwealth.com',phone:'—',bio:'Directs capital sourcing and deployment, working with accredited investors to align their goals with the deal pipeline. Holds a Master’s in Public Administration and focuses on transparent, scalable capital raises.'},
+  {id:4,name:'Mitch Hagen',role:'Director of Finance',brand:'leavenwealth',img:'https://static.showit.co/400/or8hIxZr-fNNsicjtuGJiA/shared/mitch_hagen_-_leavenwealth.jpg',email:'mitch@leavenwealth.com',phone:'—',bio:'Oversees financial reporting and strategy. A CPA specializing in real estate finance and tax consulting, and a Creighton graduate in financial analysis and accounting.'},
+  {id:5,name:'Nick Bruhn',role:'Acquisition Specialist',brand:'leavenwealth',img:'https://static.showit.co/400/ofTjBQHqrFoQXpxr29nQAg/shared/nick_bruhn_-_leavenwealth.jpg',email:'nick@leavenwealth.com',phone:'—',bio:'Sources and analyzes multifamily opportunities, with experience across investor relations, asset management, and property development. Marketing and management degree from the University of Nebraska-Lincoln.'},
+  {id:6,name:'Megan Richardson',role:'Risk Management & Investor Relations Advisor',brand:'leavenwealth',img:'https://static.showit.co/400/PolUncD_trDoICQhSl-E5g/shared/megan_richardson_-_leavenwealth.jpg',email:'megan@leavenwealth.com',phone:'—',bio:'Leads insurance, risk management, and investor relations strategy with 10+ years in commercial insurance for major healthcare systems. Based in Denver.'},
+  {id:7,name:'John Younes',role:'Director of Property Management',brand:'leavenwealth',img:'https://static.showit.co/400/PtanfGLIc8gigKNKxl3tWA/shared/john-younes-leavenwealth.jpg',email:'john@leavenwealth.com',phone:'—',bio:'Oversees property management operations, establishing communication systems and KPI frameworks that drive portfolio performance, efficiency, and accountability.'},
+  {id:8,name:'Brian Nelson',role:'Director of Asset Management',brand:'leavenwealth',img:'https://static.showit.co/400/fRxzlQ9skMmfswPunOibZA/shared/brian-nelson-leavenwealth.jpg',email:'brian@leavenwealth.com',phone:'—',bio:'15 years in real estate investing and 11 as a financial advisor, spanning property management, financial strategy, and software product development. Previously managed 1,200 units.'},
+];
+const PROPS=[{n:'Lincoln Portfolio',u:14,o:93,noi:9800},{n:'Midwest Portfolio 1',u:22,o:95,noi:12600},{n:'Midwest Portfolio 2',u:18,o:89,noi:8900},{n:'48 SF Unit Portfolio',u:48,o:91,noi:24100},{n:'Midwest Portfolio 5',u:16,o:97,noi:10200},{n:'Midwest Portfolio 8',u:12,o:83,noi:6400}];
+const INVESTORS=[{n:'Robert Hensley',stake:35,where:'Midwest Portfolio 1'},{n:'Patel Family Trust',stake:20,where:'Fund-level'},{n:'Diane Foster',stake:15,where:'Lincoln Portfolio'},{n:'Kwan Holdings LLC',stake:25,where:'Fund-level'},{n:'Miguel Santos',stake:5,where:'48 SF Portfolio'}];
+const PROV={closers:{n:'Closers.io',c:'#4f6bed'},aia:{n:'AIA',c:'#8b5cf6'},organic:{n:'Organic',c:'#0d9488'},none:{n:'—',c:'#98a0ac'}};
+const LEADS=[{n:'Olivia Bennett',p:'closers',s:'Booked',pc:'blue'},{n:'Ethan Carter',p:'aia',s:'Application',pc:'amber'},{n:'Sophia Nguyen',p:'organic',s:'New',pc:'gray'},{n:'Liam Patel',p:'closers',s:'Won',pc:'green'},{n:'Ava Thompson',p:'aia',s:'No Show',pc:'rose'},{n:'Mia Flores',p:'closers',s:'Booked',pc:'blue'},{n:'Lucas Kim',p:'aia',s:'Lost',pc:'gray'},{n:'james jenet',p:'closers',s:'Application',pc:'amber'}];
+const APPTS=[{n:'Olivia Bennett',c:'Strategy Call',t:'Jul 21, 3:00 PM',s:'confirmed'},{n:'Mia Flores',c:'Strategy Call',t:'Jul 22, 6:00 PM',s:'confirmed'},{n:'Ryan McGuire',c:'Strategy Call',t:'Jul 20, 11:00 AM',s:'confirmed'},{n:'Liam Patel',c:'Strategy Call',t:'Jul 8, 4:00 PM',s:'completed'}];
+const TOOLS=[
+  {n:'ClickUp',cat:'Project mgmt',plan:'Business',cost:228,user:'ops@leavenwealth.com',brand:'all'},
+  {n:'GoHighLevel',cat:'CRM',plan:'Agency Pro',cost:497,user:'admin@leadliai.com',brand:'leadli'},
+  {n:'AppFolio',cat:'Property mgmt',plan:'Plus',cost:1400,user:'pm@leavenwealth.com',brand:'leavenwealth'},
+  {n:'QuickBooks',cat:'Accounting',plan:'Advanced',cost:200,user:'books@folioexcel.com',brand:'folio'},
+  {n:'Supabase',cat:'Database',plan:'Pro',cost:25,user:'dev@leavenwealth.com',brand:'all'},
+  {n:'Meta Ads Manager',cat:'Advertising',plan:'—',cost:0,user:'ads@leadliai.com',brand:'leadli'},
+];
+const SUBS=[
+  {n:'Bluebird Property Mgmt',units:340,plan:'Scale',amt:1360,status:'active',pay:'paid'},
+  {n:'Redwood Residential',units:120,plan:'Growth',amt:540,status:'active',pay:'paid'},
+  {n:'Cornerstone Realty',units:64,plan:'Growth',amt:320,status:'active',pay:'due'},
+  {n:'Harbor Homes LLC',units:28,plan:'Starter',amt:149,status:'active',pay:'paid'},
+  {n:'Prairie Rentals',units:210,plan:'Scale',amt:840,status:'past_due',pay:'overdue'},
+  {n:'Elm Street Holdings',units:12,plan:'Starter',amt:99,status:'trial',pay:'trial'},
+];
+const PLANS=[{n:'Starter',price:99,per:'0.00',range:'1-25 units'},{n:'Growth',price:0,per:'4.50',range:'26-150 units'},{n:'Scale',price:0,per:'4.00',range:'151+ units'}];
+const TXNS=[{d:'Jul 14',desc:'Bookkeeping retainer - client A',dir:'in',amt:7500},{d:'Jul 12',desc:'Monthly loan interest',dir:'out',amt:3100},{d:'Jul 10',desc:'July rent - Midwest 1',dir:'in',amt:12600},{d:'Jul 06',desc:'Landscaping - monthly',dir:'out',amt:540},{d:'Jul 03',desc:'Meta Ads - Leadli',dir:'out',amt:6100},{d:'Jul 02',desc:'July rent - Lincoln',dir:'in',amt:10150}];
+const TASKS=[
+  {t:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'todo',prio:'high',due:'Jul 25',who:7},
+  {t:'Q2 investor distributions',cat:'Investor Relations',status:'todo',prio:'high',due:'Jul 31',who:6},
+  {t:'June close - client A',cat:'Bookkeeping',status:'todo',prio:'med',due:'Jul 20',who:4},
+  {t:'Loan 7a18 rate review',cat:'Lending',status:'in_progress',prio:'low',due:'Aug 5',who:2},
+  {t:'Ship lead-scoring update',cat:'Leadli Ops',status:'in_progress',prio:'med',due:'Jul 24',who:3},
+  {t:'Roof inspection - Midwest 2',cat:'Maintenance',status:'in_progress',prio:'high',due:'Jul 22',who:8},
+  {t:'Reconcile June statements',cat:'Accounting',status:'done',prio:'med',due:'Jul 10',who:4},
+  {t:'Onboard client B',cat:'Bookkeeping',status:'done',prio:'low',due:'Jul 9',who:4},
+  {t:'Send Q2 investor update',cat:'Investor Relations',status:'done',prio:'high',due:'Jul 5',who:6},
 ];
 
-const PROPS = [
-  {name:'Lincoln Portfolio',units:14,occ:93,noi:9800,brand:'leavenwealth'},
-  {name:'Midwest Portfolio 1',units:22,occ:95,noi:12600,brand:'leavenwealth'},
-  {name:'Midwest Portfolio 2',units:18,occ:89,noi:8900,brand:'leavenwealth'},
-  {name:'48 SF Unit Portfolio',units:48,occ:91,noi:24100,brand:'leavenwealth'},
-  {name:'Midwest Portfolio 5',units:16,occ:97,noi:10200,brand:'leavenwealth'},
-  {name:'Midwest Portfolio 8',units:12,occ:83,noi:6400,brand:'leavenwealth'},
-];
-const LOANS = [
-  {name:'FNB Term Loan - Lincoln',bal:512000,rate:6.25,maturity:'2029-04-01',status:'current'},
-  {name:'Bridge Loan - Midwest 1',bal:284000,rate:8.90,maturity:'2027-01-15',status:'current'},
-  {name:'Acquisition Loan - 48 SF',bal:1240000,rate:5.85,maturity:'2031-08-01',status:'current'},
-];
-const ACCOUNTS = [
-  {name:'LeavenWealth Operating Checking',inst:'First National Bank',last4:'4821',type:'checking',bal:196845.12},
-  {name:'LeavenWealth Reserve Savings',inst:'First National Bank',last4:'9012',type:'savings',bal:512750.00},
-  {name:'Leadli AI Amex Business',inst:'American Express',last4:'3007',type:'credit_card',bal:-8420.33},
-  {name:'Folio Excel Operating',inst:'Chase',last4:'5566',type:'checking',bal:43110.90},
-  {name:'Property Escrow (Loan 7a18)',inst:'First National Bank',last4:'7788',type:'escrow',bal:26500.00},
-];
-const TXNS = [
-  {date:'2026-07-14',desc:'Bookkeeping retainer - client A',party:'Folio client A',cat:'Consulting Fees',dir:'in',amt:7500,brand:'folio'},
-  {date:'2026-07-12',desc:'Monthly loan interest',party:'First National Bank',cat:'Loan Interest',dir:'out',amt:3100,brand:'leavenwealth'},
-  {date:'2026-07-10',desc:'July rent - Midwest Portfolio 1',party:'Tenant ACH batch',cat:'Rental Income',dir:'in',amt:12600,brand:'leavenwealth'},
-  {date:'2026-07-09',desc:'Monthly close - client B',party:'Folio client B',cat:'Consulting Fees',dir:'in',amt:4200,brand:'folio'},
-  {date:'2026-07-06',desc:'Landscaping - monthly',party:'GreenScape Landscaping',cat:'Repairs & Maintenance',dir:'out',amt:540,brand:'leavenwealth'},
-  {date:'2026-07-03',desc:'Meta Ads - Leadli campaigns',party:'Meta Platforms',cat:'Marketing & Ads',dir:'out',amt:6100,brand:'leadli'},
-  {date:'2026-07-02',desc:'July rent - Lincoln Portfolio',party:'Tenant ACH batch',cat:'Rental Income',dir:'in',amt:10150,brand:'leavenwealth'},
-  {date:'2026-06-25',desc:'Closer commission payout',party:'Marcus Lee',cat:'Payroll',dir:'out',amt:1500,brand:'leadli'},
-  {date:'2026-06-20',desc:'Roof repair - unit block',party:'Cornhusker Roofing',cat:'Repairs & Maintenance',dir:'out',amt:4800,brand:'leavenwealth'},
-  {date:'2026-06-14',desc:'Bookkeeping retainer - client A',party:'Folio client A',cat:'Consulting Fees',dir:'in',amt:7500,brand:'folio'},
-];
-const STATEMENTS = [
-  {type:'bank',who:'LeavenWealth Operating Checking',period:'Jun 2026',open:172100,close:184230,status:'reconciled'},
-  {type:'credit_card',who:'Leadli AI Amex Business',period:'Jun 2026',open:-6200,close:-8420,status:'processed'},
-  {type:'pm_income_expense',who:'AppFolio - Property 1e2c',period:'Jun 2026',open:null,close:null,status:'processed'},
-  {type:'loan',who:'First National Bank',period:'Jun 2026',open:null,close:null,status:'pending'},
-];
-const INVESTORS = [
-  {name:'Robert Hensley',email:'robert.hensley@example.com',stake:35,where:'Midwest Portfolio 1',primary:true},
-  {name:'Patel Family Trust',email:'contact@pateltrust.example.com',stake:20,where:'LeavenWealth (fund-level)',primary:false},
-  {name:'Diane Foster',email:'diane.foster@example.com',stake:15,where:'Lincoln Portfolio',primary:false},
-  {name:'Kwan Holdings LLC',email:'invest@kwanholdings.example.com',stake:25,where:'LeavenWealth (fund-level)',primary:false},
-  {name:'Miguel Santos',email:'miguel.santos@example.com',stake:5,where:'48 SF Portfolio',primary:false},
-];
-const LEADS = [
-  {name:'Olivia Bennett',prov:'closers',status:'Booked',pc:'blue',brand:'leadli',stage:'Call Booked',val:6000},
-  {name:'Ethan Carter',prov:'aia',status:'Application',pc:'amber',brand:'leadli',stage:'Application Completed',val:0},
-  {name:'Sophia Nguyen',prov:'organic',status:'New',pc:'gray',brand:'leadli',stage:'New Lead',val:0},
-  {name:'Liam Patel',prov:'closers',status:'Won',pc:'green',brand:'leadli',stage:'Closed Won',val:6000},
-  {name:'Ava Thompson',prov:'aia',status:'No Show',pc:'rose',brand:'leadli',stage:'No Show',val:0},
-  {name:'Noah Rivera',prov:'organic',status:'Nurturing',pc:'gray',brand:'leadli',stage:'Nurture',val:0},
-  {name:'Mia Flores',prov:'closers',status:'Booked',pc:'blue',brand:'leadli',stage:'Call Booked',val:6000},
-  {name:'Lucas Kim',prov:'aia',status:'Lost',pc:'gray',brand:'leadli',stage:'Closed Lost',val:0},
-  {name:'james jenet',prov:'closers',status:'Application',pc:'amber',brand:'leadli',stage:'Application',val:0},
-  {name:'Grace Holloway',prov:'none',status:'New',pc:'gray',brand:'folio',stage:'New Inquiry',val:0},
-  {name:'Daniel Reed',prov:'none',status:'Contacted',pc:'blue',brand:'folio',stage:'Contacted',val:0},
-  {name:'Marcus Webb',prov:'none',status:'Application',pc:'amber',brand:'liquid',stage:'Application',val:0},
-];
-const APPTS = [
-  {name:'Olivia Bennett',cal:'Strategy Call with Leadli AI',start:'Jul 21, 3:00 PM',status:'confirmed'},
-  {name:'Mia Flores',cal:'Strategy Call with Leadli AI',start:'Jul 22, 6:00 PM',status:'confirmed'},
-  {name:'Liam Patel',cal:'Strategy Call with Leadli AI',start:'Jul 8, 4:00 PM',status:'completed'},
-  {name:'Ryan McGuire',cal:'Strategy Call with Leadli AI',start:'Jul 20, 11:00 AM',status:'confirmed'},
-];
-/* 14 days ads (mirrors generated seed) */
-/* Meta ads — baked demo (mirrors the 3 Leadli campaigns in meta_ads_insight).
-   Used as the fallback until an authenticated Supabase read is available. */
-function mkAdDay(spend,imp,clicks,leads,i){return {date:'Jul '+(i+1),spend,imp,clicks,leads,cpl:leads?+(spend/leads).toFixed(2):0,ctr:imp?+((clicks/imp)*100).toFixed(2):0};}
+/* Meta ads baked fallback (mirrors the 3 Leadli campaigns in meta_ads_insight) */
+function mkAdDay(spend,imp,clicks,leads,i){return {date:'Jul '+(i+1),spend,imp,clicks,leads};}
 const ADS_CAMPAIGNS=[
   {id:'120000000000001',name:'B2B - FA $15M AUM',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(180+((i*7)%90),8000+((i*533)%6000),120+((i*13)%100),3+(i%6),i))},
   {id:'120000000000002',name:'Med-Spa - Prospecting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(95+((i*7)%40),5000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
   {id:'120000000000003',name:'Med-Spa - Retargeting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(60+((i*7)%40),3000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
 ];
-function adsAggregate(camps){return Array.from({length:14},(_,i)=>{let s=0,im=0,c=0,l=0;camps.forEach(cp=>{const d=cp.days[i];if(d){s+=d.spend;im+=d.imp;c+=d.clicks;l+=d.leads;}});return mkAdDay(s,im,c,l,i);});}
-const ADS = adsAggregate(ADS_CAMPAIGNS); /* per-day aggregate, used by exec/leads */
-const TASKS = [
-  {name:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'in_progress',pc:'blue',due:'Jul 25'},
-  {name:'June close - Folio client A',cat:'Bookkeeping',status:'open',pc:'amber',due:'Jul 20'},
-  {name:'Q2 investor distributions',cat:'Investor Relations',status:'open',pc:'amber',due:'Jul 31'},
-  {name:'Loan 7a18 rate review',cat:'Lending',status:'open',pc:'gray',due:'Aug 5'},
-  {name:'Ship lead-scoring update',cat:'Leadli Ops',status:'in_progress',pc:'blue',due:'Jul 24'},
-  {name:'Reconcile June statements',cat:'Accounting',status:'done',pc:'green',due:'Jul 10'},
-  {name:'Onboard new Folio client B',cat:'Bookkeeping',status:'done',pc:'green',due:'Jul 9'},
-  {name:'Send Q2 investor update',cat:'Investor Relations',status:'done',pc:'green',due:'Jul 5'},
-];
 
-/* ===== helpers ===== */
-const money=n=> (n<0?'-$':'$')+Math.abs(Number(n)).toLocaleString('en-US',{maximumFractionDigits:0});
+/* ---- helpers ---- */
+const money=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:0});
 const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
-const initials=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
-const escapeHtml=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const inBrand=x=> brand==='all' || x.brand===brand;
-function panel(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body">${body}</div></div>`;}
-function panelFlush(ic,title,count,body){return `<div class="panel"><div class="p-head"><span class="p-ic">${ic}</span><span class="p-t">${title}</span>${count!=null?`<span class="count">${count}</span>`:''}</div><div class="p-body flush">${body}</div></div>`;}
-function kpi(ic,k,v,d,dc){return `<div class="kpi"><div class="k">${ic||''} ${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;}
-function pill(t,c){return `<span class="pill ${c}">${t}</span>`;}
-function table(head,rows){return `<div class="list-scroll"><table class="dtable"><thead><tr>${head.map(h=>`<th class="${h.r?'r':''}">${h.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;}
+const ini=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kpi=(ic,k,v,d,dc)=>`<div class="kpi"><div class="k">${I[ic]||''} ${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;
+const card=(ic,t,badge,body,flush)=>`<div class="card"><div class="card-h">${I[ic]||''} ${t}${badge!=null?`<span class="badge">${badge}</span>`:''}</div><div class="card-b ${flush?'flush':''}">${body}</div></div>`;
+const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
+function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
-/* ===== dashboards registry ===== */
-const DASHBOARDS = [
-  {id:'exec', ic:'gauge', t:'Executive overview', s:'Cross-brand KPIs'},
-  {id:'props', ic:'home', t:'Properties', s:'Portfolio, occupancy, NOI'},
-  {id:'loans', ic:'bank', t:'Loans', s:'Balances & maturities'},
-  {id:'fin', ic:'dollar', t:'Financials', s:'Transactions & statements'},
-  {id:'leads', ic:'target', t:'Leads', s:'Pipeline by provider'},
-  {id:'appts', ic:'cal', t:'Appointments', s:'Bookings & show rate'},
-  {id:'ads', ic:'trend', t:'Marketing / Ads', s:'Meta spend & CPL'},
-  {id:'tasks', ic:'check', t:'Tasks', s:'ClickUp tasks'},
+let brand='leavenwealth', view='overview', theme='light', orgTab='org', tasksTab='board';
+
+/* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
+const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
+function getSb(){if(window.__sb)return window.__sb;if(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY){try{window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return window.__sb;}catch(e){}}return null;}
+
+/* ---- org / dept ---- */
+const DEPTMEM=[
+  {n:'Leadership',ids:[1,2]},
+  {n:'Capital',ids:[3]},
+  {n:'Finance',ids:[4]},
+  {n:'Acquisitions',ids:[5]},
+  {n:'Investor Relations & Risk',ids:[6]},
+  {n:'Property Management',ids:[7]},
+  {n:'Asset Management',ids:[8]},
 ];
+function setOrgTab(t){orgTab=t;render();}
+function setTasksTab(t){tasksTab=t;render();}
+function shortRole(r){return r.replace('Co-Founder & ','').replace('Director of ','Dir. ').replace(' & Investor Relations Advisor','');}
+function orgNode(id){const p=STAFF.find(s=>s.id===id);return `<div class="onode" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div class="on">${esc(p.name)}</div><div class="or">${esc(shortRole(p.role))}</div></div></div>`;}
+function orgChartHtml(){
+  const tops=[1,2], dirs=[3,4,5,6,7,8];
+  return `<div class="orgwrap"><div class="org">
+    <div class="org-level">${tops.map(orgNode).join('')}</div>
+    <div class="org-trunk"></div>
+    <div class="org-children">${dirs.map(orgNode).join('')}</div>
+  </div></div>`;
+}
+function deptChartHtml(){
+  return `<div class="deptgrid">${DEPTMEM.map(d=>`<div class="deptcard"><div class="dh">${I.org} ${esc(d.n)}<span class="cnt">${d.ids.length}</span></div>${d.ids.map((id,i)=>{const p=STAFF.find(s=>s.id===id);return `<div class="dm" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div style="font-weight:600">${esc(p.name)}</div><div style="font-size:11px;color:var(--dim)">${esc(shortRole(p.role))}</div></div>${i===0?'<span class="lead">LEAD</span>':''}</div>`;}).join('')}</div>`).join('')}</div>`;
+}
+function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;applyAccent();}
 
-const RENDER = {
-  exec(){
-    const leadsN=LEADS.filter(inBrand).length, booked=LEADS.filter(l=>inBrand(l)&&l.status==='Booked').length;
-    const spend=ADS.reduce((a,b)=>a+b.spend,0), adleads=ADS.reduce((a,b)=>a+b.leads,0);
-    const noi=PROPS.reduce((a,p)=>a+p.noi,0);
-    const rev=TXNS.filter(t=>t.dir==='in').reduce((a,t)=>a+t.amt,0);
-    const byBrand=BRANDS.slice(1).map(b=>({b, v: TXNS.filter(t=>t.dir==='in'&&t.brand===b.id).reduce((a,t)=>a+t.amt,0) + (b.id==='leadli'?12000:0) + (b.id==='liquid'?5000:0)}));
-    const max=Math.max(...byBrand.map(x=>x.v),1);
-    const kpis=`<div class="kpis">
-      ${kpi(I.building,'Businesses','4','All active','')}
-      ${kpi(I.users,'Headcount','6','+2 this quarter','up')}
-      ${kpi(I.target,'Leads (open)',leadsN,booked+' booked calls','up')}
-      ${kpi(I.dollar,'Ad spend (14d)',moneyk(spend),adleads+' leads @ '+money(spend/adleads)+' CPL','')}
-      ${kpi(I.home,'Properties','66','224 units','')}
-      ${kpi(I.trend,'Portfolio NOI',moneyk(noi),'monthly','up')}
-      ${kpi(I.dollar,'Cash on hand',moneyk(709595),'across 5 accounts','')}
-      ${kpi(I.check,'Open tasks','4','2 due this week','')}
-    </div>`;
-    const bars=`<div class="bars">${byBrand.map(x=>`<div class="bar"><div class="fill" style="height:${Math.round(x.v/max*100)}%;background:${x.b.color}"></div><div class="lbl">${x.b.short}</div></div>`).join('')}</div>
-      <div class="legend">${byBrand.map(x=>`<span class="li"><span class="sw" style="background:${x.b.color}"></span>${x.b.name} · ${money(x.v)}</span>`).join('')}</div>`;
-    return kpis + `<div class="split2" style="margin-top:16px">${panel(I.chart,'Revenue by brand (MTD)',null,bars)}${panel(I.check,'Open tasks',TASKS.filter(t=>t.status!=='done').length, taskRows(TASKS.filter(t=>t.status!=='done')))}</div>`;
+/* ---- views ---- */
+const V={
+  overview(){
+    if(brand==='leavenwealth') return `<div class="kpis">${kpi('building','Properties','66','224 units')}${kpi('gauge','Avg occupancy','92%','','up')}${kpi('trend','Portfolio NOI',moneyk(72000),'monthly','up')}${kpi('bank','Total debt',moneyk(2036000),'3 loans')}</div>`+
+      `<div class="grid g2">${card('dollar','Cash & accounts',null,tbl([{t:'Account'},{t:'Balance',r:1}],[['Operating Checking',196845],['Reserve Savings',512750],['Property Escrow',26500]].map(a=>`<tr><td>${a[0]}</td><td class="r">${money(a[1])}</td></tr>`).join('')),true)}${card('hand','Investors','5',tbl([{t:'Investor'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true)}</div>`;
+    if(brand==='leadli') return `<div class="kpis">${kpi('target','Open leads','37','2 booked','up')}${kpi('cal','Appointments','4','80% show','up')}${kpi('dollar','Ad spend (14d)',moneyk(5370),'')}${kpi('trend','Avg CPL',money(38),'','down')}</div>`+V.leads();
+    if(brand==='folio') return V.reports();
+    if(brand==='liquid') return `<div class="kpis">${kpi('bank','Active loans',moneyk(3200000),'12 notes')}${kpi('target','Applications','9','pipeline')}${kpi('gauge','Avg yield','11.4%','')}${kpi('trend','Deployed (YTD)',moneyk(4800000),'','up')}</div>`+`<div class="placeholder">${I.bank}<div>Loan pipeline detail</div></div>`;
+    return V.exec();
   },
-  props(){
-    const units=PROPS.reduce((a,p)=>a+p.units,0), occ=Math.round(PROPS.reduce((a,p)=>a+p.occ,0)/PROPS.length), noi=PROPS.reduce((a,p)=>a+p.noi,0);
-    const kpis=`<div class="kpis">${kpi(I.home,'Properties','66','portfolio total','')}${kpi(I.building,'Units','224','','')}${kpi(I.gauge,'Avg occupancy',occ+'%','','up')}${kpi(I.dollar,'Monthly NOI',moneyk(noi),'seeded sample','up')}</div>`;
-    const cards=`<div class="grid cols-3" style="margin-top:16px">${PROPS.map(p=>`
-      <div class="tile"><span class="ico" style="color:var(--accent)">${I.home}</span>
-      <span class="body"><span class="t">${p.name}</span><span class="s">${p.units} units · ${p.occ}% occupied</span><span class="pill ${p.occ>=90?'green':p.occ>=85?'amber':'rose'}">NOI ${money(p.noi)}/mo</span></span></div>`).join('')}</div>`;
-    return kpis+cards;
-  },
-  loans(){
-    // Live from Supabase via /api/loans (async — fills #loansBody once loaded).
-    setTimeout(loadLoans,0);
-    return `<div id="loansBody"><div style="padding:10px 2px;color:var(--text-dim);font-size:13px">Loading loans from Supabase…</div></div>`;
-  },
-  fin(){
-    const inc=TXNS.filter(t=>t.dir==='in'&&inBrand(t)).reduce((a,t)=>a+t.amt,0);
-    const exp=TXNS.filter(t=>t.dir==='out'&&inBrand(t)).reduce((a,t)=>a+t.amt,0);
-    const cash=ACCOUNTS.reduce((a,x)=>a+x.bal,0);
-    const kpis=`<div class="kpis">${kpi(I.bank,'Cash on hand',moneyk(cash),'5 accounts','')}${kpi(I.up,'Income (recent)',moneyk(inc),'','up')}${kpi(I.dollar,'Expenses (recent)',moneyk(exp),'','down')}${kpi(I.trend,'Net',moneyk(inc-exp),'','up')}</div>`;
-    /* income vs expense by category */
-    const cats={}; TXNS.filter(inBrand).forEach(t=>{cats[t.cat]=(cats[t.cat]||0)+(t.dir==='in'?t.amt:-t.amt);});
-    const entries=Object.entries(cats); const max=Math.max(...entries.map(([,v])=>Math.abs(v)),1);
-    const catbars=`<div class="bars" style="height:150px">${entries.map(([k,v])=>`<div class="bar"><div class="fill" style="height:${Math.round(Math.abs(v)/max*100)}%;background:${v>=0?'var(--green)':'var(--rose)'}"></div><div class="lbl">${k.split(' ')[0]}</div></div>`).join('')}</div>`;
-    const txr=TXNS.filter(inBrand).map(t=>`<tr><td>${t.date}</td><td>${t.desc}<div style="font-size:11px;color:var(--text-faint)">${t.party}</div></td><td>${pill(t.cat.split(' ')[0],'gray')}</td><td class="r val" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('');
-    const acc=ACCOUNTS.map(a=>`<tr><td>${a.name}<div style="font-size:11px;color:var(--text-faint)">${a.inst} ····${a.last4}</div></td><td>${pill(a.type.replace('_',' '),'blue')}</td><td class="r val" style="color:${a.bal<0?'var(--rose)':'var(--text)'}">${money(a.bal)}</td></tr>`).join('');
-    const stmts=STATEMENTS.map(s=>`<tr><td>${pill(s.type.replace('_',' '),'gray')}</td><td>${s.who}</td><td>${s.period}</td><td>${pill(s.status,s.status==='reconciled'?'green':s.status==='pending'?'amber':'blue')}</td></tr>`).join('');
-    return kpis+
-      `<div style="margin-top:16px">${panel(I.chart,'Income vs expense by category',null,catbars)}</div>`+
-      `<div style="margin-top:16px">${panelFlush(I.dollar,'Recent transactions',TXNS.filter(inBrand).length,table([{t:'Date'},{t:'Description'},{t:'Category'},{t:'Amount',r:1}],txr))}</div>`+
-      `<div class="split2" style="margin-top:16px">${panelFlush(I.bank,'Accounts',ACCOUNTS.length,table([{t:'Account'},{t:'Type'},{t:'Balance',r:1}],acc))}${panelFlush(I.file,'Statements',STATEMENTS.length,table([{t:'Type'},{t:'Source'},{t:'Period'},{t:'Status'}],stmts))}</div>`;
-  },
+  exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
+    `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
+  properties(){return `<iframe class="embedframe" src="${OPS_URL}#tab=properties&embed=1" title="Properties" loading="lazy"></iframe>`;},
+  loans(){setTimeout(loadLoans,0);return `<div id="loansBody"><div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div></div>`;},
+  investors(){return card('hand','Investors',INVESTORS.length,tbl([{t:'Investor'},{t:'Position'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td>${esc(i.where)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true);},
+  insurance(){return `<div class="placeholder">${I.shield}<div>Insurance & risk &mdash; 257 policies in <b>insurance_policy</b></div></div>`;},
   leads(){
-    const L=LEADS.filter(inBrand);
-    const booked=L.filter(l=>l.status==='Booked').length, won=L.filter(l=>l.status==='Won').length;
-    const kpis=`<div class="kpis">${kpi(I.target,'Total leads',L.length,'','')}${kpi(I.cal,'Booked',booked,'','up')}${kpi(I.check,'Won',won,'','up')}${kpi(I.dollar,'Avg CPL',money(ADS.reduce((a,b)=>a+b.spend,0)/ADS.reduce((a,b)=>a+b.leads,0)),'from ads','')}</div>`;
-    /* by provider */
-    const provs={}; L.forEach(l=>{provs[l.prov]=(provs[l.prov]||0)+1;});
-    const chips=`<div style="display:flex;gap:10px;flex-wrap:wrap">${Object.entries(provs).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROVIDERS[p].c}"></span>${PROVIDERS[p].n} · ${n}</span>`).join('')}</div>`;
-    const rows=L.map((l,i)=>`<tr onclick="openLead(${LEADS.indexOf(l)})" style="cursor:pointer">
-      <td><span class="who2"><span class="av2" style="background:${brandColor(l.brand)}">${initials(l.name)}</span>${l.name}</span></td>
-      <td><span class="chip"><span class="sw" style="background:${PROVIDERS[l.prov].c}"></span>${PROVIDERS[l.prov].n}</span></td>
-      <td>${l.stage}</td><td>${pill(l.status,l.pc)}</td><td class="r val">${l.val?money(l.val):'—'}</td></tr>`).join('');
-    return kpis+`<div style="margin-top:16px">${panel(I.target,'By provider',null,chips)}</div>`+
-      `<div style="margin-top:16px">${panelFlush(I.users,'Leads',L.length,table([{t:'Name'},{t:'Provider'},{t:'Stage'},{t:'Status'},{t:'Value',r:1}],rows))}</div>`;
+    const byP={};LEADS.forEach(l=>byP[l.p]=(byP[l.p]||0)+1);
+    const chips=Object.entries(byP).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROV[p].c}"></span>${PROV[p].n} &middot; ${n}</span>`).join(' ');
+    return card('target','Pipeline by provider',null,chips)+`<div style="height:16px"></div>`+
+      card('users','Leads',LEADS.length,tbl([{t:'Name'},{t:'Provider'},{t:'Status'}],LEADS.map(l=>`<tr><td><span class="who"><span class="mo" style="background:${PROV[l.p].c}">${ini(l.n)}</span>${esc(l.n)}</span></td><td><span class="chip"><span class="sw" style="background:${PROV[l.p].c}"></span>${PROV[l.p].n}</span></td><td>${pill(l.s,l.pc)}</td></tr>`).join('')),true);
   },
-  appts(){
-    const up=APPTS.filter(a=>a.status==='confirmed').length, done=APPTS.filter(a=>a.status==='completed').length;
-    const kpis=`<div class="kpis">${kpi(I.cal,'Upcoming',up,'','')}${kpi(I.check,'Completed',done,'','')}${kpi(I.gauge,'Show rate','80%','last 30d','up')}${kpi(I.target,'No-shows','1','','down')}</div>`;
-    const rows=APPTS.map(a=>`<tr><td><span class="who2"><span class="av2" style="background:#a06bff">${initials(a.name)}</span>${a.name}</span></td><td>${a.cal}</td><td>${a.start}</td><td>${pill(a.status,a.status==='confirmed'?'blue':'green')}</td></tr>`).join('');
-    return kpis+`<div style="margin-top:16px">${panelFlush(I.cal,'Appointments',APPTS.length,table([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],rows))}</div>`;
+  appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
+  ads(){adsCampaign='all';adsRows=null;adsMode='baked';setTimeout(loadAds,0);return `<div id="adsBody">${renderAdsBody()}</div>`;},
+  subscribers(){
+    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
+    return `<div class="kpis">${kpi('users','Active users',SUBS.filter(s=>s.status!=='trial').length,'subscribers')}${kpi('grid','Units billed',SUBS.reduce((a,s)=>a+s.units,0).toLocaleString(),'')}${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('card','Past due','1','follow up','down')}</div>`+
+    card('users','App users / subscribers',SUBS.length,tbl([{t:'Client'},{t:'Units',r:1},{t:'Plan'},{t:'Amount / mo',r:1},{t:'Status'},{t:'Payment'}],SUBS.map(s=>`<tr><td>${esc(s.n)}</td><td class="r">${s.units}</td><td>${pill(s.plan,'blue')}</td><td class="r">${money(s.amt)}</td><td>${pill(s.status.replace('_',' '),s.status==='active'?'green':s.status==='trial'?'gray':'rose')}</td><td>${pill(s.pay,s.pay==='paid'?'green':s.pay==='due'?'amber':s.pay==='trial'?'gray':'rose')}</td></tr>`).join('')),true);
   },
-  ads(){
-    adsCampaign='all'; adsRows=null; adsMode='baked';
-    setTimeout(loadAds,0);          // try live (Supabase) in the background; baked renders instantly
-    return `<div id="adsBody">${renderAdsBody()}</div>`;
+  plans(){return `<div class="tilegrid">${PLANS.map(p=>`<div class="ptile"><div class="pt">${p.n}</div><div class="ps">${p.range}</div><div style="font-family:'JetBrains Mono';font-size:20px;font-weight:700">${p.price>0?money(p.price)+'/mo':'$'+p.per+'/unit'}</div></div>`).join('')}</div>`;},
+  reports(){
+    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
+    return `<div class="kpis">${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('trend','ARR',moneyk(mrr*12),'run rate','up')}${kpi('users','Active users',SUBS.filter(s=>s.status==='active').length,'')}${kpi('gauge','Net revenue retention','104%','','up')}</div>`+
+    `<div class="grid g2">${card('trend','MRR trend',null,barChart([['Apr',2600,'#0d9488'],['May',2900,'#0d9488'],['Jun',3100,'#0d9488'],['Jul',3308,'#0d9488']]))}${card('card','Revenue by plan',null,tbl([{t:'Plan'},{t:'Clients',r:1},{t:'MRR',r:1}],[['Scale',2,2200],['Growth',2,860],['Starter',2,248]].map(r=>`<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="r">${money(r[2])}</td></tr>`).join('')),true)}</div>`;
   },
+  pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
+  borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
+  team(){
+    return `<div class="people">${STAFF.map(p=>`<div class="person" role="button" tabindex="0" onclick="openStaff(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${p.id})}"><img src="${p.img}" alt=""><div><div class="pn">${esc(p.name)}</div><div class="pr">${esc(p.role)}</div></div></div>`).join('')}</div>`;
+  },
+  departments(){return V.orgdept();},
+  orgdept(){
+    const seg=`<div class="seg"><button class="segbtn ${orgTab==='org'?'on':''}" onclick="setOrgTab('org')">Org chart</button><button class="segbtn ${orgTab==='dept'?'on':''}" onclick="setOrgTab('dept')">Department chart</button></div>`;
+    return seg + (orgTab==='org'?orgChartHtml():deptChartHtml());
+  },
+  tools(){
+    return card('wrench','Tools & software',TOOLS.length,tbl([{t:'Tool'},{t:'Category'},{t:'Plan'},{t:'Account'},{t:'Cost / mo',r:1}],TOOLS.map(t=>`<tr><td><b>${esc(t.n)}</b></td><td>${esc(t.cat)}</td><td>${pill(t.plan,'gray')}</td><td>${esc(t.user)}</td><td class="r">${t.cost?money(t.cost):'—'}</td></tr>`).join('')),true)+`<div style="margin-top:10px;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px">${I.lock} Credentials are stored server-side (Supabase Vault) and revealed to admins via a secure endpoint &mdash; never sent to the browser here.</div>`;
+  },
+  financials(){return `<div class="kpis">${kpi('bank','Cash',moneyk(770785),'5 accounts')}${kpi('trend','Income (recent)',moneyk(30250),'','up')}${kpi('dollar','Expenses',moneyk(9740),'','down')}${kpi('gauge','Net',moneyk(20510),'','up')}</div>`+
+    card('dollar','Recent transactions',TXNS.length,tbl([{t:'Date'},{t:'Description'},{t:'Amount',r:1}],TXNS.map(t=>`<tr><td>${t.d}</td><td>${esc(t.desc)}</td><td class="r" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('')),true);},
+  documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
-    const groups=[['open','To do','amber'],['in_progress','In progress','blue'],['done','Done','green']];
-    return `<div class="split2" style="grid-template-columns:1fr">${groups.map(([st,label])=>{
-      const t=TASKS.filter(x=>x.status===st); if(!t.length)return '';
-      return panelFlush(I.check,label,t.length,`<div class="rows">${t.map(x=>`<div class="row ${x.status==='done'?'done':''}"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`);
+    const seg=`<div class="seg"><button class="segbtn ${tasksTab==='board'?'on':''}" onclick="setTasksTab('board')">Tasks</button><button class="segbtn ${tasksTab==='ptasks'?'on':''}" onclick="setTasksTab('ptasks')">Property Tasks</button></div>`;
+    if(tasksTab==='ptasks') return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1" title="Property Tasks" loading="lazy"></iframe>`;
+    const cols=[['todo','To do','#98a0ac'],['in_progress','In progress','#4f6bed'],['done','Done','#12a150']];
+    const prc={high:'#d1435b',med:'#c67c11',low:'#98a0ac'};
+    return seg+`<div class="board">${cols.map(([st,label,dot])=>{
+      const items=TASKS.filter(t=>t.status===st);
+      return `<div class="col"><div class="col-h"><span class="col-dot" style="background:${dot}"></span>${label} <span class="cnt">${items.length}</span><span class="col-add">${I.plus}</span></div>
+        ${items.map(t=>{const s=STAFF.find(x=>x.id===t.who);return `<div class="tcard"><span class="pill gray">${esc(t.cat)}</span><div class="tt">${esc(t.t)}</div><div class="tf"><span class="prio" style="background:${prc[t.prio]}"></span>${t.prio}<span class="due">${I.cal}${t.due}${s?`<img class="miniav" src="${s.img}" title="${esc(s.name)}" alt="">`:''}</span></div></div>`;}).join('')}
+      </div>`;
     }).join('')}</div>`;
   },
+  alltasks(){return V.tasks();},
+  integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
+  access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
 };
-function taskRows(list){return `<div class="rows">${list.map(x=>`<div class="row"><span class="check"></span><span class="main"><span class="rt">${x.name}</span><span class="rs">${x.cat} · due ${x.due}</span></span>${pill(x.status.replace('_',' '),x.pc)}</div>`).join('')}</div>`;}
 
-/* ===== Loans — live from Supabase via /api/loans ===== */
+/* ---- Loans (live from Supabase via /api/loans) ---- */
 async function loadLoans(){
   const el=document.getElementById('loansBody'); if(!el) return;
   try{
@@ -828,348 +457,129 @@ async function loadLoans(){
     let data=null; try{ data=await r.json(); }catch(_){}
     if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
     if(data && data.error) throw new Error(data.error);
-    el.innerHTML=renderLoansHtml((data&&data.loans)||[]);
+    el.innerHTML=renderLoans((data&&data.loans)||[]);
   }catch(e){
-    el.innerHTML=`<div style="padding:10px 2px;color:var(--rose);font-size:13px">Couldn't load loans (${escapeHtml(e.message)}).<br><span style="color:var(--text-faint)">Check <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a> and <a href="/api/_selfcheck" target="_blank" style="color:var(--accent)">/api/_selfcheck</a>. Needs DATA_SOURCE=supabase and a valid Postgres SUPABASE_DB_URL.</span></div>`;
+    el.innerHTML=`<div class="muted" style="color:var(--rose);padding:10px 2px">Couldn't load loans (${esc(e.message)}). Needs DATA_SOURCE=supabase + a valid SUPABASE_DB_URL on the server. <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a></div>`;
   }
 }
 function loanPillClass(s){const x=String(s||'').toLowerCase();if(x==='active'||x==='current')return 'green';if(x==='pending')return 'amber';return 'gray';}
-function renderLoansHtml(loans){
-  if(!loans.length) return `<div style="padding:10px 2px;color:var(--text-faint);font-size:13px">No loans found in Supabase.</div>`;
+function renderLoans(loans){
+  if(!loans.length) return `<div class="placeholder">${I.bank}<div>No loans found in Supabase.</div></div>`;
   const num=v=>(v==null||v==='')?null:Number(v);
   const total=loans.reduce((a,l)=>a+(num(l.currentDebt)||0),0);
   const rated=loans.filter(l=>num(l.interestRatePct)!=null);
   const avg=rated.length?(rated.reduce((a,l)=>a+num(l.interestRatePct),0)/rated.length).toFixed(2)+'%':'—';
   const mats=loans.map(l=>l.maturityDate).filter(Boolean).sort();
   const active=loans.filter(l=>String(l.status||'').toLowerCase()==='active').length;
-  const kpis=`<div class="kpis">${kpi(I.bank,'Total debt',moneyk(total),loans.length+' loans','')}${kpi(I.gauge,'Avg rate',avg,'','')}${kpi(I.cal,'Next maturity',mats.length?mats[0]:'—','','')}${kpi(I.check,'Active',active,'of '+loans.length,'')}</div>`;
+  const kpis=`<div class="kpis">${kpi('bank','Total debt',moneyk(total),loans.length+' loans')}${kpi('gauge','Avg rate',avg,'')}${kpi('cal','Next maturity',mats.length?mats[0]:'—','')}${kpi('check','Active',active,'of '+loans.length)}</div>`;
   const rows=loans.slice().sort((a,b)=>(num(b.currentDebt)||0)-(num(a.currentDebt)||0)).map(l=>{
-    const name=l.name||l.lender||l.loanNumber||('Loan '+String(l.id).slice(0,8));
-    const sub=[l.lender,l.positionLabel].filter(Boolean).map(escapeHtml).join(' · ');
+    const nm=l.name||l.lender||l.loanNumber||('Loan '+String(l.id).slice(0,8));
+    const sub=[l.lender,l.positionLabel].filter(Boolean).map(esc).join(' &middot; ');
     const debt=num(l.currentDebt)!=null?money(num(l.currentDebt)):'—';
     const rate=num(l.interestRatePct)!=null?num(l.interestRatePct)+'%':'—';
-    return `<tr><td>${escapeHtml(name)}${sub?`<div style="font-size:11px;color:var(--text-faint)">${sub}</div>`:''}</td><td class="r val">${debt}</td><td class="r">${rate}</td><td>${l.maturityDate||'—'}</td><td>${pill(l.status||'None',loanPillClass(l.status))}</td></tr>`;
+    return `<tr><td>${esc(nm)}${sub?`<div style="font-size:11px;color:var(--faint)">${sub}</div>`:''}</td><td class="r">${debt}</td><td class="r">${rate}</td><td>${l.maturityDate||'—'}</td><td>${pill(l.status||'None',loanPillClass(l.status))}</td></tr>`;
   }).join('');
-  return kpis+`<div style="margin-top:16px">${panelFlush(I.bank,'Loan book',loans.length,table([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows))}</div>`;
+  return kpis+card('bank','Loan book',loans.length,tbl([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows),true);
 }
-/* ===== Marketing / Ads — live from Supabase meta_ads_insight, baked fallback ===== */
-const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
-// Publishable anon key — SAFE for the browser (RLS enforces access). Never the service role.
-const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
-// Shared browser Supabase client. The auth task can reuse window.__sb for sign-in —
-// once there's a session, the reads below return live data (until then: baked fallback).
-function getSb(){ if(window.__sb) return window.__sb; if(window.supabase && SUPABASE_URL && SUPABASE_ANON_KEY){ try{ window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY); return window.__sb; }catch(e){} } return null; }
-const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
-const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;   // 'all' -> null (no company filter)
-function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
 
-let adsCampaign='all';   // 'all' | campaign_id
-let adsRows=null;        // live rows (null => use baked)
-let adsMode='baked';     // 'baked' | 'live'
+/* ---- Marketing / Ads (live meta_ads_insight via Supabase; baked fallback) ---- */
+let adsCampaign='all', adsRows=null, adsMode='baked';
 function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBody');if(el)el.innerHTML=renderAdsBody();}
-
-// Flatten the current scope to uniform rows {date,spend,imp,clicks,leads,cid,cname}.
+function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
 function adsScopedRows(){
   if(adsMode==='live'&&adsRows){
     return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id),cname:r.campaign_name||('Campaign '+r.campaign_id)}))};
   }
-  const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);   // baked, brand-scoped
+  const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);
   const rows=[];
   camps.forEach(c=>c.days.forEach(d=>rows.push({date:d.date,spend:d.spend,imp:d.imp,clicks:d.clicks,leads:d.leads,cid:c.id,cname:c.name})));
   return {source:'baked',rows};
 }
 async function loadAds(){
   const el=document.getElementById('adsBody'); if(!el) return;
-  const sb=getSb();
-  let session=null;
+  const sb=getSb(); let session=null;
   if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
-  if(!sb||!session){ adsRows=null; adsMode='baked'; el.innerHTML=renderAdsBody(); return; }  // not authed -> baked
-  el.innerHTML=`<div style="padding:12px 2px;color:var(--text-dim);font-size:13px">Loading ad data…</div>`;
+  if(!sb||!session){ adsRows=null; adsMode='baked'; el.innerHTML=renderAdsBody(); return; }
+  el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
   try{
-    const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);   // last 14 days
-    let q=sb.from('meta_ads_insight')
-      .select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name')
-      .gte('date_start',since);
-    const cid=brandCompanyId(brand); if(cid) q=q.eq('company_id',cid);   // respect brand filter
+    const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
+    let q=sb.from('meta_ads_insight').select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name').gte('date_start',since);
+    const cid=brandCompanyId(brand); if(cid) q=q.eq('company_id',cid);
     const {data,error}=await q;
     if(error) throw error;
     adsRows=data||[]; adsMode='live';
-  }catch(e){ adsRows=null; adsMode='baked'; }   // any failure -> baked, never blank
+  }catch(e){ adsRows=null; adsMode='baked'; }
   el.innerHTML=renderAdsBody();
 }
 function renderAdsBody(){
   const {source,rows}=adsScopedRows();
-  if(!rows.length){
-    const who=brand==='all'?'this date range':brandName(brand);
-    return `<div class="up-zone" style="padding:40px 24px">${I.trend}<div style="font-weight:600;color:var(--text)">No ad data for ${escapeHtml(who)} yet</div><div style="font-size:12.5px;margin-top:4px">Meta ad insights will appear here once synced.</div></div>`;
-  }
+  if(!rows.length) return `<div class="placeholder">${I.trend}<div>No ad data for ${brand==='all'?'this date range':esc(BRANDS[brand].name)} yet</div></div>`;
   const campMap=new Map(); rows.forEach(r=>{if(!campMap.has(r.cid))campMap.set(r.cid,r.cname);});
   if(adsCampaign!=='all'&&!campMap.has(adsCampaign)) adsCampaign='all';
   const scoped=adsCampaign==='all'?rows:rows.filter(r=>r.cid===adsCampaign);
   const spend=scoped.reduce((a,r)=>a+r.spend,0), leads=scoped.reduce((a,r)=>a+r.leads,0);
   const imp=scoped.reduce((a,r)=>a+r.imp,0), clicks=scoped.reduce((a,r)=>a+r.clicks,0);
   const cpl=leads?spend/leads:0, ctr=imp?(clicks/imp)*100:0;
-  const kpis=`<div class="kpis">${kpi(I.dollar,'Spend (14d)',money(spend),source==='live'?'live':'sample','')}${kpi(I.target,'Leads (14d)',leads,'','up')}${kpi(I.trend,'Avg CPL',leads?money(cpl):'—','','down')}${kpi(I.gauge,'Avg CTR',imp?ctr.toFixed(2)+'%':'—','','')}</div>`;
-  const opts=['<option value="all">All campaigns</option>'].concat([...campMap.entries()].map(([id,nm])=>`<option value="${escapeHtml(id)}"${adsCampaign===id?' selected':''}>${escapeHtml(nm)}</option>`)).join('');
-  const srcLabel=source==='live'?'Live · meta_ads_insight <span class="livedot" title="Live from Supabase"></span>':'Sample data';
-  const controls=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap"><select class="filter-select" aria-label="Campaign" onchange="setAdsCampaign(this.value)">${opts}</select><span style="font-size:12px;color:var(--text-faint);display:inline-flex;align-items:center;gap:6px">${srcLabel}</span></div>`;
+  const kpis=`<div class="kpis">${kpi('dollar','Spend (14d)',money(spend),source==='live'?'live':'sample')}${kpi('target','Leads (14d)',leads,'','up')}${kpi('trend','Avg CPL',leads?money(cpl):'—','','down')}${kpi('gauge','Avg CTR',imp?ctr.toFixed(2)+'%':'—','')}</div>`;
+  const opts=['<option value="all">All campaigns</option>'].concat([...campMap.entries()].map(([id,nm])=>`<option value="${esc(id)}"${adsCampaign===id?' selected':''}>${esc(nm)}</option>`)).join('');
+  const srcLabel=source==='live'?'Live &middot; meta_ads_insight <span class="livedot" title="Live from Supabase"></span>':'Sample data';
+  const controls=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap"><select class="selectbox" onchange="setAdsCampaign(this.value)">${opts}</select><span class="muted" style="display:inline-flex;align-items:center;gap:6px">${srcLabel}</span></div>`;
   const byDate=new Map(); scoped.forEach(r=>byDate.set(r.date,(byDate.get(r.date)||0)+r.spend));
   const dates=[...byDate.keys()].sort();
-  const max=Math.max(...dates.map(d=>byDate.get(d)),1);
-  const bars=`<div class="bars">${dates.map(d=>`<div class="bar"><div class="fill" style="height:${Math.round(byDate.get(d)/max*100)}%"></div><div class="lbl">${escapeHtml(adShortDay(d)).replace(/^\w+ /,'')}</div></div>`).join('')}</div><div class="legend"><span class="li"><span class="sw" style="background:var(--accent)"></span>Daily spend</span></div>`;
-  let tbl;
+  const bars=barChart(dates.map(d=>[adShortDay(d).replace(/^\w+ /,''),byDate.get(d),'var(--accent)']));
+  let tblHtml;
   if(adsCampaign==='all'){
     const per=new Map();
     rows.forEach(r=>{const p=per.get(r.cid)||{name:r.cname,spend:0,imp:0,clicks:0,leads:0};p.spend+=r.spend;p.imp+=r.imp;p.clicks+=r.clicks;p.leads+=r.leads;per.set(r.cid,p);});
-    const trs=[...per.entries()].map(([id,p])=>`<tr onclick="setAdsCampaign('${escapeHtml(id)}')" style="cursor:pointer"><td>${escapeHtml(p.name)}</td><td class="r val">${money(p.spend)}</td><td class="r">${p.imp.toLocaleString()}</td><td class="r">${p.clicks.toLocaleString()}</td><td class="r">${p.leads}</td><td class="r val">${p.leads?money(p.spend/p.leads):'—'}</td></tr>`).join('');
-    tbl=panelFlush(I.chart,'By campaign',per.size,table([{t:'Campaign'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs));
+    const trs=[...per.entries()].map(([id,p])=>`<tr onclick="setAdsCampaign('${esc(id)}')" style="cursor:pointer"><td>${esc(p.name)}</td><td class="r">${money(p.spend)}</td><td class="r">${p.imp.toLocaleString()}</td><td class="r">${p.clicks.toLocaleString()}</td><td class="r">${p.leads}</td><td class="r">${p.leads?money(p.spend/p.leads):'—'}</td></tr>`).join('');
+    tblHtml=card('grid','By campaign',per.size,tbl([{t:'Campaign'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
   }else{
-    const trs=scoped.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(r=>`<tr><td>${escapeHtml(adShortDay(r.date))}</td><td class="r val">${money(r.spend)}</td><td class="r">${r.imp.toLocaleString()}</td><td class="r">${r.clicks.toLocaleString()}</td><td class="r">${r.leads}</td><td class="r val">${r.leads?money(r.spend/r.leads):'—'}</td></tr>`).join('');
-    tbl=panelFlush(I.chart,'Campaign: '+escapeHtml(campMap.get(adsCampaign)||'Campaign'),scoped.length,table([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs));
+    const trs=scoped.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(r=>`<tr><td>${esc(adShortDay(r.date))}</td><td class="r">${money(r.spend)}</td><td class="r">${r.imp.toLocaleString()}</td><td class="r">${r.clicks.toLocaleString()}</td><td class="r">${r.leads}</td><td class="r">${r.leads?money(r.spend/r.leads):'—'}</td></tr>`).join('');
+    tblHtml=card('grid','Campaign: '+esc(campMap.get(adsCampaign)||'Campaign'),scoped.length,tbl([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
   }
-  return kpis+controls+`<div style="margin-top:16px">${panel(I.trend,'Daily spend',null,bars)}</div>`+`<div style="margin-top:16px">${tbl}</div>`;
-}
-function nodeHtml(name,role,color){return `<span class="node"><span class="av" style="background:${color||'#5b8cff'}">${initials(name)}</span><span class="txt"><span class="nm">${name}</span><span class="rl">${role}</span></span></span>`;}
-/* ===== Organization: hierarchical tree <-> directory list, toggled ===== */
-/* Ring/label gradients by depth (CEO -> managers -> leads -> ICs), mirroring
-   the reference org charts while staying close to the portal palette. */
-const ORG_RINGS=[
-  'linear-gradient(135deg,#f2748c,#e0559d)',
-  'linear-gradient(135deg,#f0b64b,#f0894b)',
-  'linear-gradient(135deg,#54c98a,#3ec7c2)',
-  'linear-gradient(135deg,#3ec7c2,#5b8cff)',
-];
-let orgView='tree';
-function setOrgView(v){orgView=v;const b=document.getElementById('detailBody');if(b)b.innerHTML=RENDER.org();}
-function orgReports(id){return STAFF.filter(s=>s.mgr===id).sort((a,b)=>a.name.localeCompare(b.name));}
-function orgAvatar(p,grad){
-  const inner=p.img?`<img src="${p.img}" alt="">`:`<span class="ini" style="background:${brandColor(p.brand)}">${initials(p.name)}</span>`;
-  return `<span class="oav" style="background:${grad}">${inner}</span>`;
-}
-function orgNode(p,depth){
-  const grad=ORG_RINGS[Math.min(depth,ORG_RINGS.length-1)];
-  const kids=orgReports(p.id);
-  const childHtml=kids.length?`<ul>${kids.map(k=>orgNode(k,depth+1)).join('')}</ul>`:'';
-  return `<li><div class="onode" role="button" tabindex="0" onclick="openStaffCard(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaffCard(${p.id})}" title="${escapeHtml(p.name)} · ${escapeHtml(p.title)}" aria-label="Open profile for ${escapeHtml(p.name)}">
-      ${orgAvatar(p,grad)}
-      <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(p.name)}</span><span class="otl">${escapeHtml(p.title)}</span></div>
-      <span class="obadge">${escapeHtml(brandName(p.brand))}</span>
-    </div>${childHtml}</li>`;
-}
-function orgTreeHtml(){
-  const roots=STAFF.filter(s=>!s.mgr).sort((a,b)=>a.name.localeCompare(b.name));
-  return `<div class="orgwrap"><div class="orgchart"><ul>${roots.map(r=>orgNode(r,0)).join('')}</ul></div></div>`;
-}
-function orgListHtml(){
-  const people=STAFF.slice().sort((a,b)=>a.name.localeCompare(b.name));
-  const mgrName=id=>{const m=STAFF.find(s=>s.id===id);return m?m.name:'—';};
-  const rows=people.map(p=>`<tr onclick="openStaffCard(${p.id})" style="cursor:pointer">
-    <td><span class="who2"><img src="${p.img}" alt="">${p.name}</span></td>
-    <td>${p.title}</td>
-    <td><span class="chip"><span class="sw" style="background:${brandColor(p.brand)}"></span>${brandName(p.brand)}</span></td>
-    <td>${p.mgr?mgrName(p.mgr):'<span style="color:var(--text-faint)">—</span>'}</td>
-    <td><span class="contact2" onclick="event.stopPropagation()"><a href="mailto:${p.email}" title="${p.email}">${I.mail}</a><a href="tel:${p.phone}" title="${p.phone}">${I.phone}</a></span></td>
-  </tr>`).join('');
-  return panelFlush(I.users,'People',people.length,table([{t:'Name'},{t:'Title'},{t:'Brand'},{t:'Reports to'},{t:'Contact'}],rows));
-}
-RENDER.org=function(){
-  const toggle=`<div class="orgtoggle"><div class="seg2">
-    <button class="${orgView==='tree'?'on':''}" onclick="setOrgView('tree')">${I.sitemap}Tree</button>
-    <button class="${orgView==='list'?'on':''}" onclick="setOrgView('list')">${I.list}List</button>
-  </div></div>`;
-  return toggle + (orgView==='tree'?orgTreeHtml():orgListHtml());
-};
-/* ===== Department chart: brand hierarchy (tree) <-> directory (list) ===== */
-/* Coloured by BRAND (vs the Organization view's by-depth colours). */
-const BRAND_GRADS={
-  all:'linear-gradient(135deg,#5b8cff,#7a5bff)',
-  leavenwealth:'linear-gradient(135deg,#5b8cff,#7a5bff)',
-  leadli:'linear-gradient(135deg,#a06bff,#7a5bff)',
-  folio:'linear-gradient(135deg,#3ec7c2,#54c98a)',
-  liquid:'linear-gradient(135deg,#f0b64b,#f0894b)',
-};
-const brandGrad=id=>BRAND_GRADS[id]||`linear-gradient(135deg,${brandColor(id)},${brandColor(id)})`;
-let deptView='tree';
-function setDeptView(v){deptView=v;const b=document.getElementById('detailBody');if(b)b.innerHTML=RENDER.dept();}
-function deptGroups(){
-  return BRANDS.slice(1)
-    .map(b=>({b,people:STAFF.filter(s=>s.brand===b.id).sort((x,y)=>x.name.localeCompare(y.name))}))
-    .filter(g=>g.people.length);
-}
-function deptTreeHtml(){
-  const brandNodes=deptGroups().map(g=>{
-    const grad=brandGrad(g.b.id);
-    const people=g.people.map(p=>`<li><div class="onode" role="button" tabindex="0" onclick="openStaffCard(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaffCard(${p.id})}" title="${escapeHtml(p.name)} · ${escapeHtml(p.title)}" aria-label="Open profile for ${escapeHtml(p.name)}">
-        <span class="oav" style="background:${grad}"><img src="${p.img}" alt=""></span>
-        <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(p.name)}</span><span class="otl">${escapeHtml(p.title)}</span></div>
-      </div></li>`).join('');
-    return `<li><div class="onode static">
-        <span class="oav" style="background:${grad}"><span class="ini" style="background:${g.b.color}">${g.b.short}</span></span>
-        <div class="olabel" style="background:${grad}"><span class="onm">${escapeHtml(g.b.name)}</span><span class="otl">${g.people.length} ${g.people.length===1?'person':'people'}</span></div>
-      </div><ul>${people}</ul></li>`;
-  }).join('');
-  const rootGrad=brandGrad('all');
-  return `<div class="orgwrap"><div class="orgchart"><ul><li>
-    <div class="onode static"><span class="oav" style="background:${rootGrad}"><span class="ini" style="background:#5b8cff">LW</span></span>
-      <div class="olabel" style="background:${rootGrad}"><span class="onm">LeavenWealth Group</span><span class="otl">All brands</span></div></div>
-    <ul>${brandNodes}</ul>
-  </li></ul></div></div>`;
-}
-function deptListHtml(){
-  return deptGroups().map(g=>{
-    const rows=g.people.map(p=>`<tr onclick="openStaffCard(${p.id})" style="cursor:pointer">
-      <td><span class="who2"><img src="${p.img}" alt="">${p.name}</span></td>
-      <td>${p.title}</td>
-      <td><span class="contact2" onclick="event.stopPropagation()"><a href="mailto:${p.email}" title="${p.email}">${I.mail}</a><a href="tel:${p.phone}" title="${p.phone}">${I.phone}</a></span></td>
-    </tr>`).join('');
-    return `<div style="margin-top:16px">${panelFlush(I.building,g.b.name,g.people.length,table([{t:'Name'},{t:'Title'},{t:'Contact'}],rows))}</div>`;
-  }).join('');
-}
-RENDER.dept=function(){
-  const toggle=`<div class="orgtoggle"><div class="seg2">
-    <button class="${deptView==='tree'?'on':''}" onclick="setDeptView('tree')">${I.sitemap}Tree</button>
-    <button class="${deptView==='list'?'on':''}" onclick="setDeptView('list')">${I.list}List</button>
-  </div></div>`;
-  return toggle + (deptView==='tree'?deptTreeHtml():deptListHtml());
-};
-RENDER.pmreports=function(){
-  const pm=STATEMENTS.filter(s=>s.type==='pm_income_expense');
-  const kpis=`<div class="kpis">${kpi(I.home,'Reports',pm.length,'PM income/expense','')}${kpi(I.up,'Gross income',moneyk(22400),'Jun sample','up')}${kpi(I.dollar,'Operating exp',moneyk(8150),'Jun sample','down')}${kpi(I.trend,'NOI',moneyk(14250),'Jun sample','up')}</div>`;
-  const rows=PROPS.map(p=>`<tr><td>${p.name}</td><td class="r">${p.occ}%</td><td class="r val">${money(Math.round(p.noi*1.6))}</td><td class="r val" style="color:var(--rose)">${money(Math.round(p.noi*0.6))}</td><td class="r val" style="color:var(--green)">${money(p.noi)}</td></tr>`).join('');
-  const stmts=pm.map(s=>`<tr><td>${s.who}</td><td>${s.period}</td><td>${pill(s.status,'blue')}</td></tr>`).join('')||`<tr><td colspan="3" style="color:var(--text-faint)">No PM statements yet</td></tr>`;
-  return kpis+
-    `<div style="margin-top:16px">${panelFlush(I.home,'Property P&amp;L (monthly)',PROPS.length,table([{t:'Property'},{t:'Occ',r:1},{t:'Income',r:1},{t:'Op Ex',r:1},{t:'NOI',r:1}],rows))}</div>`+
-    `<div style="margin-top:16px">${panelFlush(I.file,'Ingested PM reports',pm.length,table([{t:'Source'},{t:'Period'},{t:'Status'}],stmts))}</div>`+
-    `<div style="margin-top:12px;font-size:12px;color:var(--text-faint)">Live AppFolio / Buildium sync deferred; these populate from uploaded statements today.</div>`;
-};
-
-/* ===== portals ===== */
-const PORTALS=[{id:'ops',ic:'dash',t:'Internal Ops'},{id:'investor',ic:'briefcase',t:'Investor'},{id:'client',ic:'globe',t:'Client'}];
-let portal='ops', brand='all';
-
-function statCard(color,ic,title,sub,metric,delta,dcls,onclick,live){
-  return `<a class="scard" style="--c:${color}" onclick="${onclick}">
-    <span class="scard-ic" style="background:${color}1f;color:${color}">${I[ic]||''}</span>
-    <span class="scard-main"><span class="scard-t">${title}${live?' <span class="livedot" title="Live data"></span>':''}</span><span class="scard-s">${sub}</span></span>
-    <span class="scard-metric">${metric!=null&&metric!==''?`<span class="scard-v">${metric}</span>`:''}${delta?`<span class="scard-d ${dcls||''}">${delta}</span>`:''}</span>
-  </a>`;
-}
-function section(title,color,cards){return `<div class="eyebrow"><span class="sec-dot" style="--c:${color}"></span>${title} <span class="count">${cards.length}</span></div><div class="sec-cards">${cards.join('')}</div>`;}
-function renderOps(){
-  const C={company:'#5b8cff',dash:'#a06bff',fin:'#54c98a',prop:'#3ec7c2',leads:'#f0b64b'};
-  const revIn=TXNS.filter(t=>t.dir==='in').reduce((a,t)=>a+t.amt,0);
-  const spend=ADS.reduce((a,b)=>a+b.spend,0), adleads=ADS.reduce((a,b)=>a+b.leads,0), cpl=adleads?spend/adleads:0;
-  const cash=ACCOUNTS.reduce((a,x)=>a+x.bal,0);
-  const noi=PROPS.reduce((a,p)=>a+p.noi,0);
-  const brandsWith=BRANDS.slice(1).filter(b=>STAFF.some(s=>s.brand===b.id)).length;
-  const booked=LEADS.filter(l=>l.status==='Booked').length;
-  const chips=`<div class="biz-bar" style="margin-bottom:22px">${BRANDS.map(b=>`<button class="biz-tab ${b.id===brand?'active':''}" onclick="setBrand('${b.id}')"><span class="glyph" style="background:${b.color}">${b.short}</span>${b.name}</button>`).join('')}</div>`;
-  const company = section('Company',C.company,[
-    statCard(C.company,'org','Organization chart','Reporting structure',STAFF.length,'people','',"openDetail('org')"),
-    statCard(C.company,'tree','Department chart','By brand &amp; function',brandsWith,'brands','',"openDetail('dept')"),
-  ]);
-  const dashboards = section('Dashboards',C.dash,[
-    statCard(C.dash,'gauge','Executive overview','Cross-brand KPIs',moneyk(revIn),'MTD','up',"openDetail('exec')"),
-    statCard(C.dash,'trend','Marketing / Ads','Meta spend, CPL, leads',moneyk(spend),money(cpl)+' CPL','',"openDetail('ads')"),
-  ]);
-  const financials = section('Transactions &amp; Financials',C.fin,[
-    statCard(C.fin,'dollar','Internal financials','Transactions, accounts, statements',moneyk(cash),'cash','',"openDetail('fin')"),
-    statCard(C.fin,'file','Property financial reports','PM income &amp; expense',moneyk(noi),'NOI/mo','up',"openDetail('pmreports')"),
-  ]);
-  const properties = section('Properties',C.prop,[
-    statCard(C.prop,'home','Properties','Live view · ops dashboard','','','',"openEmbed('"+DASHBOARD_URL+"#tab=properties&embed=1','Properties')",true),
-    statCard(C.prop,'bank','Loans','Live from Supabase','','','',"openDetail('loans')",true),
-  ]);
-  const leads = section('Leads',C.leads,[
-    statCard(C.leads,'target','Leads','Pipeline by provider',LEADS.length,booked+' booked','',"openDetail('leads')"),
-    statCard(C.leads,'cal','Appointments','Bookings &amp; show rate',APPTS.length,'80% show','up',"openDetail('appts')"),
-  ]);
-  const team = `<div class="eyebrow" style="margin-top:30px"><span class="sec-dot" style="--c:#9aa1ad"></span>Team <span class="count">${STAFF.filter(inBrand).length}</span></div>
-    <div class="grid cols-3">${STAFF.filter(inBrand).map(p=>`<div class="tile" onclick="openStaffCard(${p.id})"><img class="ico" style="border-radius:50%;padding:0;object-fit:cover" src="${p.img}" alt=""><span class="body"><span class="t">${p.name}</span><span class="s">${p.title}</span><span class="pill blue" style="align-self:flex-start;margin-top:4px">${brandName(p.brand)}</span></span></div>`).join('')}</div>`;
-  return chips + company + dashboards + financials + properties + leads + team;
-}
-function renderInvestor(){
-  const total=INVESTORS.reduce((a,i)=>a+i.stake,0);
-  const kpis=`<div class="kpis">${kpi(I.users,'Investors',INVESTORS.length,'','')}${kpi(I.dollar,'Committed capital','$4.2M','across entities','')}${kpi(I.trend,'Q2 distribution','$118K','paid Jul 5','up')}${kpi(I.gauge,'Allocated',total+'%','of fund','')}</div>`;
-  const rows=INVESTORS.map(i=>`<tr><td><span class="who2"><span class="av2" style="background:#5b8cff">${initials(i.name)}</span>${i.name}</span></td><td>${i.where}</td><td class="r val">${i.stake}%</td><td>${i.primary?pill('primary','green'):pill('LP','gray')}</td></tr>`).join('');
-  const docs=`<div class="rows">${['Q2 2026 Investor Report.pdf','June Distribution Notice.pdf','K-1 (2025).pdf','Operating Agreement.pdf'].map(d=>`<div class="row"><span class="main"><span class="rt">${d}</span><span class="rs">LeavenWealth · shared</span></span>${pill('PDF','blue')}</div>`).join('')}</div>`;
-  return kpis+`<div style="margin-top:16px">${panelFlush(I.users,'Investors',INVESTORS.length,table([{t:'Investor'},{t:'Position'},{t:'Stake',r:1},{t:'Role'}],rows))}</div>`+
-    `<div style="margin-top:16px">${panelFlush(I.file,'Documents','4',docs)}</div>`;
-}
-function renderClient(){
-  const kpis=`<div class="kpis">${kpi(I.briefcase,'Active engagements','7','Folio + Leadli','')}${kpi(I.file,'Files this month','23','uploaded','up')}${kpi(I.check,'Deliverables due','3','this week','')}${kpi(I.gauge,'On-time rate','96%','','up')}</div>`;
-  const up=`<div class="up-zone">${I.file}<div style="font-weight:600;color:var(--text)">Drag &amp; drop files to upload</div><div style="font-size:12.5px;margin-top:4px">Bank statements, receipts, reports · PDF, CSV, XLSX</div></div>`;
-  const rows=[['June_Bank_Statement.pdf','Jenny Cruz','manual','Jul 14'],['Q2_Financials.xlsx','Automated sync','automated','Jul 12'],['Receipts_June.zip','client A','manual','Jul 10'],['Payroll_June.csv','Jenny Cruz','manual','Jul 8']]
-    .map(([f,by,m,d])=>`<tr><td>${f}</td><td>${by}</td><td>${pill(m,m==='manual'?'blue':'green')}</td><td>${d}</td></tr>`).join('');
-  return kpis+`<div style="margin-top:16px">${panel(I.file,'Upload',null,up)}</div>`+
-    `<div style="margin-top:16px">${panelFlush(I.file,'Recent uploads','4',table([{t:'File'},{t:'Uploaded by'},{t:'Source'},{t:'Date'}],rows))}</div>`;
+  return kpis+controls+card('trend','Daily spend',null,bars)+`<div style="height:16px"></div>`+tblHtml;
 }
 
-/* ===== detail sheet ===== */
-const DASHBOARD_URL='/ops'; /* ops dashboard is served same-origin at /ops */
-const DASH_TITLES={exec:'Executive overview',ads:'Marketing / Ads',fin:'Internal financials',pmreports:'Property financial reports',loans:'Loans',leads:'Leads',appts:'Appointments',org:'Organization chart',dept:'Department chart'};
-function openSheet(){document.getElementById('detail').classList.add('open');document.body.style.overflow='hidden';}
-function openDetail(id){
-  document.getElementById('detailTitle').textContent=DASH_TITLES[id]||id;
-  document.getElementById('detailSub').textContent = brand==='all'?'All brands':brandName(brand);
-  document.getElementById('detailBody').innerHTML=RENDER[id]();
-  openSheet();
+/* ---- profile drawer ---- */
+function openStaff(id){const p=STAFF.find(s=>s.id===id);if(!p)return;
+  document.getElementById('drawer').innerHTML=`
+    <div class="dr-hero"><button class="dr-x" onclick="closeDrawer()">&times;</button>
+      <img class="dr-av" src="${p.img}" alt=""><div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role)}</div><div class="dr-tag">${esc(BRANDS[p.brand].name)}</div></div>
+    <div class="dr-b">
+      <div class="dr-sec">About</div>
+      <div class="bio clamp" id="bioText">${esc(p.bio)}</div>
+      <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>
+      <div style="height:8px"></div>
+      <div class="dr-field">${I.mail}<div><div class="fk">Email</div><div>${esc(p.email)}</div></div></div>
+      <div class="dr-field">${I.phone}<div><div class="fk">Phone</div><div>${esc(p.phone)}</div></div></div>
+    </div>`;
+  document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');
+  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});
 }
-function openEmbed(url,title){
-  document.getElementById('detailTitle').textContent=title;
-  document.getElementById('detailSub').textContent='Live · ops dashboard';
-  document.getElementById('detailBody').innerHTML=`<div style="font-size:12.5px;color:var(--text-faint);margin-bottom:10px">Served from the operations dashboard at <span class="mono">${url}</span></div><iframe class="embed" src="${url}" title="${title}"></iframe>`;
-  openSheet();
-}
-function closeDetail(){document.getElementById('detail').classList.remove('open');document.body.style.overflow='';}
-
-/* ===== drawers ===== */
-function openStaffCard(id){const p=STAFF.find(x=>x.id===id);if(!p)return;drawer(`
-  <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
-    <img class="d-av" style="object-fit:cover" src="${p.img}" alt="">
-    <div class="d-nm">${escapeHtml(p.name)}</div><div class="d-tl">${escapeHtml(p.title)}</div>
-    <div class="d-dept">${escapeHtml(brandName(p.brand))}</div></div>
-  <div class="d-body">
-    <div class="d-field" style="align-items:flex-start">${I.file}<div style="min-width:0"><div class="fk">About</div>
-      <div class="bio clamp" id="bioText">${escapeHtml(p.desc||'')}</div>
-      <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button></div></div>
-    <div class="d-field">${I.mail}<div><div class="fk">Email</div><div class="fv">${escapeHtml(p.email||'')}</div></div></div>
-    <div class="d-field">${I.phone}<div><div class="fk">Phone</div><div class="fv">${escapeHtml(p.phone||'')}</div></div></div>
-  </div>
-  <div class="d-actions"><button class="primary">Message</button><button class="ghost">View profile</button></div>`);
-  // Bio always starts collapsed; hide the toggle when the text fits within ~4 lines.
-  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});}
 function toggleBio(){const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(!t||!b)return;const clamped=t.classList.toggle('clamp');b.textContent=clamped?'See more':'See less';}
-function openLead(i){const l=LEADS[i];drawer(`
-  <div class="d-hero"><button class="d-x" onclick="closeStaff()">&times;</button>
-    <div class="d-av" style="background:${brandColor(l.brand)}">${initials(l.name)}</div>
-    <div class="d-nm">${l.name}</div><div class="d-tl">${l.stage}</div>
-    <div class="d-dept">${brandName(l.brand)}</div></div>
-  <div class="d-body">
-    <div class="d-field">${I.target}<div><div class="fk">Provider</div><div class="fv">${PROVIDERS[l.prov].n}</div></div></div>
-    <div class="d-field">${I.check}<div><div class="fk">Status</div><div class="fv">${l.status}</div></div></div>
-    <div class="d-field">${I.dollar}<div><div class="fk">Value</div><div class="fv">${l.val?money(l.val):'—'}</div></div></div>
-  </div>
-  <div class="d-actions"><button class="primary">Open in GHL</button><button class="ghost">Log call</button></div>`);}
-function drawer(html){document.getElementById('staffDrawer').innerHTML=html;document.getElementById('staffDrawer').classList.add('open');document.getElementById('drawerBack').classList.add('open');}
-function closeStaff(){document.getElementById('staffDrawer').classList.remove('open');document.getElementById('drawerBack').classList.remove('open');}
+function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 
-/* ===== nav / render ===== */
-function buildPortalbar(){document.getElementById('portalbar').innerHTML=PORTALS.map(p=>`<button class="${p.id===portal?'active':''}" onclick="setPortal('${p.id}')">${I[p.ic]}${p.t}</button>`).join('');}
-function render(){buildPortalbar();const c=document.getElementById('content');c.innerHTML = portal==='ops'?renderOps():portal==='investor'?renderInvestor():renderClient();}
-function setPortal(p){portal=p;render();}
-function setBrand(b){brand=b;render();}
-
-/* ===== theme / settings (from original) ===== */
-let theme='dark';
-function applyTheme(){document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;document.querySelectorAll('#themeSeg button').forEach(b=>b.classList.toggle('on',b.dataset.themeSet===theme));document.querySelectorAll('.seg-ic-l').forEach(e=>e.innerHTML=I.sun);document.querySelectorAll('.seg-ic-d').forEach(e=>e.innerHTML=I.moon);const apr=document.getElementById('apr-ico');if(apr)apr.innerHTML=theme==='dark'?I.moon:I.sun;}
-function toggleTheme(){theme=theme==='dark'?'light':'dark';applyTheme();}
-function setTheme(t){theme=t;applyTheme();}
-function openSettings(){document.getElementById('settings').classList.add('open');}
-function closeSettings(){document.getElementById('settings').classList.remove('open');}
-document.addEventListener('keydown',e=>{if(e.key!=='Escape')return;const d=document.getElementById('staffDrawer');if(d.classList.contains('open')){closeStaff();return;}if(document.getElementById('detail').classList.contains('open')){closeDetail();return;}closeSettings();});
-document.querySelectorAll('.m-row[data-ic]').forEach(r=>r.insertAdjacentHTML('afterbegin',I[r.dataset.ic]||''));
-applyTheme();render();
+/* ---- nav / render ---- */
+function applyAccent(){const b=BRANDS[brand];const soft=theme==='dark'?b.color+'26':b.soft;const line=theme==='dark'?b.color+'59':b.line;document.documentElement.style.setProperty('--accent',b.color);document.documentElement.style.setProperty('--accent-soft',soft);document.documentElement.style.setProperty('--accent-line',line);}
+function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.entries(BRANDS).map(([id,b])=>`<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')"><span class="bp-dot" style="background:${b.color}">${b.short}</span>${b.name}</div>`).join('');}
+function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
+function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
+function currentLabel(){const it=currentItem();return it?it.label:view;}
+function isEmbedView(){return view==='properties'||(view==='tasks'&&tasksTab==='ptasks')||(view==='alltasks'&&tasksTab==='ptasks');}
+function render(){
+  applyAccent();buildBrandMenu();buildNav();
+  const b=BRANDS[brand];
+  document.getElementById('bpGlyph').style.background=b.color;document.getElementById('bpGlyph').textContent=b.short;
+  document.getElementById('bpName').textContent=b.name+(brand==='all'?'':' workspace');
+  document.getElementById('cbBrand').textContent=b.name;
+  document.getElementById('cbView').textContent=' / '+currentLabel();
+  const content=document.getElementById('content');
+  content.className='content'+(view==='properties'?' wide':'');
+  content.innerHTML=`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
+}
+function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
+function setView(id){view=id;if(id!=='tasks'&&id!=='alltasks')tasksTab='board';render();}
+document.getElementById('themeBtn').innerHTML=I.moon;
+render();
 </script>
-</body>
-</html>
+</body></html>

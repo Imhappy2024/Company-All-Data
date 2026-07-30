@@ -7,17 +7,31 @@ When you change architecture, update this file in the same commit.
 An all-company internal portal + dashboards for LeavenWealth Group (one company,
 several brands). Two front ends are merged into ONE Express service:
 
-- `/`     → **portal** (`public/portal.html`) — the front door. Sections:
-            Company (org/dept), Dashboards (Exec, Marketing/Ads),
-            Transactions & Financials (Internal financials, Property financial reports),
-            Properties (Properties, Loans), Leads (Leads, Appointments), + Team directory.
+- `/`     → **portal** (`public/portal.html`) — a **sidebar app shell with brand-as-workspace**.
+            The workspace switcher (top-left) picks a brand (All Brands / LeavenWealth / Leadli AI /
+            Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
+            LeavenWealth: Overview, Properties, Loans, Investors, Insurance + workspace core
+            (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,
+            Appointments, Marketing/Ads. Folio: App Users, Plans, Reports (SaaS). Liquid: Loan
+            Pipeline, Borrowers. Clicking a person (Org/Dept charts, Team) opens a profile drawer
+            with a bio "See more". Brand maps 1:1 to Supabase `company` / `company_member`.
 - `/ops`  → the existing **operations dashboard** (`public/index.html`) — live ClickUp +
             Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10, Properties
             (sub-views: Properties / Property Tasks / CapEx / Asset Fees / Escrows / TIF).
 - `/api/*`→ existing routes (ClickUp + Supabase). Do not break these.
 
-The portal's Properties card iframes `/ops#tab=properties` (same-origin). The ops
-dashboard reads `#tab=<t>&sub=<s>` on load to deep-link.
+**Portal ↔ ops (interim, during the unify-into-one-app migration):**
+- Portal **Properties** nav iframes `/ops#tab=properties&embed=1` (embed mode hides the ops
+  header/tabs/filter bar). Property Tasks is intentionally **removed** from the Properties view.
+- Portal **Tasks** tab hosts **Property Tasks** (segmented: Tasks | Property Tasks), which iframes
+  `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` also hides the property sub-nav → board only).
+- The ops dashboard reads `#tab=<t>&sub=<s>` on load to deep-link; embed CSS keys off
+  `html.embed-only` / `html.embed-bare` (set in `<head>` before render, no flash).
+- Portal reads live where possible: **Loans** → `/api/loans` (Supabase); **Marketing/Ads** →
+  `meta_ads_insight` via a browser supabase-js client (`window.__sb`, anon key), **session-gated**
+  with a baked fallback until portal auth exists. Other cards are baked demo data for now.
+- **Roadmap:** port the Properties + Property-Tasks views natively into the portal (reusing the
+  same `/api/*`), then retire `/ops` and `public/index.html`. Until then the embeds are the bridge.
 
 ## Stack
 Node 18+, Express, vanilla HTML/CSS/JS (NO framework, NO build step — keep it that way

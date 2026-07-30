@@ -6,7 +6,7 @@
 <title>Dashboard</title>
 <!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
      class in <head> BEFORE render so the dashboard chrome never flashes. -->
-<script>try{if(/[#&]embed=(1|properties)/.test(location.hash))document.documentElement.classList.add('embed-only');}catch(e){}</script>
+<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');}}catch(e){}</script>
 <!-- PWA: installable, standalone home-screen app -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
@@ -1613,6 +1613,10 @@
   html.embed-only .tabs-bar,
   html.embed-only .filter-bar { display: none !important; }
   html.embed-only .frozen-top { padding-top: 10px; }
+  /* Property Tasks now lives under the portal's Tasks tab, not Properties: hide its sub-nav button in the Properties embed. */
+  html.embed-only .prop-subnav-btn[data-sub="tasks"] { display: none !important; }
+  /* Bare embed = Tasks -> Property Tasks board only: hide the whole property sub-nav switcher. */
+  html.embed-bare .prop-subnav { display: none !important; }
 
   #view-properties .main { gap: 14px; }
   .prop-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
