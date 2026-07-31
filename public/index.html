@@ -6,7 +6,7 @@
 <title>Dashboard</title>
 <!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
      class in <head> BEFORE render so the dashboard chrome never flashes. -->
-<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');}}catch(e){}</script>
+<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}}catch(e){}</script>
 <!-- PWA: installable, standalone home-screen app -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
@@ -1617,6 +1617,24 @@
   html.embed-only .prop-subnav-btn[data-sub="tasks"] { display: none !important; }
   /* Bare embed = Tasks -> Property Tasks board only: hide the whole property sub-nav switcher. */
   html.embed-bare .prop-subnav { display: none !important; }
+  /* Embed re-skin: remap the ops palette to the PORTAL palette so the embedded view
+     blends into the new sidebar app (accent, surfaces, borders, text). The portal
+     drives dark/light via the `embed-dark` class (see embed head script + postMessage). */
+  html.embed-only body {
+    --bg:#f4f5f7; --surface:#ffffff; --surface2:#fafbfc; --border:#e7e9ee; --border2:#eef0f4;
+    --text:#171a1f; --text2:#666e7a; --text3:#98a0ac;
+    --accent:#4f6bed; --accent2:#3f57cc; --teal:#4f6bed;
+    --green:#12a150; --mint:#e7f6ee; --yellow:#c67c11; --red:#d1435b; --orange:#c67c11; --purple:#8b5cf6;
+    --header-bg:#ffffff; --header-text:#171a1f; --radius:14px;
+  }
+  html.embed-dark body {
+    --bg:#0e1015; --surface:#171b22; --surface2:#1b1f27; --border:#272c36; --border2:#20242d;
+    --text:#e7e9ee; --text2:#98a1ae; --text3:#6a7280;
+    --accent:#4f6bed; --accent2:#6b83f0; --teal:#4f6bed;
+    --green:#12a150; --mint:#12351f; --yellow:#e0a94a; --red:#e06b66; --orange:#c08864; --purple:#968aa8;
+    --header-bg:#0e1015; --header-text:#e7e9ee;
+  }
+  html.embed-dark { background:#0e1015; }
 
   #view-properties .main { gap: 14px; }
   .prop-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
@@ -7582,6 +7600,11 @@ function toggleTheme() {
   try { localStorage.setItem('theme', next); } catch (e) {}
 }
 
+// Embed theme sync: when embedded in the portal, the parent drives dark/light
+// (via ?theme= on load and postMessage on toggle). `embed-dark` keys the re-skin.
+function embedApplyTheme(t){ var dark = t === 'dark'; document.documentElement.classList.toggle('embed-dark', dark); if (document.body) document.body.classList.toggle('dark-mode', dark); }
+window.addEventListener('message', function (e) { try { if (e.origin !== location.origin) return; var d = e.data || {}; if (d && d.type === 'theme') embedApplyTheme(d.theme); } catch (err) {} });
+
 // ----- Full screen -----
 function isFullscreen() {
   return !!(document.fullscreenElement || document.webkitFullscreenElement);
@@ -7670,8 +7693,12 @@ window.addEventListener('load', updateFrozenHeight);
 // Apply persisted theme as early as possible
 (function () {
   try {
-    const saved = localStorage.getItem('theme');
-    if (saved === 'dark') applyTheme('dark');
+    if (document.documentElement.classList.contains('embed-only')) {
+      embedApplyTheme(window.__embedTheme || 'light');   // portal drives the embed theme
+    } else {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'dark') applyTheme('dark');
+    }
   } catch (e) {}
   // Overview is the default landing tab and uses the new neutral design,
   // so apply it before first paint to avoid a palette flash.

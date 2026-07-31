@@ -212,6 +212,7 @@ tbody tr:hover{background:var(--panel-2)}
       <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
       <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg> Search&hellip;</div>
       <div class="tb-actions">
+        <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></div>
         <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
         <div class="tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></div>
       </div>
@@ -379,7 +380,16 @@ function orgChartHtml(){
 function deptChartHtml(){
   return `<div class="deptgrid">${DEPTMEM.map(d=>`<div class="deptcard"><div class="dh">${I.org} ${esc(d.n)}<span class="cnt">${d.ids.length}</span></div>${d.ids.map((id,i)=>{const p=STAFF.find(s=>s.id===id);return `<div class="dm" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div style="font-weight:600">${esc(p.name)}</div><div style="font-size:11px;color:var(--dim)">${esc(shortRole(p.role))}</div></div>${i===0?'<span class="lead">LEAD</span>':''}</div>`;}).join('')}</div>`).join('')}</div>`;
 }
-function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;applyAccent();}
+function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;applyAccent();syncEmbedTheme();}
+/* Push the current theme into any open /ops embed (same-origin) so it follows dark/light live. */
+function syncEmbedTheme(){document.querySelectorAll('.embedframe').forEach(function(f){try{f.contentWindow.postMessage({type:'theme',theme:theme},location.origin);}catch(e){}});}
+/* Refresh the current view (the ops header/refresh is hidden inside embeds). */
+function refreshCurrent(){
+  if(isEmbedView()){const f=document.querySelector('.embedframe');if(f){try{f.contentWindow.location.reload();}catch(e){f.src=f.src;}}return;}
+  if(view==='loans'){loadLoans();return;}
+  if(view==='ads'){loadAds();return;}
+  render();
+}
 
 /* ---- views ---- */
 const V={
@@ -393,7 +403,7 @@ const V={
   },
   exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
     `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
-  properties(){return `<iframe class="embedframe" src="${OPS_URL}#tab=properties&embed=1" title="Properties" loading="lazy"></iframe>`;},
+  properties(){return `<iframe class="embedframe" src="${OPS_URL}#tab=properties&embed=1&theme=${theme}" title="Properties" loading="lazy"></iframe>`;},
   loans(){setTimeout(loadLoans,0);return `<div id="loansBody"><div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div></div>`;},
   investors(){return card('hand','Investors',INVESTORS.length,tbl([{t:'Investor'},{t:'Position'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td>${esc(i.where)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true);},
   insurance(){return `<div class="placeholder">${I.shield}<div>Insurance & risk &mdash; 257 policies in <b>insurance_policy</b></div></div>`;},
@@ -434,7 +444,7 @@ const V={
   documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
     const seg=`<div class="seg"><button class="segbtn ${tasksTab==='board'?'on':''}" onclick="setTasksTab('board')">Tasks</button><button class="segbtn ${tasksTab==='ptasks'?'on':''}" onclick="setTasksTab('ptasks')">Property Tasks</button></div>`;
-    if(tasksTab==='ptasks') return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1" title="Property Tasks" loading="lazy"></iframe>`;
+    if(tasksTab==='ptasks') return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1&theme=${theme}" title="Property Tasks" loading="lazy"></iframe>`;
     const cols=[['todo','To do','#98a0ac'],['in_progress','In progress','#4f6bed'],['done','Done','#12a150']];
     const prc={high:'#d1435b',med:'#c67c11',low:'#98a0ac'};
     return seg+`<div class="board">${cols.map(([st,label,dot])=>{
@@ -574,7 +584,7 @@ function render(){
   document.getElementById('cbBrand').textContent=b.name;
   document.getElementById('cbView').textContent=' / '+currentLabel();
   const content=document.getElementById('content');
-  content.className='content'+(view==='properties'?' wide':'');
+  content.className='content'+(isEmbedView()?' wide':'');
   content.innerHTML=`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
 }
 function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
