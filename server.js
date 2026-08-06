@@ -736,7 +736,10 @@ app.get('/auth/callback', async (req, res) => {
     const userJson = JSON.stringify({ id: user.id, username: user.username, email: user.email });
     const payload = Buffer.from(JSON.stringify({ token: accessToken, user: JSON.parse(userJson) })).toString('base64url');
     console.log(`OAuth success: ${user.username || user.email} (id ${user.id})`);
-    res.redirect(`/#auth=${payload}`);
+    // Return to the ops app (`/ops`), which has the #auth fragment capture. The
+    // portal (`/`) doesn't handle the ClickUp token. When sign-in was launched in
+    // a popup, /ops self-closes it after storing the token (see captureAuthFromUrl).
+    res.redirect(`/ops#auth=${payload}`);
   } catch (e) {
     console.error('OAuth callback error:', e);
     res.status(500).send('Auth failed: ' + e.message);

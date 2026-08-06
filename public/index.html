@@ -2968,7 +2968,7 @@ async function bulkArchive() {
 }
 
 async function updateTask(taskId, body) {
-  if (!requireLoggedIn()) throw new Error('Not signed in');
+  if (!currentUser && !(await ensureSignedIn())) throw new Error('Not signed in');
   const res = await fetch(`/api/task/${taskId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -2983,7 +2983,7 @@ async function updateTask(taskId, body) {
 }
 
 async function deleteTaskApi(taskId) {
-  if (!requireLoggedIn()) throw new Error('Not signed in');
+  if (!currentUser && !(await ensureSignedIn())) throw new Error('Not signed in');
   const res = await fetch(`/api/task/${taskId}`, {
     method: 'DELETE',
     headers: authHeaders(),
@@ -3037,7 +3037,7 @@ function maybeRefreshDetailModal(taskId) {
 }
 
 async function postTaskComment(taskId, text) {
-  if (!requireLoggedIn()) throw new Error('Not signed in');
+  if (!currentUser && !(await ensureSignedIn())) throw new Error('Not signed in');
   const res = await fetch(`/api/task/${taskId}/comment`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
@@ -3068,6 +3068,14 @@ function captureAuthFromUrl() {
     if (decoded?.token) {
       localStorage.setItem(AUTH_TOKEN_KEY, decoded.token);
       localStorage.setItem(AUTH_USER_KEY, JSON.stringify(decoded.user || {}));
+      // If this page was opened as a sign-in popup, tell the opener and close.
+      // The opener reads the same-origin token from localStorage and retries the
+      // pending write — no full ops app needs to render here.
+      if (window.opener && window.opener !== window) {
+        try { window.opener.postMessage({ type: 'clickup-auth', ok: true }, location.origin); } catch (e) {}
+        try { window.close(); } catch (e) {}
+        return;
+      }
     }
     // Strip the fragment so the token isn't visible in the URL bar
     history.replaceState(null, '', location.pathname + location.search);
@@ -3091,6 +3099,59 @@ function authHeaders() {
     'X-ClickUp-Token': token,
     ...(user ? { 'X-ClickUp-User': encodeURIComponent(JSON.stringify(user)) } : {}),
   };
+}
+
+// ---- On-demand ClickUp sign-in (popup) --------------------------------------
+// Viewing is open; writes need a ClickUp session. When a write is attempted while
+// logged out, pop a ClickUp OAuth window instead of just failing. The popup stores
+// the token in same-origin localStorage and self-closes (see captureAuthFromUrl);
+// we detect it here (storage event / postMessage / poll), refresh auth, and the
+// caller's write proceeds. Resolves true once signed in, false on cancel/block.
+let _signInPromise = null;
+function ensureSignedIn() {
+  if (currentUser) return Promise.resolve(true);
+  if (_signInPromise) return _signInPromise;
+  _signInPromise = new Promise((resolve) => {
+    let settled = false, popup = null;
+    function finish(ok) {
+      if (settled) return; settled = true;
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('message', onMsg);
+      clearInterval(poll);
+      _signInPromise = null;
+      try { if (popup && !popup.closed) popup.close(); } catch (e) {}
+      if (ok && !currentUser) checkAuth().then(() => resolve(!!currentUser));
+      else resolve(ok ? !!currentUser : false);
+    }
+    const onStorage = (e) => { if (e.key === AUTH_TOKEN_KEY && e.newValue) finish(true); };
+    const onMsg = (e) => { if (e.origin === location.origin && e.data && e.data.type === 'clickup-auth') finish(!!e.data.ok); };
+    const poll = setInterval(() => {
+      if (getStoredToken()) return finish(true);
+      if (popup && popup.closed) finish(!!getStoredToken());
+    }, 500);
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('message', onMsg);
+    let left = 0, top = 0;
+    try {
+      left = (window.screenX || 0) + Math.max(0, ((window.outerWidth || 820) - 520) / 2);
+      top  = (window.screenY || 0) + Math.max(0, ((window.outerHeight || 720) - 660) / 2);
+    } catch (e) {}
+    try {
+      popup = window.open('/auth/clickup', 'clickup_signin',
+        `width=520,height=660,left=${Math.round(left)},top=${Math.round(top)},menubar=no,toolbar=no,location=no,status=no`);
+    } catch (e) { popup = null; }
+    if (!popup) {   // blocked by the browser
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('message', onMsg);
+      clearInterval(poll);
+      _signInPromise = null;
+      showToast('Please allow pop-ups to sign in with ClickUp.', true);
+      resolve(false);
+      return;
+    }
+    setTimeout(() => finish(!!getStoredToken()), 120000);   // safety timeout
+  });
+  return _signInPromise;
 }
 
 async function checkAuth() {
@@ -3153,7 +3214,7 @@ function renderAuthUI() {
     `;
   } else {
     // Not signed in: viewing still works; offer sign-in only for making changes.
-    el.innerHTML = '<button class="sync-btn" onclick="window.location.href=\'/auth/clickup\'" title="Sign in with ClickUp to make changes">Sign in</button>';
+    el.innerHTML = '<button class="sync-btn" onclick="ensureSignedIn()" title="Sign in with ClickUp to make changes">Sign in</button>';
   }
 }
 
