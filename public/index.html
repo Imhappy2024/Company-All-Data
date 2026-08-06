@@ -1610,8 +1610,11 @@
   /* Embed mode: show ONLY the Properties view (no header, no top-level tabs, no
      task filter bar). Triggered by /ops#tab=properties&embed=1 (portal iframe). */
   html.embed-only .header,
-  html.embed-only .tabs-bar,
-  html.embed-only .filter-bar { display: none !important; }
+  html.embed-only .tabs-bar { display: none !important; }
+  html.embed-only .tab-select { display: none !important; }   /* no tab-switching inside the embed (portal drives it) */
+  /* Properties has its own toolbar; the task tabs (Overview / All Tasks / Needs Review /
+     For Approval / L10) keep their filter bar so assignee/status/search still work. */
+  html.embed-only body.props-active .filter-bar { display: none !important; }
   html.embed-only .frozen-top { padding-top: 10px; }
   /* Property Tasks now lives under the portal's Tasks tab, not Properties: hide its sub-nav button in the Properties embed. */
   html.embed-only .prop-subnav-btn[data-sub="tasks"] { display: none !important; }

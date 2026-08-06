@@ -348,7 +348,9 @@ const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x
 const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
 function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
-let brand='leavenwealth', view='overview', theme='light', orgTab='org', tasksTab='board';
+let brand='leavenwealth', view='overview', theme='light', orgTab='org', tasksTab='board', opsTab='alltasks';
+/* All Brands -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
+const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
 /* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
 const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
@@ -367,6 +369,7 @@ const DEPTMEM=[
 ];
 function setOrgTab(t){orgTab=t;render();}
 function setTasksTab(t){tasksTab=t;render();}
+function setOpsTab(t){opsTab=t;render();}
 function shortRole(r){return r.replace('Co-Founder & ','').replace('Director of ','Dir. ').replace(' & Investor Relations Advisor','');}
 function orgNode(id){const p=STAFF.find(s=>s.id===id);return `<div class="onode" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div class="on">${esc(p.name)}</div><div class="or">${esc(shortRole(p.role))}</div></div></div>`;}
 function orgChartHtml(){
@@ -454,7 +457,11 @@ const V={
       </div>`;
     }).join('')}</div>`;
   },
-  alltasks(){return V.tasks();},
+  alltasks(){
+    const seg=`<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;
+    const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];
+    return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=${cur[0]}&embed=1&theme=${theme}" title="${esc(cur[1])}" loading="lazy"></iframe>`;
+  },
   integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
   access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
 };
@@ -575,7 +582,7 @@ function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.ent
 function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
 function currentLabel(){const it=currentItem();return it?it.label:view;}
-function isEmbedView(){return view==='properties'||(view==='tasks'&&tasksTab==='ptasks')||(view==='alltasks'&&tasksTab==='ptasks');}
+function isEmbedView(){return view==='properties'||view==='alltasks'||(view==='tasks'&&tasksTab==='ptasks');}
 function render(){
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
@@ -588,7 +595,7 @@ function render(){
   content.innerHTML=`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
 }
 function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
-function setView(id){view=id;if(id!=='tasks'&&id!=='alltasks')tasksTab='board';render();}
+function setView(id){view=id;if(id!=='tasks')tasksTab='board';render();}
 document.getElementById('themeBtn').innerHTML=I.moon;
 render();
 </script>
