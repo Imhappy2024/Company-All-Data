@@ -394,9 +394,17 @@ async function getPropertiesPayload() {
 }
 
 // ---------------------------------------------------------------------------
-// Read-only SQL views (CapEx / Asset Fees / Escrows / TIF). Optional pm filter.
+// Read-only loan/debt SQL views (CapEx / Asset Fees / Escrows / TIF / Variable Rate /
+// Maturities). Optional pm (management_company) filter. All expose property_name + management_company.
 // ---------------------------------------------------------------------------
-const VIEW_MAP = { capex: 'v_capex_funding', 'asset-fees': 'v_asset_management_fees', escrows: 'v_escrows', tif: 'v_tif_properties' };
+const VIEW_MAP = {
+  capex: 'v_capex_funding',
+  'asset-fees': 'v_asset_management_fees',
+  escrows: 'v_escrows',
+  tif: 'v_tif_properties',
+  'variable-rate': 'v_variable_rate_loans',
+  maturities: 'v_loan_maturities',
+};
 async function getView(key, pm) {
   const view = VIEW_MAP[key];
   if (!view) throw new Error('Unknown view: ' + key);

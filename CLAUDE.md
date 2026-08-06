@@ -16,8 +16,9 @@ several brands). Two front ends are merged into ONE Express service:
             Pipeline, Borrowers. Clicking a person (Org/Dept charts, Team) opens a profile drawer
             with a bio "See more". Brand maps 1:1 to Supabase `company` / `company_member`.
 - `/ops`  → the existing **operations dashboard** (`public/index.html`) — live ClickUp +
-            Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10, Properties
-            (sub-views: Properties / Property Tasks / CapEx / Asset Fees / Escrows / TIF).
+            Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10,
+            Properties (sub-views: Properties / Property Tasks),
+            Loan Views (sub-views: CapEx Funding / Asset Fees / Escrows / TIF / Variable Rate / Maturities).
 - `/api/*`→ existing routes (ClickUp + Supabase). Do not break these.
 
 **Portal ↔ ops (interim, during the unify-into-one-app migration):**
@@ -25,6 +26,9 @@ several brands). Two front ends are merged into ONE Express service:
   header/tabs/filter bar). Property Tasks is intentionally **removed** from the Properties view.
 - Portal **Tasks** tab hosts **Property Tasks** (segmented: Tasks | Property Tasks), which iframes
   `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` also hides the property sub-nav → board only).
+- Portal **Loans** tab is segmented **Loan Book | Loan Views**: Loan Book reads `/api/loans`
+  natively (Supabase); Loan Views iframes `/ops#tab=loanviews&embed=1` (CapEx Funding / Asset
+  Fees / Escrows / TIF / Variable Rate / Maturities). Loan/debt views moved off Properties.
 - The ops dashboard reads `#tab=<t>&sub=<s>` on load to deep-link; embed CSS keys off
   `html.embed-only` / `html.embed-bare` (set in `<head>` before render, no flash).
 - Portal reads live where possible: **Loans** → `/api/loans` (Supabase); **Marketing/Ads** →
@@ -81,6 +85,15 @@ Added for this project:
 - `statement` — bank / credit_card / loan / pm_income_expense report headers.
 - `meta_ads_insight`, `leadli_marketing_daily` — Meta ads (populated by n8n).
 - `lead`(+provider_id,+company_id), `lead_provider`, `appointment`.
+- `loan`(+`purpose`) — purpose ∈ primary_mortgage / construction_note /
+  primary_plus_construction_note / seller_carry / pace_equity / bridge / pac_due
+  (seniority is the separate `position` column). **`loan.interest_rate_pct` is a decimal
+  FRACTION** (0.035 = 3.50%) — multiply by 100 to display.
+- Read-only loan/debt SQL views served via `/api/views/:key` (grants: `authenticated`):
+  `v_capex_funding` (capex), `v_asset_management_fees` (asset-fees), `v_escrows` (escrows),
+  `v_tif_properties` (tif), `v_variable_rate_loans` (variable-rate), `v_loan_maturities`
+  (maturities). All expose `property_name` + `management_company` (the PM filter). All six
+  are surfaced in the ops **Loan Views** tab.
 
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;

@@ -1775,10 +1775,10 @@
   .prop-view-count { font-size: 12px; color: var(--text3); }
   .prop-view-asof { font-size: 11.5px; color: var(--text3); }
   .prop-view-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
-  .prop-view-controls #prop-view-search { flex: 0 1 280px; min-width: 160px; }
+  .prop-view-controls #loanview-search { flex: 0 1 280px; min-width: 160px; }
   .prop-view-hideempty { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); cursor: pointer; white-space: nowrap; }
   .prop-view-hideempty input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
-  @media (max-width: 640px) { .prop-view-controls #prop-view-search { flex: 1 1 100%; } }
+  @media (max-width: 640px) { .prop-view-controls #loanview-search { flex: 1 1 100%; } }
   .prop-view-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
   .prop-view-table { border-collapse: collapse; width: 100%; font-size: 12.5px; white-space: nowrap; }
   .prop-view-table th { position: sticky; top: 0; background: var(--surface2); color: var(--text3); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; font-weight: 700; text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
@@ -1790,6 +1790,13 @@
   .prop-subnav-btn.pv-capex.active { background: var(--yellow); border-color: var(--yellow); }
   .prop-subnav-btn.pv-asset-fees.active { background: var(--green); border-color: var(--green); }
   .prop-subnav-btn.pv-escrows.active { background: var(--purple); border-color: var(--purple); }
+  .prop-subnav-btn.pv-tif.active { background: var(--orange); border-color: var(--orange); }
+  .prop-subnav-btn.pv-variable.active { background: var(--teal); border-color: var(--teal); }
+  .prop-subnav-btn.pv-maturities.active { background: var(--red); border-color: var(--red); }
+  /* Loan Views tab has its own toolbar — hide the global task filter bar there (like Properties). */
+  body.loanviews-active .filter-bar { display: none !important; }
+  .prop-view-table th.loanview-th { cursor: pointer; user-select: none; white-space: nowrap; }
+  .prop-view-table th.loanview-th:hover { color: var(--accent); }
   .prop-loan-group { margin-bottom: 14px; }
   .prop-loan-grouph { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text3); margin: 10px 0 8px; display: flex; align-items: center; gap: 8px; }
   .prop-loan-summary { font-size: 12px; color: var(--text2); margin-bottom: 8px; }
@@ -2240,6 +2247,7 @@
   <button class="tab-btn" data-tab="forreview" onclick="switchTab('forreview')">For Approval</button>
   <button class="tab-btn" data-tab="l10" onclick="switchTab('l10')">L10 Agenda</button>
   <button class="tab-btn" data-tab="properties" onclick="switchTab('properties')">Properties</button>
+  <button class="tab-btn" data-tab="loanviews" onclick="switchTab('loanviews')">Loan Views</button>
 </div>
 
 <!-- Filter Bar -->
@@ -2251,6 +2259,7 @@
     <option value="forreview">For Approval</option>
     <option value="l10">L10 Agenda</option>
     <option value="properties">Properties</option>
+    <option value="loanviews">Loan Views</option>
   </select>
   <span class="filter-label">Filter</span>
   <button type="button" class="filter-toggle" onclick="toggleFilterPanel()" aria-label="Toggle filters">
@@ -2670,10 +2679,6 @@
       <div class="prop-subnav">
         <button class="prop-subnav-btn active" data-sub="properties" onclick="propSetSub('properties')">Properties</button>
         <button class="prop-subnav-btn" data-sub="tasks" onclick="propSetSub('tasks')">Property Tasks</button>
-        <button class="prop-subnav-btn pv-capex" data-sub="capex" onclick="propSetSub('capex')">CapEx</button>
-        <button class="prop-subnav-btn pv-asset-fees" data-sub="asset-fees" onclick="propSetSub('asset-fees')">Asset Fees</button>
-        <button class="prop-subnav-btn pv-escrows" data-sub="escrows" onclick="propSetSub('escrows')">Escrows</button>
-        <button class="prop-subnav-btn pv-tif" data-sub="tif" onclick="propSetSub('tif')">TIF</button>
       </div>
       <select class="filter-select prop-pm" id="prop-pm" title="Filter by property manager" onchange="onPmChange()"><option value="">All Managers</option></select>
       <span class="prop-asof" id="prop-asof" title="Data freshness"></span>
@@ -2693,23 +2698,6 @@
       <div id="ptasks-board"></div>
       <div id="ptasks-status" class="prop-status"></div>
     </div>
-    <!-- SUB-VIEW: extra tables (CapEx / Asset Fees / Escrows / TIF) -->
-    <div id="prop-sub-view" hidden>
-      <div class="prop-view-head">
-        <span class="prop-view-title" id="prop-view-title"></span>
-        <div class="prop-view-actions">
-          <span class="prop-view-count" id="prop-view-count"></span>
-          <span class="prop-view-asof" id="prop-view-asof"></span>
-          <button class="sync-btn" type="button" onclick="exportPropView('csv')">Export CSV</button>
-          <button class="sync-btn" type="button" onclick="exportPropView('xlsx')">Export Excel</button>
-        </div>
-      </div>
-      <div class="prop-view-controls">
-        <input type="search" class="filter-select" id="prop-view-search" placeholder="Search property or lender…" oninput="renderPropViewTable()"/>
-        <label class="prop-view-hideempty"><input type="checkbox" id="prop-view-hideempty" onchange="renderPropViewTable()"/> Hide empty columns</label>
-      </div>
-      <div class="prop-view-scroll" id="prop-view-scroll"><div class="prop-loading">Loading…</div></div>
-    </div>
     <!-- Staged-changes bar for board edits made outside the detail drawer -->
     <div class="pt-save-bar pt-board-bar" id="pt-board-bar" hidden>
       <span class="pt-save-bar-note" id="pt-board-bar-count">0 unsaved changes</span>
@@ -2717,6 +2705,37 @@
       <button type="button" class="pt-save-commit" onclick="ptSaveAll()">Save</button>
     </div>
     <div class="prop-entity-overlay" id="prop-create-overlay" onclick="if(event.target===this) closeCreateTask()" hidden></div>
+  </div>
+</div>
+
+<!-- ============ LOAN VIEWS (CapEx / Asset Fees / Escrows / TIF / Variable Rate / Maturities) ============ -->
+<div class="view" id="view-loanviews">
+  <div class="main">
+    <div class="prop-topbar">
+      <div class="prop-subnav" id="loanview-subnav">
+        <button class="prop-subnav-btn pv-capex active" data-sub="capex" onclick="loanSetSub('capex')">CapEx Funding</button>
+        <button class="prop-subnav-btn pv-asset-fees" data-sub="asset-fees" onclick="loanSetSub('asset-fees')">Asset Fees</button>
+        <button class="prop-subnav-btn pv-escrows" data-sub="escrows" onclick="loanSetSub('escrows')">Escrows</button>
+        <button class="prop-subnav-btn pv-tif" data-sub="tif" onclick="loanSetSub('tif')">TIF</button>
+        <button class="prop-subnav-btn pv-variable" data-sub="variable-rate" onclick="loanSetSub('variable-rate')">Variable Rate</button>
+        <button class="prop-subnav-btn pv-maturities" data-sub="maturities" onclick="loanSetSub('maturities')">Maturities</button>
+      </div>
+      <select class="filter-select prop-pm" id="loanview-pm" title="Filter by property manager" onchange="renderLoanViewTable()"><option value="">All Managers</option></select>
+    </div>
+    <div class="prop-view-head">
+      <span class="prop-view-title" id="loanview-title"></span>
+      <div class="prop-view-actions">
+        <span class="prop-view-count" id="loanview-count"></span>
+        <span class="prop-view-asof" id="loanview-asof"></span>
+        <button class="sync-btn" type="button" onclick="exportLoanView('csv')">Export CSV</button>
+        <button class="sync-btn" type="button" onclick="exportLoanView('xlsx')">Export Excel</button>
+      </div>
+    </div>
+    <div class="prop-view-controls">
+      <input type="search" class="filter-select" id="loanview-search" placeholder="Search property or lender…" oninput="renderLoanViewTable()"/>
+      <label class="prop-view-hideempty"><input type="checkbox" id="loanview-hideempty" onchange="renderLoanViewTable()"/> Hide empty columns</label>
+    </div>
+    <div class="prop-view-scroll" id="loanview-scroll"><div class="prop-loading">Loading…</div></div>
   </div>
 </div>
 
@@ -4047,6 +4066,7 @@ const TAB_RENDERERS = {
   forreview: () => renderForReview(),
   l10:       () => renderL10(),
   properties: () => renderProperties(),
+  loanviews: () => renderLoanViews(),
 };
 
 // Tabs whose DOM is stale vs the current data/filters and must be rebuilt
@@ -4120,7 +4140,6 @@ function relTimeShort(ts) {
 // "as of …" indicator for the active sub-view: updating cue, relative time, amber if stale.
 function updatePropAsOf() {
   const el = document.getElementById('prop-asof'); if (!el) return;
-  if (PROP_VIEW_KEYS.includes(propSub)) { el.textContent = ''; el.classList.remove('stale'); return; }  // views show their own
   const tasks = propSub === 'tasks';
   const ts = tasks ? propTasksCachedAt : propDataCachedAt;
   const loading = tasks ? propTasksLoading : propLoading;
@@ -4197,49 +4216,95 @@ function lsPill(status) {
 }
 
 // ----- sub-view switch -----
-const PROP_VIEW_KEYS = ['capex', 'asset-fees', 'escrows', 'tif'];
 function propSetSub(sub) {
+  if (sub !== 'properties' && sub !== 'tasks') sub = 'properties';   // loan views moved to their own tab; ignore stale subs
   propSub = sub;
-  document.querySelectorAll('.prop-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
-  const isView = PROP_VIEW_KEYS.includes(sub);
+  document.querySelectorAll('#view-properties .prop-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
   document.getElementById('prop-sub-properties').hidden = sub !== 'properties';
   document.getElementById('prop-sub-tasks').hidden = sub !== 'tasks';
-  document.getElementById('prop-sub-view').hidden = !isView;
   // The two filter bars live in the frozen bar above the selector; show the active one.
   document.getElementById('prop-toolbar-properties').hidden = sub !== 'properties';
   document.getElementById('prop-toolbar-tasks').hidden = sub !== 'tasks';
   if (sub === 'tasks') renderPropTasks();
-  else if (isView) renderPropView(sub);
   else renderProperties();
 }
 
-// ----- Extra read-only views (CapEx / Asset Fees / Escrows / TIF) -----
+// ===================== LOAN VIEWS (CapEx / Asset Fees / Escrows / TIF / Variable Rate / Maturities) =====================
+// One shared read-only table engine: fetch once per key, cache, then filter/sort/render
+// client-side (PM + search + hide-empty + click-to-sort). Own tab; own loanview- ids.
 const LOAN_POS_LABELS = { primary: 'Primary', seller_carry: 'Seller Carry', secondary: 'Secondary', pac_due: 'PAC Due' };
-const PROP_VIEW_DEFS = {
-  capex: { title: 'CapEx Funding Data', endpoint: 'capex', cols: [
-    ['property_name', 'Property', 'text'], ['position', 'Position', 'pos'], ['lender', 'Lender', 'text'],
-    ['has_construction_budget', 'Has Construction Budget', 'text'], ['construction_budget_amount', 'Construction Budget', 'text'],
-    ['construction_budget_dropbox_url', 'Budget Dropbox', 'link'], ['loc_beginning', 'Beginning LOC', 'money'], ['loc_available', 'Available LOC', 'money'],
-    ['loc_hurdle', 'LOC Hurdle', 'text'], ['loc_hurdle_remaining', 'LOC Hurdle Remaining', 'text'], ['loc_draws_process', 'LOC Draws Process', 'text'],
-    ['lien_waivers_required', 'Lien Waivers Required', 'text'], ['loc_availability_maturity_date', 'LOC Avail Maturity', 'date'],
-    ['last_draw_amount', 'Last Draw Amount', 'money'], ['last_draw_date', 'Last Draw Date', 'date'], ['amount_left_to_draw', 'Amount Left to Draw', 'money'],
-    ['lender_held_cash_reserve', 'Lender Held Cash Reserve', 'text'], ['replacement_reserve', 'Replacement Reserve', 'text'],
-    ['replacement_reserve_notes', 'Reserve Notes', 'text'], ['replacement_reserve_draw_criteria', 'Reserve Draw Criteria', 'text'],
-    ['replacement_reserve_funding_replenishment', 'Reserve Funding / Replenishment', 'text'], ['replacement_reserve_last_draw_date', 'Reserve Last Draw Date', 'date'],
-    ['replacement_reserve_last_draw_amount', 'Reserve Last Draw Amount', 'money'], ['replacement_reserve_remaining_balance', 'Reserve Remaining Balance', 'money'],
+const LOAN_PURPOSE_LABELS = {
+  primary_mortgage: 'Primary Mortgage', construction_note: 'Construction Note',
+  primary_plus_construction_note: 'Primary + Construction', seller_carry: 'Seller Carry',
+  pace_equity: 'PACE Equity', bridge: 'Bridge', pac_due: 'PAC DUE',
+};
+const LOAN_VIEW_DEFS = {
+  capex: { title: 'CapEx Funding Data', endpoint: 'capex', hideEmptyDefault: false, cols: [
+    ['property_name','Property','text'], ['loan_number','Loan #','text'], ['position','Position','pos'], ['lender','Lender','text'],
+    ['has_construction_budget','Construction Budget?','yesno'], ['construction_budget_amount','Construction Budget','text'],
+    ['construction_budget_dropbox_url','Budget Dropbox','link'],
+    ['loc_beginning','Beginning LOC','money'], ['loc_available','Available LOC','money'],
+    ['loc_hurdle','LOC Hurdle','text'], ['loc_hurdle_remaining','LOC Hurdle Remaining','text'],
+    ['loc_draws_process','LOC Draws Process','text'], ['lien_waivers_required','Lien Waivers Required','yesno'],
+    ['loc_availability_maturity_date','LOC Avail Maturity','date'],
+    ['last_draw_amount','Last Draw Amount','money'], ['last_draw_date','Last Draw Date','date'],
+    ['amount_left_to_draw','Amount Left to Draw','money'], ['lender_held_cash_reserve','Lender Held Cash Reserve','text'],
+    ['replacement_reserve','Replacement Reserve','text'], ['replacement_reserve_notes','Reserve Notes','text'],
+    ['replacement_reserve_draw_criteria','Reserve Draw Criteria','text'],
+    ['replacement_reserve_funding_replenishment','Reserve Funding / Replenishment','text'],
+    ['replacement_reserve_last_draw_date','Reserve Last Draw Date','date'],
+    ['replacement_reserve_last_draw_amount','Reserve Last Draw Amount','money'],
+    ['replacement_reserve_remaining_balance','Reserve Remaining Balance','money'],
   ] },
-  'asset-fees': { title: 'Asset Management Fees', endpoint: 'asset-fees', cols: [
-    ['property_name', 'Property', 'text'], ['unit_identifier', 'Unit', 'text'], ['owner_entity', 'Owner Entity', 'text'],
-    ['asset_management_fee_pct', 'Fee %', 'text'], ['asset_management_fee_vendor', 'Vendor', 'text'], ['asset_management_fee_tracker_url', 'Tracker', 'link'],
+  'asset-fees': { title: 'Asset Management Fees', endpoint: 'asset-fees', hideEmptyDefault: false, cols: [
+    ['property_name','Property','text'], ['unit_identifier','Unit','text'], ['owner_entity','Owner Entity','text'],
+    ['asset_management_fee_pct','Fee %','text'], ['asset_management_fee_vendor','Vendor','text'],
+    ['asset_management_fee_tracker_url','Tracker','link'],
   ] },
-  escrows: { title: 'Escrows', endpoint: 'escrows', cols: [
-    ['property_name', 'Property', 'text'], ['any_tax_escrow', 'Tax Escrow', 'yesno'], ['any_insurance_escrow', 'Insurance Escrow', 'yesno'], ['any_replacement_reserve', 'Replacement Reserve', 'yesno'],
+  escrows: { title: 'Escrows', endpoint: 'escrows', hideEmptyDefault: false, cols: [
+    ['property_name','Property','text'],
+    ['any_tax_escrow','Tax Escrow','yesno'], ['any_insurance_escrow','Insurance Escrow','yesno'],
+    ['any_replacement_reserve','Replacement Reserve','yesno'],
+    ['tax_escrow_values','Tax Escrow Detail','text'], ['insurance_escrow_values','Insurance Escrow Detail','text'],
+    ['replacement_reserve_values','Reserve Detail','text'],
   ] },
-  tif: { title: 'TIF Properties', endpoint: 'tif', cols: [
-    ['property_name', 'Property', 'text'], ['lender', 'Lender', 'text'], ['position', 'Position', 'pos'],
+  tif: { title: 'TIF Properties', endpoint: 'tif', hideEmptyDefault: false, cols: [
+    ['property_name','Property','text'], ['lender','Lender','text'], ['position','Position','pos'],
+  ] },
+  'variable-rate': { title: 'Variable Rate Loans', endpoint: 'variable-rate', hideEmptyDefault: false, defaultSort: ['maturity_date', 1], cols: [
+    ['property_name','Property','text'], ['loan_number','Loan #','text'], ['lender','Lender','text'],
+    ['purpose','Purpose','purpose'], ['position','Position','pos'],
+    ['maturity_date','Maturity','date'], ['days_to_maturity','To Maturity','days'],
+    ['current_balance','Current Balance','money'],
+    ['interest_rate_pct','Interest Rate','pct'],
+    ['rate_change_limitation','Rate Change Limit / Change Date','text'],
+    ['variable_rate_max','Rate Max','text'], ['variable_rate_floor','Rate Floor','text'],
+    ['index','Index (Notes)','text'], ['interest_reset_cadence','Reset Cadence','text'],
+    ['next_interest_reset_date','Next Reset','date'], ['previous_interest_reset_date','Previous Reset','date'],
+  ] },
+  maturities: { title: 'All Loan Maturities', endpoint: 'maturities', hideEmptyDefault: true, defaultSort: ['maturity_date', 1], cols: [
+    ['property_name','Property','text'], ['loan_number','Loan #','text'], ['lender','Lender','text'],
+    ['purpose','Purpose','purpose'], ['position','Position','pos'],
+    ['loan_type','Fixed / Variable','text'], ['amortizing_type','Amortization','text'],
+    ['maturity_date','Maturity','date'], ['days_to_maturity','To Maturity','days'],
+    ['current_balance','Current Balance','money'], ['balance_as_of','Balance As Of','date'],
+    ['interest_rate_pct','Interest Rate','pct'],
+    ['interest_reset_cadence','Reset Cadence','text'],
+    ['next_interest_reset_date','Next Reset','date'], ['previous_interest_reset_date','Previous Reset','date'],
+    ['interest_only_end_date','IO End','date'], ['balloon_payment','Balloon','money'],
+    ['extension_available','Extension?','yesno'], ['status','Status','text'],
+    ['origination_date','Originated','date'], ['origination_amount','Original Amount','money'],
   ] },
 };
-let propViewCache = {}, propViewCurrent = null, propViewRendered = null;
+let loanSub = 'capex';
+let loanViewCache = {}, loanViewCurrent = null, loanViewRendered = null, loanSort = null;
+function renderLoanViews() { loanSetSub(loanSub || 'capex'); }
+function loanSetSub(sub) {
+  if (!LOAN_VIEW_DEFS[sub]) sub = 'capex';
+  loanSub = sub;
+  document.querySelectorAll('#loanview-subnav .prop-subnav-btn').forEach(b => b.classList.toggle('active', b.dataset.sub === sub));
+  renderLoanView(sub);
+}
 function fmtViewCell(val, fmt) {
   if (fmt === 'link') return val ? `<a href="${escHtml(String(val))}" target="_blank" rel="noopener">Open ↗</a>` : '—';
   if (val == null || val === '') return '—';   // blanks show as — (never hidden)
@@ -4247,64 +4312,89 @@ function fmtViewCell(val, fmt) {
   if (fmt === 'date') { const d = new Date(val); return isNaN(d.getTime()) ? escHtml(String(val)) : escHtml(d.toLocaleDateString('en-US')); }
   if (fmt === 'yesno') { const s = String(val).toLowerCase(); if (val === true || s === 'true' || s === 'yes' || s === 't') return 'Yes'; if (val === false || s === 'false' || s === 'no' || s === 'f') return 'No'; return escHtml(String(val)); }
   if (fmt === 'pos') return escHtml(LOAN_POS_LABELS[String(val).toLowerCase()] || String(val));
+  if (fmt === 'purpose') return escHtml(LOAN_PURPOSE_LABELS[String(val)] || String(val));
+  if (fmt === 'pct') { const n = Number(val); return isFinite(n) ? escHtml((n * 100).toFixed(2) + '%') : escHtml(String(val)); }   // fraction 0.035 -> 3.50%
+  if (fmt === 'days') { const n = Number(val); if (!isFinite(n)) return escHtml(String(val)); return n < 0 ? `<span class="prop-ls prop-ls-none">matured ${Math.abs(n)}d ago</span>` : escHtml(n + 'd'); }
   return escHtml(String(val));
 }
 // Fetch ALL rows for a view once, then filter/render client-side (PM + search + hide-empty).
-async function renderPropView(key) {
-  const def = PROP_VIEW_DEFS[key]; if (!def) return;
-  propViewCurrent = key;
-  document.getElementById('prop-view-title').textContent = def.title;
-  const he = document.getElementById('prop-view-hideempty'); if (he) he.checked = (key === 'capex');   // default ON for CapEx
-  const scroll = document.getElementById('prop-view-scroll');
-  const cached = propViewCache[key];
-  if (cached) { renderPropViewTable(); }   // instant from cache
+async function renderLoanView(key) {
+  const def = LOAN_VIEW_DEFS[key]; if (!def) return;
+  loanViewCurrent = key;
+  loanSort = def.defaultSort ? { col: def.defaultSort[0], dir: def.defaultSort[1] } : null;
+  document.getElementById('loanview-title').textContent = def.title;
+  const he = document.getElementById('loanview-hideempty'); if (he) he.checked = !!def.hideEmptyDefault;
+  const scroll = document.getElementById('loanview-scroll');
+  const cached = loanViewCache[key];
+  if (cached) { renderLoanViewTable(); }   // instant from cache
   else scroll.innerHTML = '<div class="prop-loading">Loading…</div>';
   try {
     const res = await fetch(`/api/views/${def.endpoint}`, { headers: authHeaders(), credentials: 'include' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const rows = (await res.json()).rows || [];
-    propViewCache[key] = { rows, fetchedAt: Date.now() };
-    populatePmFromViews();
-    if (propViewCurrent === key) renderPropViewTable();
+    loanViewCache[key] = { rows, fetchedAt: Date.now() };
+    populatePmFromLoanViews();
+    if (loanViewCurrent === key) renderLoanViewTable();
   } catch (e) {
     if (!cached) scroll.innerHTML = `<div class="prop-loading" style="color:var(--red)">Could not load: ${escHtml(e.message)}</div>`;
   }
 }
 // Render the current view's table from cached rows, applying PM + search + hide-empty.
-function renderPropViewTable() {
-  const key = propViewCurrent, def = PROP_VIEW_DEFS[key], cached = propViewCache[key];
+function renderLoanViewTable() {
+  const key = loanViewCurrent, def = LOAN_VIEW_DEFS[key], cached = loanViewCache[key];
   if (!def || !cached) return;
-  const pm = propPmValue();
-  const query = (document.getElementById('prop-view-search')?.value || '').toLowerCase().trim();
-  let rows = cached.rows;
+  const pm = loanPmValue();
+  const query = (document.getElementById('loanview-search')?.value || '').toLowerCase().trim();
+  let rows = cached.rows.slice();
   if (pm) rows = rows.filter(r => (r.management_company || '') === pm);
   if (query) rows = rows.filter(r => [r.property_name, r.lender].filter(Boolean).join(' ').toLowerCase().includes(query));
   let cols = def.cols;
-  if (document.getElementById('prop-view-hideempty')?.checked) {
+  if (document.getElementById('loanview-hideempty')?.checked) {
     cols = def.cols.filter(c => rows.some(r => { const v = r[c[0]]; return v != null && v !== ''; }));
     if (!cols.length) cols = def.cols.slice(0, 1);   // always keep at least the first column
   }
-  document.getElementById('prop-view-count').textContent = rows.length + (rows.length === 1 ? ' row' : ' rows');
-  const asof = document.getElementById('prop-view-asof');
+  // Sort (defaultSort or a clicked header). Nulls always last; numeric for money/pct/days, date-value for date.
+  if (loanSort) {
+    const fmt = ((def.cols.find(c => c[0] === loanSort.col)) || [])[2] || 'text';
+    const numeric = fmt === 'money' || fmt === 'pct' || fmt === 'days';
+    const dir = loanSort.dir;
+    rows.sort((a, b) => {
+      let x = a[loanSort.col], y = b[loanSort.col];
+      const xe = (x == null || x === ''), ye = (y == null || y === '');
+      if (xe && ye) return 0; if (xe) return 1; if (ye) return -1;   // nulls last, both directions
+      if (numeric) { x = Number(x); y = Number(y); }
+      else if (fmt === 'date') { x = new Date(x).getTime(); y = new Date(y).getTime(); }
+      else { x = String(x).toLowerCase(); y = String(y).toLowerCase(); }
+      return x < y ? -dir : x > y ? dir : 0;
+    });
+  }
+  document.getElementById('loanview-count').textContent = rows.length + (rows.length === 1 ? ' row' : ' rows');
+  const asof = document.getElementById('loanview-asof');
   if (asof) asof.textContent = cached.fetchedAt ? 'as of ' + relTimeShort(cached.fetchedAt) : '';
-  propViewRendered = { cols, rows };
-  const scroll = document.getElementById('prop-view-scroll');
+  loanViewRendered = { cols, rows };
+  const scroll = document.getElementById('loanview-scroll');
   if (!rows.length) { scroll.innerHTML = '<div class="prop-empty">No rows match.</div>'; return; }
-  const head = `<tr>${cols.map(c => `<th>${escHtml(c[1])}</th>`).join('')}</tr>`;
+  const head = `<tr>${cols.map(c => { const arr = loanSort && loanSort.col === c[0] ? (loanSort.dir === 1 ? ' ▲' : ' ▼') : ''; return `<th class="loanview-th" onclick="loanSortBy('${c[0]}')" title="Sort">${escHtml(c[1])}${arr}</th>`; }).join('')}</tr>`;
   const body = rows.map(r => `<tr>${cols.map(c => `<td>${fmtViewCell(r[c[0]], c[2])}</td>`).join('')}</tr>`).join('');
   scroll.innerHTML = `<table class="prop-view-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
 }
+function loanSortBy(col) {
+  if (loanSort && loanSort.col === col) loanSort.dir = -loanSort.dir;
+  else loanSort = { col, dir: 1 };
+  renderLoanViewTable();
+}
+function loanPmValue() { return document.getElementById('loanview-pm')?.value || ''; }
 // Populate the PM dropdown from the known managers (properties) or the current view rows.
-function populatePmFromViews() {
-  const sel = document.getElementById('prop-pm'); if (!sel || sel.options.length > 1) return;
-  let vals = (propData && propData.managementCompanies) || [];
-  if (!vals.length) { const c = propViewCache[propViewCurrent]; vals = [...new Set((c?.rows || []).map(r => r.management_company).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b))); }
+function populatePmFromLoanViews() {
+  const sel = document.getElementById('loanview-pm'); if (!sel || sel.options.length > 1) return;
+  let vals = (typeof propData !== 'undefined' && propData && propData.managementCompanies) || [];
+  if (!vals.length) { const c = loanViewCache[loanViewCurrent]; vals = [...new Set((c?.rows || []).map(r => r.management_company).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b))); }
   const cur = sel.value;
   sel.innerHTML = '<option value="">All Managers</option>' + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
   sel.value = cur;
 }
-function exportPropView(format) {
-  const def = PROP_VIEW_DEFS[propViewCurrent], r = propViewRendered;
+function exportLoanView(format) {
+  const def = LOAN_VIEW_DEFS[loanViewCurrent], r = loanViewRendered;
   if (!def || !r || !r.rows.length) { showToast('Nothing to export', true); return; }
   const columns = r.cols.map(c => c[1]);
   const rows = r.rows.map(row => r.cols.map(c => {
@@ -4314,16 +4404,18 @@ function exportPropView(format) {
     if (fmt === 'date') { const d = new Date(v); return isNaN(d.getTime()) ? v : (format === 'xlsx' ? d : d.toISOString().slice(0, 10)); }
     if (fmt === 'yesno') { const s = String(v).toLowerCase(); return (v === true || s === 'true' || s === 'yes') ? 'Yes' : (v === false || s === 'false' || s === 'no') ? 'No' : v; }
     if (fmt === 'pos') return LOAN_POS_LABELS[String(v).toLowerCase()] || v;
+    if (fmt === 'purpose') return LOAN_PURPOSE_LABELS[String(v)] || v;
+    if (fmt === 'pct') { const n = Number(v); return isFinite(n) ? (n * 100).toFixed(2) + '%' : v; }
+    if (fmt === 'days') { const n = Number(v); return isFinite(n) ? n : v; }
     return String(v);
   }));
-  const fn = `${propViewCurrent}_${exportToday()}.${format === 'xlsx' ? 'xlsx' : 'csv'}`;
+  const fn = `${loanViewCurrent}_${exportToday()}.${format === 'xlsx' ? 'xlsx' : 'csv'}`;
   if (format === 'xlsx') downloadXLSX(fn, def.title.slice(0, 28), columns, rows).then(() => showToast('Exported')).catch(e => showToast(e.message, true));
   else { downloadCSV(fn, columns, rows); showToast('Exported'); }
 }
 function propPmValue() { return document.getElementById('prop-pm')?.value || ''; }
 function onPmChange() {
-  if (PROP_VIEW_KEYS.includes(propSub)) renderPropViewTable();
-  else if (propSub === 'tasks') ptApply();
+  if (propSub === 'tasks') ptApply();
   else propApply();
 }
 function setPropStatus(msg, err) { const el = document.getElementById('prop-status'); if (el) el.innerHTML = msg ? `<div class="prop-loading" ${err ? 'style="color:var(--red)"' : ''}>${escHtml(msg)}</div>` : ''; }
@@ -7768,6 +7860,7 @@ async function switchTab(tab) {
   applyDesignTheme(tab);
   // Properties has its own toolbar/filters — hide the global filter bar there.
   document.body.classList.toggle('props-active', tab === 'properties');
+  document.body.classList.toggle('loanviews-active', tab === 'loanviews');
   // Build the tab only if its DOM is stale (data/filters changed since last
   // shown). Re-opening an unchanged tab is instant — no rebuild.
   if (tabsNeedingRender.has(tab)) {
