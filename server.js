@@ -1297,7 +1297,10 @@ app.delete('/api/properties/:id/owners/:entityId', async (req, res) => {
 // Read-only SQL views for the extra Properties tables (capex / asset-fees / escrows /
 // tif). Optional ?pm=<management_company> filter. Supabase-only.
 app.get('/api/views/:key', async (req, res) => {
-  const auth = requireAuth(req, res); if (!auth) return;
+  // Read-only Supabase SQL views (loan/property financials). Served OPEN, matching
+  // /api/properties and /api/loans (see the ACCESS-MODEL NOTE above): same data class,
+  // same server-side read connection, no ClickUp login required. Do NOT add a write path
+  // here without gating it behind requireAuth.
   if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
   try { res.json(await supaProps.getView(req.params.key, req.query.pm || null)); }
   catch (err) { console.error('view read:', err.message); res.status(500).json({ error: err.message }); }
