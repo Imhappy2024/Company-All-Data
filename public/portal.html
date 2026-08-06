@@ -7,6 +7,8 @@
 <!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails
      to load, the app falls back to baked data and never breaks. -->
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Default to dark, set before first paint so there's no light flash. -->
+<script>document.documentElement.setAttribute('data-theme','dark');</script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -348,7 +350,7 @@ const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x
 const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
 function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
-let brand='leavenwealth', view='overview', theme='light', orgTab='org', tasksTab='board', opsTab='alltasks';
+let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='board', opsTab='alltasks';
 /* All Brands -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
@@ -596,7 +598,8 @@ function render(){
 }
 function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
 function setView(id){view=id;if(id!=='tasks')tasksTab='board';render();}
-document.getElementById('themeBtn').innerHTML=I.moon;
+document.documentElement.setAttribute('data-theme',theme);
+document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
 render();
 </script>
 </body></html>

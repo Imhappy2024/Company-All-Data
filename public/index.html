@@ -6,7 +6,7 @@
 <title>Dashboard</title>
 <!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
      class in <head> BEFORE render so the dashboard chrome never flashes. -->
-<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}}catch(e){}</script>
+<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}else{var _s=null;try{_s=localStorage.getItem('theme');}catch(e){}if(_s!=='light'){document.documentElement.classList.add('boot-dark');new MutationObserver(function(m,o){if(document.body){document.body.classList.add('dark-mode');o.disconnect();}}).observe(document.documentElement,{childList:true,subtree:true});}}}catch(e){}</script>
 <!-- PWA: installable, standalone home-screen app -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
@@ -1638,6 +1638,8 @@
     --header-bg:#0e1015; --header-text:#e7e9ee;
   }
   html.embed-dark { background:#0e1015; }
+  /* Standalone /ops defaults to dark: paint the page bg dark before body.dark-mode applies (no flash). */
+  html.boot-dark { background:#0f1419; }
 
   #view-properties .main { gap: 14px; }
   .prop-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
@@ -7699,10 +7701,10 @@ window.addEventListener('load', updateFrozenHeight);
 (function () {
   try {
     if (document.documentElement.classList.contains('embed-only')) {
-      embedApplyTheme(window.__embedTheme || 'light');   // portal drives the embed theme
+      embedApplyTheme(window.__embedTheme || 'dark');   // portal drives the embed theme (default dark)
     } else {
       const saved = localStorage.getItem('theme');
-      if (saved === 'dark') applyTheme('dark');
+      if (saved !== 'light') applyTheme('dark');   // default to dark unless the user explicitly chose light
     }
   } catch (e) {}
   // Overview is the default landing tab and uses the new neutral design,
