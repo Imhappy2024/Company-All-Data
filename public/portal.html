@@ -166,7 +166,9 @@ tbody tr:hover{background:var(--panel-2)}
 .livedot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,161,80,.5)}70%{box-shadow:0 0 0 6px rgba(18,161,80,0)}100%{box-shadow:0 0 0 0 rgba(18,161,80,0)}}
 .muted{font-size:12.5px;color:var(--faint)}
-.embedframe{width:100%;height:calc(100vh - 172px);min-height:520px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel)}
+.embedframe{width:100%;height:calc(100vh - 120px);min-height:460px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);display:block}
+.embedhost{padding:0 28px 28px}
+.content.embed-lean{padding:14px 28px 0}
 .placeholder{background:var(--panel);border:1px dashed var(--border);border-radius:var(--radius);padding:44px;text-align:center;color:var(--faint)}
 .placeholder svg{width:34px;height:34px;margin-bottom:12px;color:var(--accent-line)}
 
@@ -220,6 +222,7 @@ tbody tr:hover{background:var(--panel-2)}
       </div>
     </div>
     <div class="content" id="content"></div>
+    <div class="embedhost" id="embedHost" hidden></div>
   </main>
 </div>
 
@@ -390,9 +393,9 @@ function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentEle
 function syncEmbedTheme(){document.querySelectorAll('.embedframe').forEach(function(f){try{f.contentWindow.postMessage({type:'theme',theme:theme},location.origin);}catch(e){}});}
 /* Refresh the current view (the ops header/refresh is hidden inside embeds). */
 function refreshCurrent(){
-  if(isEmbedView()){const f=document.querySelector('.embedframe');if(f){try{f.contentWindow.location.reload();}catch(e){f.src=f.src;}}return;}
-  if(view==='loans'){loadLoans();return;}
-  if(view==='ads'){loadAds();return;}
+  if(isEmbedView()){const info=embedInfo();const f=info&&document.querySelector('#embedHost iframe[data-key="'+info.key+'"]');if(f){try{f.contentWindow.location.reload();}catch(e){f.src=f.src;}}return;}
+  if(view==='loans'){loadLoans(true);return;}
+  if(view==='ads'){loadAds(true);return;}
   render();
 }
 
@@ -408,8 +411,8 @@ const V={
   },
   exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
     `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
-  properties(){return `<iframe class="embedframe" src="${OPS_URL}#tab=properties&embed=1&theme=${theme}" title="Properties" loading="lazy"></iframe>`;},
-  loans(){setTimeout(loadLoans,0);return `<div id="loansBody"><div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div></div>`;},
+  properties(){return '';},   /* iframe lives in the persistent #embedHost (keep-alive) */
+  loans(){ if(loansCache) return `<div id="loansBody">${renderLoans(loansCache)}</div>`; setTimeout(function(){loadLoans(false);},0); return `<div id="loansBody"><div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div></div>`; },
   investors(){return card('hand','Investors',INVESTORS.length,tbl([{t:'Investor'},{t:'Position'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td>${esc(i.where)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true);},
   insurance(){return `<div class="placeholder">${I.shield}<div>Insurance & risk &mdash; 257 policies in <b>insurance_policy</b></div></div>`;},
   leads(){
@@ -419,7 +422,7 @@ const V={
       card('users','Leads',LEADS.length,tbl([{t:'Name'},{t:'Provider'},{t:'Status'}],LEADS.map(l=>`<tr><td><span class="who"><span class="mo" style="background:${PROV[l.p].c}">${ini(l.n)}</span>${esc(l.n)}</span></td><td><span class="chip"><span class="sw" style="background:${PROV[l.p].c}"></span>${PROV[l.p].n}</span></td><td>${pill(l.s,l.pc)}</td></tr>`).join('')),true);
   },
   appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
-  ads(){adsCampaign='all';adsRows=null;adsMode='baked';setTimeout(loadAds,0);return `<div id="adsBody">${renderAdsBody()}</div>`;},
+  ads(){ setTimeout(function(){loadAds(false);},0); return `<div id="adsBody">${renderAdsBody()}</div>`; },
   subscribers(){
     const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
     return `<div class="kpis">${kpi('users','Active users',SUBS.filter(s=>s.status!=='trial').length,'subscribers')}${kpi('grid','Units billed',SUBS.reduce((a,s)=>a+s.units,0).toLocaleString(),'')}${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('card','Past due','1','follow up','down')}</div>`+
@@ -449,7 +452,7 @@ const V={
   documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
     const seg=`<div class="seg"><button class="segbtn ${tasksTab==='board'?'on':''}" onclick="setTasksTab('board')">Tasks</button><button class="segbtn ${tasksTab==='ptasks'?'on':''}" onclick="setTasksTab('ptasks')">Property Tasks</button></div>`;
-    if(tasksTab==='ptasks') return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1&theme=${theme}" title="Property Tasks" loading="lazy"></iframe>`;
+    if(tasksTab==='ptasks') return seg;   /* Property Tasks iframe lives in #embedHost (keep-alive) */
     const cols=[['todo','To do','#98a0ac'],['in_progress','In progress','#4f6bed'],['done','Done','#12a150']];
     const prc={high:'#d1435b',med:'#c67c11',low:'#98a0ac'};
     return seg+`<div class="board">${cols.map(([st,label,dot])=>{
@@ -460,23 +463,24 @@ const V={
     }).join('')}</div>`;
   },
   alltasks(){
-    const seg=`<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;
-    const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];
-    return seg+`<iframe class="embedframe" src="${OPS_URL}#tab=${cur[0]}&embed=1&theme=${theme}" title="${esc(cur[1])}" loading="lazy"></iframe>`;
+    return `<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;   /* ops iframe lives in #embedHost (keep-alive) */
   },
   integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
   access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
 };
 
 /* ---- Loans (live from Supabase via /api/loans) ---- */
-async function loadLoans(){
+let loansCache=null;   // cached loans; only refetched when force=true (Refresh button)
+async function loadLoans(force){
   const el=document.getElementById('loansBody'); if(!el) return;
+  if(loansCache && !force){ el.innerHTML=renderLoans(loansCache); return; }
   try{
     const r=await fetch('/api/loans',{headers:{'Accept':'application/json'}});
     let data=null; try{ data=await r.json(); }catch(_){}
     if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
     if(data && data.error) throw new Error(data.error);
-    el.innerHTML=renderLoans((data&&data.loans)||[]);
+    loansCache=(data&&data.loans)||[];
+    el.innerHTML=renderLoans(loansCache);
   }catch(e){
     el.innerHTML=`<div class="muted" style="color:var(--rose);padding:10px 2px">Couldn't load loans (${esc(e.message)}). Needs DATA_SOURCE=supabase + a valid SUPABASE_DB_URL on the server. <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a></div>`;
   }
@@ -502,7 +506,7 @@ function renderLoans(loans){
 }
 
 /* ---- Marketing / Ads (live meta_ads_insight via Supabase; baked fallback) ---- */
-let adsCampaign='all', adsRows=null, adsMode='baked';
+let adsCampaign='all', adsRows=null, adsMode='baked', adsFetched=false, adsBrandKey=null;
 function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBody');if(el)el.innerHTML=renderAdsBody();}
 function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
 function adsScopedRows(){
@@ -514,11 +518,12 @@ function adsScopedRows(){
   camps.forEach(c=>c.days.forEach(d=>rows.push({date:d.date,spend:d.spend,imp:d.imp,clicks:d.clicks,leads:d.leads,cid:c.id,cname:c.name})));
   return {source:'baked',rows};
 }
-async function loadAds(){
+async function loadAds(force){
   const el=document.getElementById('adsBody'); if(!el) return;
+  if(adsFetched && adsBrandKey===brand && !force){ el.innerHTML=renderAdsBody(); return; }  // cached
   const sb=getSb(); let session=null;
   if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
-  if(!sb||!session){ adsRows=null; adsMode='baked'; el.innerHTML=renderAdsBody(); return; }
+  if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
   el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
   try{
     const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
@@ -528,6 +533,7 @@ async function loadAds(){
     if(error) throw error;
     adsRows=data||[]; adsMode='live';
   }catch(e){ adsRows=null; adsMode='baked'; }
+  adsFetched=true; adsBrandKey=brand;
   el.innerHTML=renderAdsBody();
 }
 function renderAdsBody(){
@@ -585,6 +591,21 @@ function buildNav(){const items=MENUS[brand];document.getElementById('nav').inne
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
 function currentLabel(){const it=currentItem();return it?it.label:view;}
 function isEmbedView(){return view==='properties'||view==='alltasks'||(view==='tasks'&&tasksTab==='ptasks');}
+/* Persistent iframes (kept alive across navigation so switching views never reloads/refetches the ops). */
+function embedInfo(){
+  const th=`&theme=${theme}`;
+  if(view==='properties') return {key:'properties',src:`${OPS_URL}#tab=properties&embed=1${th}`,title:'Properties'};
+  if(view==='tasks'&&tasksTab==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
+  if(view==='alltasks'){const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];return {key:'ops-'+cur[0],src:`${OPS_URL}#tab=${cur[0]}&embed=1${th}`,title:cur[1]};}
+  return null;
+}
+function showEmbed(info){
+  const host=document.getElementById('embedHost');
+  let f=host.querySelector('iframe[data-key="'+info.key+'"]');
+  if(!f){f=document.createElement('iframe');f.className='embedframe';f.setAttribute('data-key',info.key);f.title=info.title;f.loading='lazy';f.src=info.src;host.appendChild(f);}
+  Array.prototype.forEach.call(host.children,function(c){c.style.display=(c===f)?'':'none';});
+}
+function hideAllEmbeds(){const host=document.getElementById('embedHost');if(host)Array.prototype.forEach.call(host.children,function(c){c.style.display='none';});}
 function render(){
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
@@ -593,8 +614,14 @@ function render(){
   document.getElementById('cbBrand').textContent=b.name;
   document.getElementById('cbView').textContent=' / '+currentLabel();
   const content=document.getElementById('content');
-  content.className='content'+(isEmbedView()?' wide':'');
-  content.innerHTML=`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
+  const host=document.getElementById('embedHost');
+  const embed=isEmbedView();
+  const info=embed?embedInfo():null;
+  content.className='content'+(embed?' wide embed-lean':'');
+  const pageH=embed?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`;
+  content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
+  if(embed && info){ showEmbed(info); host.hidden=false; }
+  else { host.hidden=true; hideAllEmbeds(); }
 }
 function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
 function setView(id){view=id;if(id!=='tasks')tasksTab='board';render();}
