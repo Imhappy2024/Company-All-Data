@@ -6243,9 +6243,9 @@ function renderL10() {
   document.getElementById('l10-ids-count').textContent    = ids.length;
   document.getElementById('l10-sprint-count').textContent = sprints.length;
 
-  renderGroupedTaskList('l10-rocks-list',  rocks,   'Rocks',  { byRawStatus: true });
-  renderGroupedTaskList('l10-ids-list',    ids,     'IDS',    { byRawStatus: true });
-  renderGroupedTaskList('l10-sprint-list', sprints, 'Sprint', { byRawStatus: true });
+  renderGroupedTaskList('l10-rocks-list',  rocks,   'Rocks',  { byRawStatus: true, hideCompletedSubs: true });
+  renderGroupedTaskList('l10-ids-list',    ids,     'IDS',    { byRawStatus: true, hideCompletedSubs: true });
+  renderGroupedTaskList('l10-sprint-list', sprints, 'Sprint', { byRawStatus: true, hideCompletedSubs: true });
 }
 
 // ===================== OVERVIEW TAB =====================
@@ -6750,24 +6750,26 @@ function renderTaskRowHtml(t, depth = 0) {
 
 // Recursively render a task and its subtasks. Pulls subtasks from allTasks
 // regardless of filter, so the full hierarchy is visible under each parent.
-function renderTaskWithSubtasks(t, depth = 0) {
+function renderTaskWithSubtasks(t, depth = 0, hideCompletedSubs = false) {
   let html = renderTaskRowHtml(t, depth);
   if (depth >= 5) return html; // safety cap on recursion
-  const subs = (childrenByParent.get(t.id) || []).slice();
+  let subs = (childrenByParent.get(t.id) || []).slice();
+  // L10: drop completed subtasks (and their subtrees) so the agenda shows only open work.
+  if (hideCompletedSubs) subs = subs.filter(s => !isCompletedStatus(s));
   // Sort subtasks by orderindex if available, else by name
   subs.sort((a, b) => (parseFloat(a.orderindex || 0) - parseFloat(b.orderindex || 0)) || String(a.name || '').localeCompare(String(b.name || '')));
-  subs.forEach(sub => { html += renderTaskWithSubtasks(sub, depth + 1); });
+  subs.forEach(sub => { html += renderTaskWithSubtasks(sub, depth + 1, hideCompletedSubs); });
   return html;
 }
 
 // Render a list of tasks with subtasks nested under each parent. A task that
 // already appears as someone's child in the list is skipped at the top level.
-function renderTasksNested(tasks) {
+function renderTasksNested(tasks, hideCompletedSubs = false) {
   if (!tasks.length) return '';
   const idsInList = new Set(tasks.map(t => t.id));
   return tasks
     .filter(t => !t.parent || !idsInList.has(t.parent))
-    .map(t => renderTaskWithSubtasks(t, 0))
+    .map(t => renderTaskWithSubtasks(t, 0, hideCompletedSubs))
     .join('');
 }
 
@@ -6874,7 +6876,7 @@ function renderGroupedTaskList(elId, tasks, category, opts = {}) {
       <span class="group-label">${escHtml(label)}</span>
       <span class="card-count">${g.tasks.length}</span>
     </div>
-    ${renderTasksNested(g.tasks)}`;
+    ${renderTasksNested(g.tasks, !!opts.hideCompletedSubs)}`;
   }).join('');
 }
 
