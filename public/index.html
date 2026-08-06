@@ -1779,7 +1779,7 @@
   .prop-view-hideempty { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); cursor: pointer; white-space: nowrap; }
   .prop-view-hideempty input { accent-color: var(--accent); width: 15px; height: 15px; cursor: pointer; }
   @media (max-width: 640px) { .prop-view-controls #loanview-search { flex: 1 1 100%; } }
-  .prop-view-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
+  .prop-view-scroll { overflow: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface); }
   .prop-view-table { border-collapse: collapse; width: 100%; font-size: 12.5px; white-space: nowrap; }
   .prop-view-table th { position: sticky; top: 0; background: var(--surface2); color: var(--text3); text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.5px; font-weight: 700; text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
   .prop-view-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
@@ -4434,10 +4434,24 @@ function renderLoanViewTable() {
   if (asof) asof.textContent = cached.fetchedAt ? 'as of ' + relTimeShort(cached.fetchedAt) : '';
   loanViewRendered = { cols, rows };
   const scroll = document.getElementById('loanview-scroll');
-  if (!rows.length) { scroll.innerHTML = '<div class="prop-empty">No rows match.</div>'; return; }
+  if (!rows.length) { scroll.innerHTML = '<div class="prop-empty">No rows match.</div>'; fitLoanViewScroll(); return; }
   const head = `<tr>${cols.map(c => { const arr = loanSort && loanSort.col === c[0] ? (loanSort.dir === 1 ? ' ▲' : ' ▼') : ''; return `<th class="loanview-th" onclick="loanSortBy('${c[0]}')" title="Sort">${escHtml(c[1])}${arr}</th>`; }).join('')}</tr>`;
   const body = rows.map(r => `<tr>${cols.map(c => `<td>${fmtViewCell(r[c[0]], c[2])}</td>`).join('')}</tr>`).join('');
   scroll.innerHTML = `<table class="prop-view-table"><thead>${head}</thead><tbody>${body}</tbody></table>`;
+  fitLoanViewScroll();
+}
+// Cap the loan-view scroll box to the viewport so its (sticky-header) table scrolls
+// internally — the horizontal scrollbar then sits at the bottom of the visible box
+// instead of below all the rows. Height is measured live, so it's correct both at
+// /ops and inside the portal embed (iframe viewport).
+function fitLoanViewScroll() {
+  const el = document.getElementById('loanview-scroll');
+  if (!el || !el.offsetParent) return;   // absent or hidden (inactive tab)
+  requestAnimationFrame(() => {
+    const top = el.getBoundingClientRect().top;
+    const h = window.innerHeight - top - 18;   // leave room for the scrollbar
+    el.style.maxHeight = Math.max(220, Math.round(h)) + 'px';
+  });
 }
 function loanSortBy(col) {
   if (loanSort && loanSort.col === col) loanSort.dir = -loanSort.dir;
@@ -7882,6 +7896,7 @@ function updateFrozenHeight() {
   if (ft) document.documentElement.style.setProperty('--frozen-h', ft.offsetHeight + 'px');
 }
 window.addEventListener('resize', updateFrozenHeight);
+window.addEventListener('resize', () => { try { if (document.body.classList.contains('loanviews-active')) fitLoanViewScroll(); } catch (e) {} });
 window.addEventListener('load', updateFrozenHeight);
 
 // Apply persisted theme as early as possible
@@ -7929,6 +7944,7 @@ async function switchTab(tab) {
     try { TAB_RENDERERS[tab]?.(); } catch (e) { console.error(`switchTab render ${tab}:`, e); }
   }
   updateFrozenHeight();
+  if (tab === 'loanviews') fitLoanViewScroll();   // size the scroll box now the view is visible
 }
 
 function toggleGroup(header) {
