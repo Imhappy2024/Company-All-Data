@@ -270,6 +270,17 @@ const BRANDS={
 /* portal brand id -> Supabase company_id (CLAUDE.md) */
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
 const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
+/* brand -> ClickUp space ids. Drives the per-brand Tasks tab (Overview + Tasks embeds
+   scoped to these spaces so each business sees ONLY its own tasks). LeavenWealth = every
+   workspace space except the two brand spaces (Leadli, Folio Excel). Liquid Lending has
+   no ClickUp space yet -> empty-state. Edit this map as the ClickUp workspace evolves. */
+const BRAND_SPACES={
+  leavenwealth:['90145330145','90141115716','90141115773','90141166726','90141124838','90141115902','90142520340','90142564321','90142742038','90144437822'],
+  leadli:['90144463335'],
+  folio:['90145986363'],
+  liquid:[],
+};
+const brandSpaces=b=>BRAND_SPACES[b]||[];
 const OPS_URL='/ops';
 
 /* nav menus per brand */
@@ -355,7 +366,7 @@ const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x
 const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
 function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
-let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='board', opsTab='alltasks', loansTab='book';
+let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
 /* All Brands -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
@@ -463,16 +474,17 @@ const V={
     card('dollar','Recent transactions',TXNS.length,tbl([{t:'Date'},{t:'Description'},{t:'Amount',r:1}],TXNS.map(t=>`<tr><td>${t.d}</td><td>${esc(t.desc)}</td><td class="r" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('')),true);},
   documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
-    const seg=`<div class="seg"><button class="segbtn ${tasksTab==='board'?'on':''}" onclick="setTasksTab('board')">Tasks</button><button class="segbtn ${tasksTab==='ptasks'?'on':''}" onclick="setTasksTab('ptasks')">Property Tasks</button></div>`;
-    if(tasksTab==='ptasks') return seg;   /* Property Tasks iframe lives in #embedHost (keep-alive) */
-    const cols=[['todo','To do','#98a0ac'],['in_progress','In progress','#4f6bed'],['done','Done','#12a150']];
-    const prc={high:'#d1435b',med:'#c67c11',low:'#98a0ac'};
-    return seg+`<div class="board">${cols.map(([st,label,dot])=>{
-      const items=TASKS.filter(t=>t.status===st);
-      return `<div class="col"><div class="col-h"><span class="col-dot" style="background:${dot}"></span>${label} <span class="cnt">${items.length}</span><span class="col-add">${I.plus}</span></div>
-        ${items.map(t=>{const s=STAFF.find(x=>x.id===t.who);return `<div class="tcard"><span class="pill gray">${esc(t.cat)}</span><div class="tt">${esc(t.t)}</div><div class="tf"><span class="prio" style="background:${prc[t.prio]}"></span>${t.prio}<span class="due">${I.cal}${t.due}${s?`<img class="miniav" src="${s.img}" title="${esc(s.name)}" alt="">`:''}</span></div></div>`;}).join('')}
-      </div>`;
-    }).join('')}</div>`;
+    /* Per-brand Tasks tab: Overview + Tasks reuse the ops dashboard views (live ClickUp),
+       scoped to this brand's ClickUp spaces so each business sees ONLY its own tasks.
+       LeavenWealth also keeps its live Property Tasks board. All three are keep-alive
+       embeds in #embedHost. */
+    const tab=(brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;
+    const segdefs=[['overview','Overview'],['all','Tasks']];
+    if(brand==='leavenwealth') segdefs.push(['ptasks','Property Tasks']);
+    const seg=`<div class="seg">${segdefs.map(([id,label])=>`<button class="segbtn ${tab===id?'on':''}" onclick="setTasksTab('${id}')">${label}</button>`).join('')}</div>`;
+    if(tab==='ptasks') return seg;                     /* Property Tasks iframe in #embedHost */
+    if(brandSpaces(brand).length) return seg;          /* Overview/Tasks ops iframe in #embedHost */
+    return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its ${tab==='overview'?'overview and counters':'task board'} will appear here.</div></div>`;
   },
   alltasks(){
     return `<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;   /* ops iframe lives in #embedHost (keep-alive) */
@@ -602,12 +614,26 @@ function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.ent
 function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
 function currentLabel(){const it=currentItem();return it?it.label:view;}
-function isEmbedView(){return view==='properties'||view==='alltasks'||(view==='tasks'&&tasksTab==='ptasks')||(view==='loans'&&loansTab==='views');}
+function tasksSub(){return (brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;}
+function isEmbedView(){
+  if(view==='properties'||view==='alltasks') return true;
+  if(view==='loans'&&loansTab==='views') return true;
+  if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if((s==='overview'||s==='all')&&brandSpaces(brand).length)return true;}
+  return false;
+}
 /* Persistent iframes (kept alive across navigation so switching views never reloads/refetches the ops). */
 function embedInfo(){
   const th=`&theme=${theme}`;
   if(view==='properties') return {key:'properties',src:`${OPS_URL}#tab=properties&embed=1${th}`,title:'Properties'};
-  if(view==='tasks'&&tasksTab==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
+  if(view==='tasks'){
+    const s=tasksSub();
+    if(s==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
+    if((s==='overview'||s==='all')&&brandSpaces(brand).length){
+      const sp=brandSpaces(brand).join(',');
+      const opsTab=s==='overview'?'overview':'alltasks';
+      return {key:`btasks-${s}-${brand}`,src:`${OPS_URL}#tab=${opsTab}&embed=1&spaces=${sp}${th}`,title:s==='overview'?'Tasks Overview':'Tasks'};
+    }
+  }
   if(view==='loans'&&loansTab==='views') return {key:'loanviews',src:`${OPS_URL}#tab=loanviews&embed=1${th}`,title:'Loan Views'};
   if(view==='alltasks'){const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];return {key:'ops-'+cur[0],src:`${OPS_URL}#tab=${cur[0]}&embed=1${th}`,title:cur[1]};}
   return null;
@@ -636,8 +662,8 @@ function render(){
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }
 }
-function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='board';document.getElementById('bpMenu').classList.remove('open');render();}
-function setView(id){view=id;if(id!=='tasks')tasksTab='board';render();}
+function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='overview';document.getElementById('bpMenu').classList.remove('open');render();}
+function setView(id){view=id;if(id!=='tasks')tasksTab='overview';render();}
 document.documentElement.setAttribute('data-theme',theme);
 document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
 render();

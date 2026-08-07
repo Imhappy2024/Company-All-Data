@@ -8063,6 +8063,14 @@ setInterval(() => {
     try {
       const hp = new URLSearchParams((location.hash || '').replace(/^#/, ''));
       const tab = hp.get('tab'), sub = hp.get('sub');
+      // Brand scoping: /ops#...&spaces=<id,id,...> locks every view to those ClickUp
+      // spaces (the portal's per-brand Tasks tab uses this). filterState is in-memory
+      // per iframe and never persisted, so the scope stays isolated to this embed.
+      const spaces = hp.get('spaces');
+      if (spaces && typeof filterState !== 'undefined' && filterState.space) {
+        filterState.space = new Set(spaces.split(',').map(s => s.trim()).filter(Boolean));
+        try { applyFilters(); } catch (e) {}
+      }
       if (tab && typeof switchTab === 'function') {
         setTimeout(() => {
           try { switchTab(tab); } catch (e) {}

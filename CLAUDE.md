@@ -24,8 +24,14 @@ several brands). Two front ends are merged into ONE Express service:
 **Portal ↔ ops (interim, during the unify-into-one-app migration):**
 - Portal **Properties** nav iframes `/ops#tab=properties&embed=1` (embed mode hides the ops
   header/tabs/filter bar). Property Tasks is intentionally **removed** from the Properties view.
-- Portal **Tasks** tab hosts **Property Tasks** (segmented: Tasks | Property Tasks), which iframes
-  `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` also hides the property sub-nav → board only).
+- Portal **Tasks** tab (per brand) is segmented **Overview | Tasks** (+ **Property Tasks** for
+  LeavenWealth only). Overview iframes `/ops#tab=overview&embed=1&spaces=<ids>` and Tasks iframes
+  `/ops#tab=alltasks&embed=1&spaces=<ids>` — the ops Overview/All-Tasks views scoped to the brand's
+  ClickUp spaces so each business sees ONLY its own tasks. `spaces=<id,id,…>` sets the ops
+  `filterState.space` on load (in-memory per iframe, never persisted). Brand→space map is
+  `BRAND_SPACES` in portal.html (Leadli=Leadli space; Folio=Folio Excel space; LeavenWealth=all
+  spaces except those two; Liquid=none yet → empty-state). Property Tasks still iframes
+  `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` hides the property sub-nav → board only).
 - Portal **Loans** tab is segmented **Loan Book | Loan Views**: Loan Book reads `/api/loans`
   natively (Supabase); Loan Views iframes `/ops#tab=loanviews&embed=1` (CapEx Funding / Asset
   Fees / Escrows / TIF / Variable Rate / Maturities). Loan/debt views moved off Properties.
