@@ -481,44 +481,46 @@ function triggerBackgroundRefresh() {
   refreshTasksCache().catch(() => { /* logged inside */ });
 }
 
-// ----- Scheduled daily refresh at midnight Central (America/Chicago) -----
-function msUntilNextMidnightCentral() {
-  const now = new Date();
-  const fmt = new Intl.DateTimeFormat('en-US', {
+// ----- Scheduled refresh at 8 AM & 12 PM Central (America/Chicago) -----
+// Fires server-side even when no browser has the dashboard open, so the ClickUp
+// task cache (and the two-way ClickUp <-> Supabase task sync) refresh twice a day
+// regardless. Open dashboards refresh at the same times (see scheduleAutoRefresh
+// in public/index.html).
+const REFRESH_TARGETS_CENTRAL = [8 * 3600, 12 * 3600]; // 08:00 and 12:00, seconds-into-day
+function msUntilNextScheduledRefreshCentral() {
+  const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Chicago',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-  });
-  const parts = fmt.formatToParts(now);
+  }).formatToParts(new Date());
   let chHour = parseInt(parts.find(p => p.type === 'hour').value, 10);
   if (chHour === 24) chHour = 0;
   const chMin = parseInt(parts.find(p => p.type === 'minute').value, 10);
   const chSec = parseInt(parts.find(p => p.type === 'second').value, 10);
   const secondsNow = chHour * 3600 + chMin * 60 + chSec;
-  // Target: 00:00 (midnight) Chicago time. Always tomorrow's midnight.
-  const secondsUntil = 86400 - secondsNow;
-  return secondsUntil * 1000;
+  for (const t of REFRESH_TARGETS_CENTRAL) if (t > secondsNow) return (t - secondsNow) * 1000;
+  return ((86400 - secondsNow) + REFRESH_TARGETS_CENTRAL[0]) * 1000; // wrap to tomorrow 08:00
 }
 
 let dailyRefreshTimer = null;
 function scheduleDailyRefresh() {
   if (dailyRefreshTimer) clearTimeout(dailyRefreshTimer);
-  const ms = msUntilNextMidnightCentral();
+  const ms = msUntilNextScheduledRefreshCentral();
   const hours = (ms / 3600000).toFixed(1);
-  console.log(`Daily refresh scheduled in ${hours} hours (next midnight CT)`);
+  console.log(`Scheduled refresh in ${hours} h (next 8 AM / 12 PM CT)`);
   dailyRefreshTimer = setTimeout(async () => {
-    console.log('=== Daily midnight CT refresh firing ===');
+    console.log('=== Scheduled 8AM/12PM CT refresh firing ===');
     try {
       await refreshTasksCache();
-      console.log('=== Daily midnight CT refresh complete ===');
+      console.log('=== Scheduled refresh complete ===');
     } catch (e) {
-      console.error('Daily refresh failed:', e.message);
+      console.error('Scheduled refresh failed:', e.message);
     }
     // Two-way ClickUp <-> Supabase task sync on the same schedule.
     if (taskSync.enabled) {
       try { await taskSync.runSync(); }
       catch (e) { console.error('Scheduled task sync failed:', e.message); }
     }
-    scheduleDailyRefresh(); // reschedule for next day
+    scheduleDailyRefresh(); // reschedule for the next target (8 AM or 12 PM)
   }, ms);
 }
 
@@ -1571,8 +1573,8 @@ app.listen(PORT, '0.0.0.0', () => {
       console.log('Pre-warming task cache...');
       triggerBackgroundRefresh();
     }, 1000);
-    // Daily 8 AM CT auto-refresh — runs even when no users have the dashboard open,
-    // so newly created spaces / lists are picked up reliably each morning.
+    // 8 AM + 12 PM CT auto-refresh — runs even when no users have the dashboard open,
+    // so newly created spaces / lists / tasks are picked up reliably twice a day.
     scheduleDailyRefresh();
     // Initial task reconcile on boot so Supabase reflects ClickUp right away.
     if (taskSync.enabled) {

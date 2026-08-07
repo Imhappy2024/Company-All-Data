@@ -7973,7 +7973,7 @@ function getMsUntilNextRefresh() {
   const chSec = parseInt(parts.find(p => p.type === 'second').value, 10);
   const secondsNow = chHour * 3600 + chMin * 60 + chSec;
 
-  const targets = [0]; // 12 AM (midnight) Central
+  const targets = [8 * 3600, 12 * 3600]; // 8 AM and 12 PM Central
   let secondsUntil = null;
   for (const t of targets) {
     if (t > secondsNow) { secondsUntil = t - secondsNow; break; }
