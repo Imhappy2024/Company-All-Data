@@ -22,8 +22,11 @@ const OAUTH_CLIENT_ID = process.env.CLICKUP_OAUTH_CLIENT_ID || '';
 // the EXACT value registered on the ClickUp app. Leave unset to keep deriving.
 const OAUTH_REDIRECT_URI = process.env.CLICKUP_OAUTH_REDIRECT_URI || '';
 const OAUTH_CLIENT_SECRET = process.env.CLICKUP_OAUTH_CLIENT_SECRET || '';
-const ALLOWED_USERS = (process.env.CLICKUP_ALLOWED_USERS || '')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
+/* There is no per-user allowlist. Access is whoever can authorize the
+   LeavenWealth ClickUp workspace during OAuth - workspace membership IS the
+   boundary, and the dashboard only ever shows what that user's own ClickUp token
+   can already read. CLICKUP_ALLOWED_USERS used to gate this and was never set, so
+   it protected nothing while reading as though it did. */
 const COOKIE_TOKEN = 'du_token';
 const COOKIE_USER = 'du_user';
 /* Return path across the OAuth round trip. A cookie rather than a `state` query
@@ -709,8 +712,6 @@ app.get('/auth/debug', (req, res) => {
        this endpoint is unauthenticated. */
     oauth_client_id_prefix: OAUTH_CLIENT_ID ? OAUTH_CLIENT_ID.slice(0, 10) : null,
     oauth_redirect_pinned: !!OAUTH_REDIRECT_URI,
-    allowed_users_count: ALLOWED_USERS.length,
-    allowed_users_preview: ALLOWED_USERS.slice(0, 3),
     computed_redirect_uri: redirect,
     base_url: getBaseUrl(req),
     auth_url_that_would_be_used: OAUTH_CLIENT_ID
@@ -785,17 +786,7 @@ app.get('/auth/callback', async (req, res) => {
     const user = userPayload.user;
     if (!user) return res.status(500).send('Malformed user response');
 
-    // 3. Enforce allowlist (if configured)
-    if (ALLOWED_USERS.length) {
-      const ok = ALLOWED_USERS.includes(String(user.email || '').toLowerCase())
-              || ALLOWED_USERS.includes(String(user.id))
-              || ALLOWED_USERS.includes(String(user.username || '').toLowerCase());
-      if (!ok) {
-        return res.status(403).send(`Access denied. <strong>${user.email || user.username}</strong> is not in the allowed users list. <a href="/">Back</a>`);
-      }
-    }
-
-    // 4. Set cookie (works in top-level contexts) AND embed token in URL fragment
+    // 3. Set cookie (works in top-level contexts) AND embed token in URL fragment
     //    (works inside ClickUp iframes where third-party cookies are blocked).
     setAuthCookies(res, accessToken, user);
     const userJson = JSON.stringify({ id: user.id, username: user.username, email: user.email });
