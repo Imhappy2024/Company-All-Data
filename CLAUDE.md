@@ -129,78 +129,23 @@ Added for this project:
 
 ## Conventions
 - No framework, no bundler. One self-contained HTML file per surface.
-- Match the existing design tokens (CSS variables in portal.html `:root` / `[data-theme=light]`).
+- **Design system: `public/tokens.css`** — the shared palette, geometry and dark theme,
+  loaded by BOTH `/` (portal.html) and `/ops` (index.html) so the two surfaces read as one
+  product. Theme via `data-theme` on `<html>` (ops also honours `body.dark-mode`). Use the
+  token names (`--bg`, `--panel`, `--accent`, `--radius`, `--shadow`, series `--s1..s4`,
+  status `--good/--warn/--crit`, etc.); tokens.css has a shim block mapping the old names.
+  Don't re-add hard-coded colour blocks in the HTML files. (`migrations/` = review-only SQL,
+  not auto-applied.)
 - Money via the `money()`/`moneyk()` helpers; dates ISO in DB.
 - Keep the portal cards mapped to the 5 sections above; don't silently re-add a flat grid.
 - Prefer real Supabase reads over baked demo data once auth exists; until then, baked demo
   data in portal.html mirrors the seeded rows.
 
-## Portal data layer (added 2026-08-10) — READ THIS BEFORE TOUCHING THE PORTAL
-
-**Rule: no number is written by hand in `public/portal.html` or
-`public/portal-views.js`.** Everything on screen comes from `/api/portal/*`.
-If a value cannot be read from the database yet, the UI shows an empty state
-naming the table, not a plausible-looking figure. A wrong number costs more
-trust than a missing one, and it costs it permanently.
-
-Files:
-- `portal-queries.js` — every SQL statement, one per named result set. Add new
-  reads here, nowhere else. NULL is passed through untouched to the browser.
-- `portal-api.js` — mounts `GET /api/portal/:section?brand=<slug>` on the
-  existing `pg` pool. Returns `{ok, section, brand, data, empty, timings}`.
-  Returns **503, not a fallback payload**, when `DATA_SOURCE`/`SUPABASE_DB_URL`
-  are unset. 20s in-process cache; `POST /api/portal/_flush` clears it.
-- `public/tokens.css` — the single design system, loaded by BOTH surfaces.
-- `public/portal-views.js` — the screens. Formatters and components live in
-  `portal.html`; views live here.
-
-Every aggregate ships a `coverage` result set (how many rows it was built from,
-how many it could not use) and the UI prints it. That is deliberate: coverage on
-this database is poor and hiding it makes the figures look more solid than they are.
-
-### Display conventions (enforced, don't drift)
-- Three distinct empty states: `—` not reported, `N/A` not applicable, `0` a
-  measured zero. Never render them the same way.
-- Money abbreviated on tiles/axes (`$106.5M`), full precision in tables
-  (`$1,424,870`). Negatives in accounting parentheses.
-- `interest_rate_pct` is a decimal FRACTION. `pct()` multiplies by 100.
-- Ratios take `x` (DSCR 1.35x), rates and occupancy take `%`, flows take `$`.
-- Severity is relative to a threshold, never absolute (DSCR red below 1.00x,
-  amber below 1.25x — the covenant floor).
-- `tabular-nums` on every figure; numeric columns right-aligned.
-- Never two y-axes on one chart. Two measures = two panels.
-- Never draw a trend line from one observation. `property_financials` has
-  exactly one date, so it renders as tiles.
-
-### What the database cannot support yet (do not fake these)
-- **Occupancy.** `unit.occupancy` is free text and empty on all 224 rows. There
-  is no lease or tenant table. Physical/economic occupancy, WALT and lease
-  expiry are not derivable.
-- **Investor positions.** `investor_stake` exists, but there is no capital
-  account, contribution or distribution table. The Investors screen says so.
-- **Revenue.** No revenue table. `transaction` covers a six-week window only.
-- **Trends.** One financial snapshot date (2025-09-30) across 28 of 66 properties.
-- **Documents.** `document` has 0 rows and no Storage bucket.
-
-### /ops
-Restyled onto `tokens.css` only. No JavaScript, no API, no ClickUp sync logic
-was changed. Its theme now shares the `lw-theme` localStorage key with the
-portal, so toggling either keeps both in step. Properties and Tasks are still
-iframed from the portal; that bridge is unchanged and still interim.
-
-### dev/
-Fixture harness for rendering the portal without production credentials.
-Gitignored, never deployed, never imported by `server.js`.
-
 ## Current state (done)
 - Schema + brand layer + RLS + seed data all live in Supabase.
 - Ops dashboard is live (ClickUp+Supabase). Portal built with the 5-section layout.
 - Merged into one service; portal at `/`, ops at `/ops`; Properties card embeds ops.
-- **Baked demo data removed (2026-08-10).** Every portal card now reads live via
-  `/api/portal/*`. `public/portal.html` was rewritten; view code moved to
-  `public/portal-views.js`. The hard-coded overview KPIs (66 properties,
-  92% occupancy, $72K NOI, $2.04M debt across 3 loans) were wrong by roughly 50x
-  on debt and invented an occupancy figure the database does not hold.
+- Portal non-Properties cards use baked demo data (mirrors seed).
 
 ## Roadmap (typical next tasks — confirm scope before large changes)
 1. Add Supabase Auth (email magic-link or password) to the portal; gate `/` behind login.
