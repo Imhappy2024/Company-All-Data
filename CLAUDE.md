@@ -422,6 +422,35 @@ the modal. Priority writes `priority: 1..4` (urgent..low, `null` clears) straigh
 through `PUT /api/task/:id`, which is a pass-through to ClickUp - no server
 change was needed for it.
 
+### Needs Review / For Approval / L10 - counter-driven single panel
+Row 1's counters ARE the switcher: exactly one is selected and row 2 is a single
+panel showing that set, the same shape as the portal's native Tasks screen. Row 2
+used to be three columns, which duplicated the counters on the two review tabs
+and, on L10, showed a different cut (Rocks / IDS / Sprint) than the counters
+above it.
+
+`PANEL_VIEWS` + `panelCard` + `paintCounterPanel()` in `public/index.html` drive
+all three tabs, so a change lands on all of them at once. Each view's render
+function builds `{ key: {title, desc, tint, tasks} }` and hands it over; the panel
+header takes the selected counter's `tint` so the two rows read as one unit.
+`grouped: true` (L10 only) groups by raw status, matching what its columns did.
+
+Element ids follow `<view>-card-<key>` / `<view>-kpi-<key>` / `<view>-panel-*`,
+where view is `td` / `fr` / `l10`. `paintCounterPanel()` falls back to the first
+counter if a stored key ever goes missing, because "no selection" would render an
+empty screen.
+
+**Rocks / IDS / Sprint did not disappear** - it moved to the drilldown, which
+already grouped by category (`groupBy: 'category'`). That is why the small **View**
+chip keeps its `openDrilldown()` handler while the card body switches the panel;
+the chip needs `event.stopPropagation()` so it does not also switch. The chip was
+`pointer-events:none` because the whole card used to be one click target - it now
+becomes clickable on hover, so anything driving it must hover first.
+
+`.panel-card` is excluded from the mobile card accordion in both places that
+implement it. It is the content of its view, not one of several cards to collapse
+between - collapsing it leaves the screen empty below the counters.
+
 ### Ops bulk-action bar
 `.bulk-bar` in `public/index.html` hides with `visibility:hidden` as well as
 `translateY(120%)`. The transform alone left ~14px of the bar visible above the
