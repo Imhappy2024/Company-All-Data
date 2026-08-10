@@ -97,10 +97,16 @@ function ptask(id, name, status, sync) {
   const boot = () => page.waitForFunction(() => typeof window.render === 'function');
 
   // ---------------------------------------------------------------- gating
-  console.log('\nClickUp gate on the Tasks screens (signed out)');
+  console.log('\nThe portal lands on Executive Board');
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });
   await boot();
-  await page.evaluate(() => { setView('tasks'); setTasksTab('ptasks'); });
+  check('default workspace and screen', await page.evaluate(() => [brand, view]), ['all', 'exec']);
+  check('and it is a real screen, not a placeholder',
+    await page.evaluate(() => !!document.querySelector('#content .kpi')), true);
+
+  console.log('\nClickUp gate on the Tasks screens (signed out)');
+  /* Property Tasks only exists under LeavenWealth. */
+  await page.evaluate(() => { setBrand('leavenwealth'); setView('tasks'); setTasksTab('ptasks'); });
   check('Property Tasks shows the gate', await page.locator('.pa-gate-card').count(), 1);
   check('Property Tasks embeds nothing', await page.locator('#embedHost iframe:visible').count(), 0);
   check('the tab strip stays usable', await page.locator('.segbtn.on').textContent(), 'Property Tasks');
@@ -129,7 +135,7 @@ function ptask(id, name, status, sync) {
   check('every brand in the menu has a mark', marks.map(m => m.brand),
     ['all', 'leavenwealth', 'leadli', 'folio', 'liquid']);
   check('and it is the brand\'s own artwork', marks.map(m => m.src), [
-    '/icons/leavenwealth-mark.svg', '/icons/leavenwealth-mark.svg',
+    '/icons/exec-mark.svg', '/icons/leavenwealth-mark.svg',
     '/icons/leadli-mark.svg', '/icons/folio-mark.svg', '/icons/liquid-mark.svg']);
   /* Every referenced file must exist, or the chip silently falls back to
      initials in production and nobody notices until someone looks. */
@@ -163,7 +169,7 @@ function ptask(id, name, status, sync) {
 
   // ------------------------------------------------------- state in the URL
   console.log('\nThe screen survives a reload');
-  await page.evaluate(() => { setView('loans'); setLoansTab('views'); });
+  await page.evaluate(() => { setBrand('leavenwealth'); setView('loans'); setLoansTab('views'); });
   check('written to the fragment', await page.evaluate(() => location.hash), '#brand=leavenwealth&view=loans&sub=views');
   await page.reload({ waitUntil: 'domcontentloaded' });
   await boot();
@@ -177,7 +183,7 @@ function ptask(id, name, status, sync) {
   await page.goto('about:blank');
   await page.goto(`${BASE}/#brand=nope&view=nope&sub=nope`, { waitUntil: 'domcontentloaded' });
   await boot();
-  check('falls back to the default screen', await page.evaluate(() => [brand, view]), ['leavenwealth', 'overview']);
+  check('falls back to the default screen', await page.evaluate(() => [brand, view]), ['all', 'exec']);
   check('and still paints', await page.evaluate(() => document.getElementById('content').children.length > 0), true);
   await page.goto('about:blank');
   await page.goto(`${BASE}/#brand=folio&view=properties`, { waitUntil: 'domcontentloaded' });

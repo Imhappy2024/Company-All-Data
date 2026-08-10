@@ -277,7 +277,7 @@ const BRANDS={
      colour stays independent of the mark: it drives the whole workspace theme,
      not just this chip. Executive Board is the group, so it wears the parent
      LeavenWealth mark. */
-  all:{name:'Executive Board',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/leavenwealth-mark.svg'},
+  all:{name:'Executive Board',short:'EB',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/exec-mark.svg'},
   leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/leavenwealth-mark.svg'},
   leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9',logo:'/icons/leadli-mark.svg'},
   folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5',logo:'/icons/folio-mark.svg'},
@@ -399,7 +399,11 @@ const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x
 const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
 function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
-let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
+/* Executive Board is the landing workspace: the group view is what everyone
+   should see first, and each brand is a step down from it. readState() overrides
+   both from the fragment, so a reload or a shared link still wins. Keep these two
+   consistent - 'exec' is the first entry in MENUS.all. */
+let brand='all', view='exec', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
 let orgSummary=null;   // /api/org/summary result; drives the workspace-switcher subtitle
 /* Executive Board -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];

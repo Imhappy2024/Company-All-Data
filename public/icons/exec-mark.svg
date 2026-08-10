@@ -1,0 +1,17 @@
+<!-- Brand mark, redrawn to match the supplied artwork because the original
+     file was never in the repo. To use the official asset, replace THIS FILE and
+     keep the path: portal.html references marks by name only, so swapping one in
+     needs no code change. Colours are fixed rather than currentColor - the mark
+     always sits on the white plate .bp-glyph.has-logo paints, so it reads the
+     same in light and dark themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Executive Board">
+  <!-- Head in profile facing right: crown, brow, nose, lip, chin, jaw, neck. -->
+  <path fill="#111111" d="M45 38c0-16 12-28 28-28 12 0 20 8 20 18 0 4-1 8-2 11l6 9c1 2 1 3-1 4l-4 1 1 6c0 3-2 5-6 5l-7 1v10l-17-3V60C51 56 45 48 45 38Z"/>
+  <!-- Hair sweep, cut out of the crown. -->
+  <path fill="#ffffff" d="M52 26c5-8 13-12 22-11-8 2-15 6-19 13Z"/>
+  <!-- Shoulders and suit. -->
+  <path fill="#111111" d="M63 72 33 84c-10 4-16 13-17 24l-2 10h100l-2-10c-1-11-7-20-17-24L80 73l-8 12Z"/>
+  <!-- Shirt V and tie knot, cut out of the suit. -->
+  <path fill="#ffffff" d="m63 72 9 11 8-10 6 3-11 10 5 32H63l5-32-10-11Z"/>
+  <path fill="#111111" d="m72 86 5 5-3 27h-4l-3-27Z"/>
+</svg>

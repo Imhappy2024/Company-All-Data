@@ -225,6 +225,12 @@ retries). It is not decoration - do not hide it. It used to render as a
 full-width red bar because it was a direct child of the column-flex
 `.task-name`; `.pt-nameline` keeps it beside the task name.
 
+### Landing screen
+The portal opens on **Executive Board** (`brand='all'`, `view='exec'`) - the group
+view first, each brand a step down from it. `readState()` overrides both from the
+fragment, so a reload or a shared link still wins. The two defaults must stay
+consistent: `exec` is the first entry in `MENUS.all`.
+
 ### Brand marks
 `BRANDS[x].logo` in portal.html points at an SVG in `public/icons/`;
 `brandMark()` renders it and both call sites (the switcher button and the menu)
@@ -238,11 +244,37 @@ Marks sit on a **white plate** (`.has-logo`). They are fixed-colour artwork, and
 a dark mark on the dark theme's panel would vanish.
 
 `leavenwealth-mark.svg`, `leadli-mark.svg`, `folio-mark.svg` and
-`liquid-mark.svg` are **redraws** from artwork supplied in chat - the originals
+`liquid-mark.svg` and `exec-mark.svg` are **redraws** from artwork supplied in chat - the originals
 were never in the repo and the sandbox has no outbound network to fetch them. To
 use the official files, replace the SVG and keep the filename; nothing in
 portal.html needs editing. Executive Board deliberately shares the LeavenWealth
-mark, being the group view.
+mark, being the group view. Executive Board now has its own suited-figure mark.
+
+### ClickUp sign-in: the authorize URL takes TWO parameters
+`/auth/clickup` must hand ClickUp exactly `client_id` and `redirect_uri`.
+
+ClickUp's authorize page is the legacy `app.clickup.com/api` endpoint. Given any
+extra query parameter it refuses the whole request with **"Whoops! Unable to
+authorize your teams"**, before the consent step - so nothing reaches
+`/auth/callback` and there is nothing in the server log. Adding `&state=` to
+carry the return path is exactly what broke sign-in; the predecessor dashboard
+(`imhappy2024/click-up-dashboard`) sends two parameters and works. Verified by
+diffing the two OAuth blocks: that param was the only difference.
+
+The return path now rides in the short-lived `du_return` cookie
+(`COOKIE_RETURN`), set in `/auth/clickup` and read back in `/auth/callback`. If
+you ever need to pass something else through OAuth, add a cookie - **do not add
+a query parameter to that URL.** `test/test-oauth-url.js` asserts the exact
+parameter set so this cannot regress.
+
+`safeReturnPath()` still guards the value on both legs: the cookie is
+client-side, so it is revalidated on the way back, not trusted.
+
+The other way to produce the same ClickUp error is a `redirect_uri` that does not
+**exactly** match the one registered on the ClickUp app - scheme included. It is
+built from `x-forwarded-proto`/`x-forwarded-host`, so open **`/auth/debug`** on
+the deployed host and compare `computed_redirect_uri` against the app settings
+before suspecting the code.
 
 ### ClickUp space map
 `LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
@@ -296,7 +328,8 @@ and loads later, so it wins and turns every embed white. The guard is
     npm install --no-save playwright express
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
-    node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, sync chip
+    node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
+    node test/test-oauth-url.js  # the ClickUp authorize URL takes TWO params
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability

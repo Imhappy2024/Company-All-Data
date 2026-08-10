@@ -23,6 +23,10 @@ const ALLOWED_USERS = (process.env.CLICKUP_ALLOWED_USERS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 const COOKIE_TOKEN = 'du_token';
 const COOKIE_USER = 'du_user';
+/* Return path across the OAuth round trip. A cookie rather than a `state` query
+   param, because ClickUp's authorize page rejects any extra param — see
+   /auth/clickup. Short-lived: it is only needed for the hop to ClickUp and back. */
+const COOKIE_RETURN = 'du_return';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
 app.set('trust proxy', 1);
@@ -701,10 +705,23 @@ app.get('/auth/clickup', (req, res) => {
     return res.status(500).send('OAuth not configured. CLICKUP_OAUTH_CLIENT_ID missing.');
   }
   const redirect = `${getBaseUrl(req)}/auth/callback`;
-  // Carry the caller's path through OAuth so the callback can return them to it.
-  // Validated on the way in AND on the way out; redirect_uri is unaffected.
-  const state = safeReturnPath(req.query.state) || '/';
-  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
+  /* Where to send the user afterwards rides in a short-lived cookie, NOT in a
+     `state` query param.
+
+     ClickUp's authorize page is the legacy `app.clickup.com/api` endpoint, and
+     it rejects the request outright when handed anything beyond client_id and
+     redirect_uri - the user gets "Whoops! Unable to authorize your teams" and
+     never reaches the consent step. The previous dashboard
+     (imhappy2024/click-up-dashboard) sends exactly two params and works; adding
+     `&state=` is the only difference, and it is what broke sign-in.
+
+     So the URL below must stay byte-for-byte the two-parameter form. If you need
+     to pass something through OAuth, put it in a cookie here and read it in
+     /auth/callback - do not add it to this URL. */
+  const dest = safeReturnPath(req.query.state) || '/';
+  res.setHeader('Set-Cookie',
+    `${COOKIE_RETURN}=${encodeURIComponent(dest)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=600`);
+  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}`;
   res.redirect(url);
 });
 
@@ -762,11 +779,21 @@ app.get('/auth/callback', async (req, res) => {
     const userJson = JSON.stringify({ id: user.id, username: user.username, email: user.email });
     const payload = Buffer.from(JSON.stringify({ token: accessToken, user: JSON.parse(userJson) })).toString('base64url');
     console.log(`OAuth success: ${user.username || user.email} (id ${user.id})`);
-    // Return the user to wherever they started. Both surfaces now capture the
-    // #auth fragment: /ops has always done it, and the portal does it via
-    // public/portal-auth.js. An unrecognised or missing state goes to '/',
-    // because the portal is the front door - not to /ops.
-    const dest = safeReturnPath(req.query.state) || '/';
+    /* Return the user to wherever they started. Both surfaces capture the #auth
+       fragment: /ops has always done it, the portal does it via portal-auth.js.
+       The path comes back in the du_return cookie set by /auth/clickup - not a
+       `state` param, which ClickUp's authorize page refuses. req.query.state is
+       kept as a fallback in case ClickUp ever echoes one, but nothing sends it.
+       Revalidated rather than trusted: the cookie is client-side, and
+       safeReturnPath is the open-redirect guard. Anything unrecognised goes to
+       '/', because the portal is the front door - not /ops. */
+    const dest = safeReturnPath(parseCookies(req)[COOKIE_RETURN])
+              || safeReturnPath(req.query.state)
+              || '/';
+    /* setAuthCookies already wrote Set-Cookie, so append rather than replace -
+       assigning here would drop the session cookies and sign the user straight
+       back out. */
+    res.append('Set-Cookie', `${COOKIE_RETURN}=; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=0`);
     res.redirect(`${dest}#auth=${payload}`);
   } catch (e) {
     console.error('OAuth callback error:', e);
