@@ -19,16 +19,11 @@
 <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
-<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet"/>
 <link rel="stylesheet" href="/tokens.css"/>
 <style>
-  :root {
-    /* Colour tokens now come from /tokens.css so /ops and / match.
-       Only type is kept local. */
-    --font: 'DM Sans', sans-serif;
-    --mono: 'DM Mono', monospace;
-  }
-
+  /* Colour AND type tokens come from /tokens.css so /ops and / read as one product.
+     Nothing font/colour related is declared locally here anymore. */
   body.dark-mode {
     /* dark tokens come from /tokens.css */
   }
@@ -1597,18 +1592,17 @@
   /* Embed re-skin: remap the ops palette to the PORTAL palette so the embedded view
      blends into the new sidebar app (accent, surfaces, borders, text). The portal
      drives dark/light via the `embed-dark` class (see embed head script + postMessage). */
-  html.embed-only body {
+  html.embed-only:not(.embed-dark) body {
     --bg:#f4f5f7; --surface:#ffffff; --surface2:#fafbfc; --border:#e7e9ee; --border2:#eef0f4;
     --text:#171a1f; --text2:#666e7a; --text3:#98a0ac;
     --accent:#4f6bed; --accent2:#3f57cc; --teal:#4f6bed;
     --green:#12a150; --mint:#e7f6ee; --yellow:#c67c11; --red:#d1435b; --orange:#c67c11; --purple:#8b5cf6;
     --header-bg:#ffffff; --header-text:#171a1f; --radius:14px;
   }
-  html.embed-dark body {
-    /* dark tokens come from /tokens.css via body.dark-mode; this class only
-       needs to switch the scheme when the portal iframes us. */
-    color-scheme: dark;
-  }
+  /* Dark embed: tokens.css already ships the dark palette on `html.embed-dark body`.
+     The light block above is now guarded with :not(.embed-dark) so it can't out-cascade
+     it. Only the scheme hint is needed here. */
+  html.embed-dark body { color-scheme: dark; }
   html.embed-dark { background:#0d0d0d; }
   /* Standalone /ops defaults to dark: paint the page bg dark before body.dark-mode applies (no flash). */
   html.boot-dark { background:#0d0d0d; }
