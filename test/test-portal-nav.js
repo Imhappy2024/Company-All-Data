@@ -21,7 +21,12 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const ROOT = path.join(__dirname, '..');
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
+/* .svg matters: served as text/plain an <img> refuses to decode it, the brand
+   marks fall back to initials, and the test looks like a product bug. */
+const MIME = {
+  '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css',
+  '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png',
+};
 const PORT = 4174;
 const BASE = `http://localhost:${PORT}`;
 
@@ -110,6 +115,51 @@ function ptask(id, name, status, sync) {
   check('Properties is not gated', await page.locator('.pa-gate-card').count(), 0);
   await page.evaluate(() => setView('financials'));
   check('Financials is not gated', await page.locator('.pa-gate-card').count(), 0);
+
+  // ------------------------------------------------------------ brand marks
+  console.log('\nBrand marks');
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await boot();
+  await page.click('.bp-btn');
+  const marks = await page.$$eval('#bpMenu .bp-dot', els => els.map(e => ({
+    brand: e.getAttribute('data-brand'),
+    src: e.querySelector('img') ? new URL(e.querySelector('img').src).pathname : null,
+    fallback: e.querySelector('img') ? null : e.textContent,
+  })));
+  check('every brand in the menu has a mark', marks.map(m => m.brand),
+    ['all', 'leavenwealth', 'leadli', 'folio', 'liquid']);
+  check('and it is the brand\'s own artwork', marks.map(m => m.src), [
+    '/icons/leavenwealth-mark.svg', '/icons/leavenwealth-mark.svg',
+    '/icons/leadli-mark.svg', '/icons/folio-mark.svg', '/icons/liquid-mark.svg']);
+  /* Every referenced file must exist, or the chip silently falls back to
+     initials in production and nobody notices until someone looks. */
+  const missing = [];
+  for (const m of new Set(marks.map(v => v.src))) {
+    const r = await page.request.get(BASE + m);
+    if (!r.ok()) missing.push(m);
+  }
+  check('every mark file resolves', missing, []);
+  check('the marks actually decode', await page.$$eval('#bpMenu .bp-dot img',
+    els => els.every(i => i.complete && i.naturalWidth > 0)), true);
+  check('the switcher button follows the brand', await page.evaluate(() => {
+    setBrand('liquid');
+    return new URL(document.querySelector('#bpGlyph img').src).pathname;
+  }), '/icons/liquid-mark.svg');
+  check('and it keeps its id across brands', await page.evaluate(() => {
+    setBrand('leadli');
+    return !!document.getElementById('bpGlyph');
+  }), true);
+  /* A brand with no artwork, or artwork that 404s, must still show something. */
+  check('a broken mark degrades to initials', await page.evaluate(() => {
+    BRANDS.liquid.logo = '/icons/does-not-exist.svg';
+    setBrand('liquid');
+    return new Promise(res => setTimeout(() => {
+      const g = document.getElementById('bpGlyph');
+      res([g.textContent, g.classList.contains('has-logo')]);
+    }, 250));
+  }), ['LL', false]);
+  await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+  await boot();
 
   // ------------------------------------------------------- state in the URL
   console.log('\nThe screen survives a reload');

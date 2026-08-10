@@ -1,0 +1,17 @@
+<!-- Brand mark, redrawn to match the supplied artwork because the original
+     file was never in the repo. To use the official asset, replace THIS FILE and
+     keep the path: portal.html references marks by name only, so swapping one in
+     needs no code change. Colours are fixed rather than currentColor - the mark
+     always sits on the white plate .bp-glyph.has-logo paints, so it reads the
+     same in light and dark themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 207 207" role="img" aria-label="LeavenWealth">
+  <g transform="translate(103.5 6) rotate(45)">
+    <rect x="0" y="0" width="138" height="30" rx="2.5" fill="#1f4e4c"/>
+    <rect x="0" y="36" width="30" height="30" rx="2.5" fill="#2ecc71"/>
+    <rect x="36" y="36" width="102" height="30" rx="2.5" fill="#1f4e4c"/>
+    <rect x="0" y="72" width="66" height="30" rx="2.5" fill="#0aa06e"/>
+    <rect x="72" y="72" width="30" height="30" rx="2.5" fill="#1f4e4c"/>
+    <rect x="108" y="72" width="30" height="66" rx="2.5" fill="#0aa06e"/>
+    <rect x="0" y="108" width="102" height="30" rx="2.5" fill="#0aa06e"/>
+  </g>
+</svg>

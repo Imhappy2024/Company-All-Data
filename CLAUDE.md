@@ -225,6 +225,25 @@ retries). It is not decoration - do not hide it. It used to render as a
 full-width red bar because it was a direct child of the column-flex
 `.task-name`; `.pt-nameline` keeps it beside the task name.
 
+### Brand marks
+`BRANDS[x].logo` in portal.html points at an SVG in `public/icons/`;
+`brandMark()` renders it and both call sites (the switcher button and the menu)
+go through that one function so they cannot drift. A brand with no `logo`, or one
+whose file fails to load, falls back to the tinted initials chip via
+`brandMarkFailed()` - a missing asset must never leave an empty white square.
+`logo` is independent of `color`: the accent drives the whole workspace theme,
+not just this chip.
+
+Marks sit on a **white plate** (`.has-logo`). They are fixed-colour artwork, and
+a dark mark on the dark theme's panel would vanish.
+
+`leavenwealth-mark.svg`, `leadli-mark.svg`, `folio-mark.svg` and
+`liquid-mark.svg` are **redraws** from artwork supplied in chat - the originals
+were never in the repo and the sandbox has no outbound network to fetch them. To
+use the official files, replace the SVG and keep the filename; nothing in
+portal.html needs editing. Executive Board deliberately shares the LeavenWealth
+mark, being the group view.
+
 ### ClickUp space map
 `LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
 space by explicit decision. `EXEC_SPACES` (12) is the whole workspace. Leadli and

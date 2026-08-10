@@ -28,6 +28,13 @@ body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tex
 .bp-btn{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:var(--radius-sm);background:transparent;border:none;cursor:pointer;transition:.12s;text-align:left}
 .bp-btn:hover{background:var(--panel-2)}
 .bp-glyph{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:#fff;font-weight:650;font-size:11.5px;letter-spacing:-.2px;flex:none}
+/* Brand marks are artwork in fixed brand colours, so they get a white plate
+   rather than the tinted initials chip - a dark mark on the dark theme's panel
+   would otherwise disappear. */
+.bp-glyph.has-logo,.bp-dot.has-logo{background:#fff;overflow:hidden;box-sizing:border-box}
+.bp-glyph.has-logo{padding:4px}
+.bp-dot.has-logo{padding:2px}
+.bp-glyph.has-logo img,.bp-dot.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
 .bp-meta{text-align:left;flex:1;min-width:0}
 .bp-name{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
 .bp-sub{display:block;font-size:11px;color:var(--faint);line-height:1.25}
@@ -265,11 +272,16 @@ const I={
 };
 
 const BRANDS={
-  all:{name:'Executive Board',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
-  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
-  leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9'},
-  folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5'},
-  liquid:{name:'Liquid Lending',short:'LL',color:'#eda100',soft:'#fdf2da',line:'#f6e2ac'},
+  /* `logo` is optional - a brand without one keeps the tinted initials chip, and
+     so does a brand whose file fails to load (see brandMarkFailed). The accent
+     colour stays independent of the mark: it drives the whole workspace theme,
+     not just this chip. Executive Board is the group, so it wears the parent
+     LeavenWealth mark. */
+  all:{name:'Executive Board',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/leavenwealth-mark.svg'},
+  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/leavenwealth-mark.svg'},
+  leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9',logo:'/icons/leadli-mark.svg'},
+  folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5',logo:'/icons/folio-mark.svg'},
+  liquid:{name:'Liquid Lending',short:'LL',color:'#eda100',soft:'#fdf2da',line:'#f6e2ac',logo:'/icons/liquid-mark.svg'},
 };
 /* portal brand id -> Supabase company_id (CLAUDE.md) */
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
@@ -646,7 +658,24 @@ function switcherSub(){
   }
   return `1 company · ${t ? t.name : ''}`;
 }
-function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.entries(BRANDS).map(([id,b])=>`<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')"><span class="bp-dot" style="background:${b.color}">${b.short}</span>${b.name}</div>`).join('');}
+/* The brand mark: artwork when the brand has one, the tinted initials chip
+   otherwise. Both call sites share this so the switcher button and the menu can
+   never drift apart. */
+function brandMark(id,cls,domId){
+  const b=BRANDS[id],at=domId?` id="${domId}"`:'';
+  if(b.logo) return `<span${at} class="${cls} has-logo" data-brand="${id}"><img src="${esc(b.logo)}" alt="" onerror="brandMarkFailed(this)"></span>`;
+  return `<span${at} class="${cls}" data-brand="${id}" style="background:${b.color}">${b.short}</span>`;
+}
+/* A missing or broken logo file must still leave a legible mark, not an empty
+   white square - fall back to the initials the brand would have had. */
+function brandMarkFailed(img){
+  const host=img.parentNode; if(!host) return;
+  const b=BRANDS[host.getAttribute('data-brand')]; if(!b) return;
+  host.classList.remove('has-logo');
+  host.style.background=b.color;host.style.color='#fff';
+  host.textContent=b.short;
+}
+function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.entries(BRANDS).map(([id,b])=>`<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')">${brandMark(id,'bp-dot')}${b.name}</div>`).join('');}
 function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
 function currentLabel(){const it=currentItem();return it?it.label:view;}
@@ -750,7 +779,9 @@ function render(){
   writeState();
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
-  document.getElementById('bpGlyph').style.background='var(--ink)';document.getElementById('bpGlyph').style.color='var(--surface)';document.getElementById('bpGlyph').textContent=b.short;
+  /* outerHTML, so the mark can switch between an <img> and an initials chip as
+     the brand changes - setting textContent alone would leave a stale <img>. */
+  document.getElementById('bpGlyph').outerHTML=brandMark(brand,'bp-glyph','bpGlyph');
   document.getElementById('bpName').textContent=b.name;
   document.querySelector('.bp-sub').textContent = switcherSub();
   document.getElementById('cbBrand').textContent=b.name;

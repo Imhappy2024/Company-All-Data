@@ -1,0 +1,22 @@
+<!-- Brand mark, redrawn to match the supplied artwork because the original
+     file was never in the repo. To use the official asset, replace THIS FILE and
+     keep the path: portal.html references marks by name only, so swapping one in
+     needs no code change. Colours are fixed rather than currentColor - the mark
+     always sits on the white plate .bp-glyph.has-logo paints, so it reads the
+     same in light and dark themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Liquid Lending">
+  <g fill="none" stroke="#101f57" stroke-width="8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M12 60 64 16l52 44"/>
+    <path d="M26 58v34M102 58v34"/>
+  </g>
+  <g fill="#101f57">
+    <rect x="50" y="42" width="12" height="12" rx="1.5"/>
+    <rect x="66" y="42" width="12" height="12" rx="1.5"/>
+    <rect x="50" y="58" width="12" height="12" rx="1.5"/>
+    <rect x="66" y="58" width="12" height="12" rx="1.5"/>
+  </g>
+  <ellipse cx="64" cy="102" rx="52" ry="19" fill="none" stroke="#101f57" stroke-width="7"/>
+  <ellipse cx="64" cy="102" rx="32" ry="11" fill="none" stroke="#12b0d6" stroke-width="7"/>
+  <ellipse cx="64" cy="103" rx="13" ry="5" fill="#12b0d6"/>
+  <path d="M64 74c6 8 9 12 9 16a9 9 0 0 1-18 0c0-4 3-8 9-16Z" fill="#12b0d6"/>
+</svg>

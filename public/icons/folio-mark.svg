@@ -1,0 +1,12 @@
+<!-- Folio Excel brand mark: black F, bottom-left corner cut on a diagonal, green
+     bar sitting in the crook on the same slant.
+
+     Redrawn to match the supplied artwork. To swap in the official file, replace
+     THIS FILE and keep the path - portal.html references it by name only, so no
+     code changes. currentColor is deliberately NOT used: the mark is two fixed
+     brand colours and always sits on the white plate .bp-glyph.has-logo paints,
+     so it reads the same in light and dark themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 132 152" role="img" aria-label="Folio Excel">
+  <path fill="#111111" d="M0 0h132v40H40v22h68v38H40v12L0 152Z"/>
+  <path fill="#0e9f4f" d="M62 120h52l-16 32H46Z"/>
+</svg>
