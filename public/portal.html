@@ -802,6 +802,10 @@ function render(){
      script-scoped consts, so portal-tasks.js cannot read them - pass them in. */
   if(view==='tasks' && tasksSub()==='all' && window.PortalTasks){
     PortalTasks.render(brand,'tasksNative',{spaces:brandSpaces(brand),brandName:BRANDS[brand].name});
+  } else if(window.PortalTasks && PortalTasks.close){
+    /* Its task modal and popovers live on <body> so a repaint cannot destroy
+       them mid-edit; the flip side is that leaving Tasks must dismiss them. */
+    PortalTasks.close();
   }
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }

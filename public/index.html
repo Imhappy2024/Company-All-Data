@@ -400,11 +400,21 @@
     align-items: center;
     gap: 10px;
     font-size: 13px;
-    transition: transform 0.2s ease;
+    /* visibility is delayed on hide so the slide-out is still seen, then
+       hard-hides. translateY(120%) alone left the top ~15px of the bar peeking
+       above the bottom edge whenever nothing was selected. */
+    transition: transform 0.2s ease, visibility 0s linear 0.2s;
+    visibility: hidden;
+    pointer-events: none;
     max-width: calc(100vw - 32px);
     flex-wrap: wrap;
   }
-  .bulk-bar.visible { transform: translateX(-50%) translateY(0); }
+  .bulk-bar.visible {
+    transform: translateX(-50%) translateY(0);
+    visibility: visible;
+    pointer-events: auto;
+    transition: transform 0.2s ease, visibility 0s linear 0s;
+  }
   .bulk-bar-count { font-weight: 600; color: var(--text); white-space: nowrap; }
   .bulk-bar button {
     padding: 7px 14px;

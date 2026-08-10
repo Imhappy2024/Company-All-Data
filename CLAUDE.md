@@ -339,6 +339,48 @@ New env var `SUPABASE_WEBHOOK_SECRET` (plus optional `SSE_*` tuning).
 `/ops`. That function is a security boundary - an unvalidated value there is an
 open redirect. It does not affect the registered `redirect_uri`.
 
+### Task modal + popovers (portal-tasks.js) - the overlay layer
+The task modal, the status/assignee/due/priority popovers and the toast live in
+a single `#ntOverlays` div appended **to `<body>`**, not inside the task
+container. `paint()` replaces that container's innerHTML on every write, so an
+overlay inside it was destroyed the moment you changed anything from it - which
+is why editing from the drawer used to close the drawer. Consequences to keep in
+mind if you touch this:
+
+- `paint()` calls `renderDrawer(false)`, rebuilding the open modal in place so it
+  shows what was just saved. `false` preserves the comment list already loaded.
+- Leaving the Tasks screen must call `PortalTasks.close()`; `portal.html` does
+  this in `render()`. Without it an open modal outlives the view it belongs to.
+- Popovers are `position:fixed` and placed by `placePop()` in **viewport**
+  coordinates, flipping above the anchor near the bottom edge and following it on
+  scroll. They were `position:absolute` doing viewport arithmetic while the
+  container was `position:static`, so the offset parent was some ancestor and the
+  menu appeared adrift from its row. Don't go back to absolute without also
+  making the container a positioned ancestor.
+- z-order: scrim 70, modal 71, popover 80, toast 90. The popover must stay above
+  the modal, because the modal opens the same popovers.
+- Escape closes **one** layer (popover, then modal). That handler is bound in
+  `ensureOverlays()`, which runs once. `bindOnce()` used to compare
+  `el.__ntBound === paintId()` with a `paintId()` that incremented on every call,
+  so it never matched and every paint stacked another set of listeners - 16
+  document keydown handlers after five paints, which made one Escape close both
+  layers at once. Keep document-scoped listeners out of `bindOnce()`.
+- The modal is centred (`left/top 50%` + `translate(-50%,-50%)`), matching the
+  ops drilldown. It was a right-edge drawer, which read as a different product
+  from the same thing on the Executive Board.
+
+Status, assignees, due and priority are editable from **both** the list row and
+the modal. Priority writes `priority: 1..4` (urgent..low, `null` clears) straight
+through `PUT /api/task/:id`, which is a pass-through to ClickUp - no server
+change was needed for it.
+
+### Ops bulk-action bar
+`.bulk-bar` in `public/index.html` hides with `visibility:hidden` as well as
+`translateY(120%)`. The transform alone left ~14px of the bar visible above the
+bottom edge whenever nothing was selected, which showed up as a mystery box at
+the bottom of every embedded ops view. The `visibility` transition is delayed by
+0.2s on hide only, so the slide-out is still seen.
+
 ### Embed theme - do not undo this
 Do **not** re-add an unguarded `html.embed-only body` palette to
 `public/index.html`. It ties on specificity with the dark tokens in `tokens.css`
@@ -347,6 +389,7 @@ and loads later, so it wins and turns every embed white. The guard is
 
 ### Tests
     npm install --no-save playwright express
+    node node_modules/playwright/cli.js install chromium
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
     node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
@@ -361,6 +404,11 @@ To Do and In Progress.
 In the sandbox `run-tests.js` reports one failure, `no page errors ->
 ERR_CONNECTION_RESET`: the staff headshots are hotlinked from static.showit.co
 and there is no outbound network. That one is an environment artefact.
+
+`run-tests.js` and `smoke-portal.js` launch whatever browser Playwright
+installed; `CHROME_PATH` overrides it. They used to hardcode
+`/opt/pw-browsers/chromium-1194/...`, which made the suite unrunnable off the
+Linux sandbox it was written in. Don't reintroduce an absolute browser path.
 
 ## Still baked - the biggest remaining inaccuracy
 `V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:

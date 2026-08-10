@@ -148,6 +148,7 @@
     spaces: [],
     containerId: null,
     card: 'open',
+    openTaskId: null,   /* drawer subject, so a repaint after a write can rebuild it */
     q: '',
     assignee: {},   /* id -> true */
     status: {},     /* canonical bucket -> true */
@@ -275,18 +276,22 @@
     ui.containerId = containerId;
     ui.brandName = opts.brandName || brand;
     ui.spaces = opts.spaces || [];
-    if (brandChanged) { clearFilters(); ui.card = 'open'; }
+    /* Overlays outlive a repaint now, so switching brand or losing the session
+       has to dismiss them explicitly - the open task may not be in scope any more. */
+    if (brandChanged) { clearFilters(); ui.card = 'open'; closeDrawer(); }
 
     var el = container();
     if (!el) return;
 
     if (!PortalAuth.isSignedIn()) {
+      closeDrawer();
       el.innerHTML = PortalAuth.gateHtml({
         note: 'You only need this for Tasks. The rest of the portal works without it.',
       });
       return;
     }
     if (!ui.spaces.length) {
+      closeDrawer();
       el.innerHTML = emptyState(
         'No ClickUp space for ' + esc(ui.brandName) + ' yet',
         'Once this business has a space in ClickUp, its tasks appear here automatically. Nothing to configure in the dashboard.');
@@ -316,14 +321,15 @@
       cardsHtml(counts) +
       toolbarHtml(base, filtered.length, rows.length) +
       '<div class="nt-tablewrap"><div class="nt-thead">' + headHtml() + '</div>' +
-      '<div class="nt-tbody" id="ntBody"></div></div>' +
-      '<div class="nt-drawer" id="ntDrawer" hidden></div>' +
-      '<div class="nt-scrim" id="ntScrim" hidden></div>' +
-      '<div class="nt-pop" id="ntPop" hidden></div>' +
-      '<div class="nt-toast" id="ntToast" hidden></div>';
+      '<div class="nt-tbody" id="ntBody"></div></div>';
 
+    ensureOverlays();
     bindOnce(el);
     renderRows(rows);
+    /* Every write repaints this container. The drawer used to live inside it,
+       so changing anything from the drawer destroyed the drawer. It now lives
+       on <body> and is rebuilt here instead, showing what was just saved. */
+    renderDrawer(false);
   }
 
   function bannerHtml() {
@@ -462,10 +468,16 @@
       '</div>' +
       '<div class="nt-c-assign"><button class="nt-plain nt-editable" data-act="assign">' + avatarsHtml(t) + '</button></div>' +
       '<div class="nt-c-due"><button class="nt-plain nt-editable" data-act="due">' + fmtDue(t) + '</button></div>' +
-      '<div class="nt-c-pri">' + (pri ? '<span class="nt-pri p-' + esc(pri) + '">' + esc(pri) + '</span>' : '<span class="nt-nil">—</span>') + '</div>' +
+      '<div class="nt-c-pri"><button class="nt-plain nt-editable" data-act="pri" ' +
+        'title="' + (pri ? esc(pri) : 'No priority') + ' (click to change)">' + priorityHtml(pri) + '</button></div>' +
       '<div class="nt-c-list">' + esc((t.list && t.list.name) || '') + '</div>' +
       '<div class="nt-c-space">' + esc((t.space && t.space.name) || '') + '</div>' +
     '</div>';
+  }
+
+  function priorityHtml(pri) {
+    return pri ? '<span class="nt-pri p-' + esc(pri) + '">' + esc(pri) + '</span>'
+               : '<span class="nt-nil">—</span>';
   }
 
   function skeletonHtml() {
@@ -485,18 +497,21 @@
      ===================================================================== */
 
   function bindOnce(el) {
-    if (el.__ntBound === paintId()) return;
-    el.__ntBound = paintId();
+    /* Genuinely once per container element. This used to compare against
+       paintId(), which incremented on every call and so never matched - every
+       paint added another full set of listeners (16 document keydown handlers
+       after five paints). Delegation means one binding is enough: paint()
+       replaces this element's innerHTML, never the element. portal.html builds
+       a fresh #tasksNative when you navigate back, which gets a fresh flag. */
+    if (el.__ntBound) return;
+    el.__ntBound = true;
 
     el.addEventListener('click', function (ev) {
-      var pop = document.getElementById('ntPop');
       var ddBtn = ev.target.closest && ev.target.closest('[data-act="dd"]');
       var inPanel = ev.target.closest && ev.target.closest('.nt-dd-panel');
       if (!ddBtn && !inPanel) closeDropdowns();
-      if (!(ev.target.closest && ev.target.closest('.nt-pop')) && pop && !pop.hidden &&
-          !(ev.target.closest && ev.target.closest('[data-act="status"],[data-act="assign"],[data-act="due"]'))) {
-        pop.hidden = true;
-      }
+      /* Dismissing the popover is handled document-wide in ensureOverlays(),
+         because the popover is no longer a descendant of this container. */
 
       var card = ev.target.closest && ev.target.closest('[data-card]');
       if (card) { setCard(card.getAttribute('data-card')); return; }
@@ -524,6 +539,7 @@
       if (kind === 'status') openStatusPop(task, act);
       if (kind === 'assign') openAssignPop(task, act);
       if (kind === 'due') openDuePop(task, act);
+      if (kind === 'pri') openPriorityPop(task, act);
     });
 
     el.addEventListener('change', function (ev) {
@@ -549,15 +565,9 @@
       }, 180);
     });
 
-    document.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Escape') return;
-      closeDropdowns();
-      var pop = document.getElementById('ntPop'); if (pop) pop.hidden = true;
-      closeDrawer();
-    });
+    /* Escape is bound in ensureOverlays(), not here: it is document-scoped, so
+       binding it per container would stack up one handler per navigation. */
   }
-  var _paintId = 0;
-  function paintId() { return ++_paintId; }
 
   function closeDropdowns() {
     Array.prototype.forEach.call(document.querySelectorAll('.nt-dd-panel'), function (p) { p.hidden = true; });
@@ -634,7 +644,7 @@
         wirePop(function (el) {
           var name = el.getAttribute('data-status');
           if (!name) return;
-          document.getElementById('ntPop').hidden = true;
+          hidePop();
           commit(task, { status: name },
             { status: Object.assign({}, task.status || {}, { status: name }), canonical_status: null },
             'Status');
@@ -668,7 +678,7 @@
             var m = members.filter(function (x) { return String(x.id) === String(id); })[0];
             if (m) next = next.concat([m]);
           }
-          document.getElementById('ntPop').hidden = true;
+          hidePop();
           commit(task, { assignees: on ? { rem: [Number(id)] } : { add: [Number(id)] } },
             { assignees: next }, 'Assignees');
         });
@@ -690,9 +700,8 @@
     wirePop(function (el) {
       var a = el.getAttribute('data-due');
       if (!a) return;
-      var pop = document.getElementById('ntPop');
       if (a === 'clear') {
-        pop.hidden = true;
+        hidePop();
         commit(task, { due_date: null }, { due_date: null }, 'Due date');
         return;
       }
@@ -700,28 +709,126 @@
       if (!input || !input.value) return;
       /* Noon local so a timezone shift can never move it to the previous day. */
       var picked = new Date(input.value + 'T12:00:00').getTime();
-      pop.hidden = true;
+      hidePop();
       commit(task, { due_date: picked, due_date_time: false }, { due_date: String(picked) }, 'Due date');
     });
   }
 
+  /* ClickUp priority ids, urgent..low. Sending null clears it. */
+  var PRIORITY_CHOICES = [['1', 'urgent'], ['2', 'high'], ['3', 'normal'], ['4', 'low']];
+
+  function openPriorityPop(task, anchor) {
+    var cur = priorityOf(task);
+    showPop(anchor, PRIORITY_CHOICES.map(function (p) {
+      var on = cur === p[1];
+      return '<button class="nt-pop-item' + (on ? ' on' : '') + '" data-pri="' + p[0] + '">' +
+        '<span class="nt-pri p-' + p[1] + '">' + p[1] + '</span>' +
+        (on ? '<span class="nt-tick">✓</span>' : '') + '</button>';
+    }).join('') +
+      (cur ? '<button class="nt-pop-item" data-pri="none">Clear priority</button>' : ''));
+    wirePop(function (el) {
+      var v = el.getAttribute('data-pri');
+      if (!v) return;
+      hidePop();
+      var none = v === 'none';
+      commit(task,
+        { priority: none ? null : Number(v) },
+        { priority: none ? null : { id: v, priority: PRIORITY_BY_ID[v] } },
+        'Priority');
+    });
+  }
+
+  var popAnchor = null;
+
   function showPop(anchor, html) {
+    ensureOverlays();
     var pop = document.getElementById('ntPop');
     if (!pop) return;
+    popAnchor = anchor;
     pop.innerHTML = html;
     pop.hidden = false;
-    var r = anchor.getBoundingClientRect();
-    var host = container().getBoundingClientRect();
-    pop.style.top = (r.bottom - host.top + 6) + 'px';
-    pop.style.left = Math.max(0, Math.min(r.left - host.left, host.width - 260)) + 'px';
+    placePop();
+  }
+  function hidePop() {
+    var pop = document.getElementById('ntPop');
+    if (pop) pop.hidden = true;
+    popAnchor = null;
+  }
+  /* The popover is fixed to the viewport and measured once its content is in
+     the DOM, so it lands on its anchor regardless of what is scrolled or
+     positioned around it, and flips above the anchor near the bottom edge.
+
+     It used to be position:absolute with viewport-relative arithmetic, but the
+     container it sat in was position:static, so the offset parent was some
+     ancestor further up and the menu appeared adrift from the row it belonged
+     to. Don't reintroduce absolute positioning here without also making the
+     container a positioned ancestor. */
+  function placePop() {
+    var pop = document.getElementById('ntPop');
+    if (!pop || pop.hidden) return;
+    if (!popAnchor || !popAnchor.isConnected) { hidePop(); return; }
+    var r = popAnchor.getBoundingClientRect();
+    /* Anchor scrolled out of view: nothing left to point at. */
+    if (r.bottom < 0 || r.top > window.innerHeight) { hidePop(); return; }
+    var pad = 8, w = pop.offsetWidth, h = pop.offsetHeight;
+    var left = Math.max(pad, Math.min(r.left, window.innerWidth - w - pad));
+    var top = r.bottom + 6;
+    if (top + h > window.innerHeight - pad) {
+      top = (r.top - h - 6 >= pad) ? (r.top - h - 6)
+                                   : Math.max(pad, window.innerHeight - h - pad);
+    }
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
   }
   function wirePop(handler) {
     var pop = document.getElementById('ntPop');
     if (!pop) return;
     pop.onclick = function (ev) {
-      var el = ev.target.closest('[data-status],[data-user],[data-due]');
+      var el = ev.target.closest('[data-status],[data-user],[data-due],[data-pri]');
       if (el) handler(el);
     };
+  }
+
+  /* =======================================================================
+     Overlay layer. Created once on <body>, not inside the task container,
+     because paint() replaces that container's innerHTML on every write.
+     ===================================================================== */
+
+  function ensureOverlays() {
+    if (document.getElementById('ntOverlays')) return;
+    var l = document.createElement('div');
+    l.id = 'ntOverlays';
+    l.innerHTML =
+      '<div class="nt-scrim" id="ntScrim" hidden></div>' +
+      '<div class="nt-drawer" id="ntDrawer" role="dialog" aria-modal="true" hidden></div>' +
+      '<div class="nt-pop" id="ntPop" hidden></div>' +
+      '<div class="nt-toast" id="ntToast" role="status" hidden></div>';
+    document.body.appendChild(l);
+
+    /* Click-away. The container's own listener cannot see these clicks any more. */
+    document.addEventListener('mousedown', function (ev) {
+      var pop = document.getElementById('ntPop');
+      if (!pop || pop.hidden || !ev.target.closest) return;
+      if (ev.target.closest('.nt-pop')) return;
+      if (ev.target.closest('[data-act="status"],[data-act="assign"],[data-act="due"],[data-act="pri"]')) return;
+      hidePop();
+    });
+    /* Viewport-positioned, so it has to follow its anchor when anything under
+       it scrolls. Capture phase catches scrolls in inner containers too. */
+    window.addEventListener('scroll', placePop, true);
+    window.addEventListener('resize', placePop);
+
+    /* Escape closes exactly one layer, outermost last, so a popover opened from
+       inside the modal does not take the modal down with it. Bound here because
+       this function runs once; binding it per paint stacked up handlers and made
+       every Escape close both. */
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape') return;
+      closeDropdowns();
+      var pop = document.getElementById('ntPop');
+      if (pop && !pop.hidden) { hidePop(); return; }
+      closeDrawer();
+    });
   }
 
   /* =======================================================================
@@ -729,9 +836,29 @@
      ===================================================================== */
 
   function openDrawer(task) {
+    ensureOverlays();
     var d = document.getElementById('ntDrawer'), s = document.getElementById('ntScrim');
     if (!d) return;
+    ui.openTaskId = task.id;
+    d.hidden = false; if (s) s.hidden = false;
+    if (s) s.onclick = closeDrawer;
+    renderDrawer(true);
+  }
+
+  /* Rebuilt in place after every write, so the drawer shows what was just
+     saved instead of closing. reloadComments=false keeps the comment list
+     already on screen - a status change does not change the comments. */
+  function renderDrawer(reloadComments) {
+    var d = document.getElementById('ntDrawer');
+    if (!d || d.hidden || !ui.openTaskId) return;
+    var task = taskById(ui.openTaskId);
+    if (!task) { closeDrawer(); return; }
     var bucket = canonical(task);
+    var keep = null;
+    if (!reloadComments) {
+      var prev = document.getElementById('ntComments');
+      if (prev) keep = prev.innerHTML;
+    }
     d.innerHTML =
       '<div class="nt-dr-head">' +
         '<div><div class="nt-dr-title">' + esc(task.name || '(untitled)') + '</div>' +
@@ -740,25 +867,44 @@
         '<button class="nt-icon" data-act="drclose" aria-label="Close">✕</button>' +
       '</div>' +
       '<div class="nt-dr-meta">' +
-        metaRow('Status', '<span class="badge ' + severityFor(bucket) + '">' + esc(bucket) + '</span>') +
+        metaRow('Status', '<button class="badge ' + severityFor(bucket) + ' nt-editable" data-act="status" ' +
+          'title="' + esc((task.status && task.status.status) || bucket) + ' (click to change)">' +
+          esc(bucket) + '</button>') +
         metaRow('Raw status', esc((task.status && task.status.status) || '—')) +
-        metaRow('Assignees', avatarsHtml(task)) +
-        metaRow('Due', fmtDue(task)) +
-        metaRow('Priority', priorityOf(task) ? esc(priorityOf(task)) : '<span class="nt-nil">—</span>') +
+        metaRow('Assignees', '<button class="nt-plain nt-editable" data-act="assign" ' +
+          'title="Click to change">' + avatarsHtml(task) + '</button>') +
+        metaRow('Due', '<button class="nt-plain nt-editable" data-act="due" ' +
+          'title="Click to change">' + fmtDue(task) + '</button>') +
+        metaRow('Priority', '<button class="nt-plain nt-editable" data-act="pri" ' +
+          'title="Click to change">' + priorityHtml(priorityOf(task)) + '</button>') +
       '</div>' +
       (task.url ? '<a class="nt-dr-link" href="' + esc(task.url) + '" target="_blank" rel="noopener">Open in ClickUp ↗</a>' : '') +
       '<div class="nt-dr-sec">Comments</div>' +
       '<div id="ntComments" class="nt-comments"><div class="nt-pop-load">Loading…</div></div>' +
       '<form class="nt-cform" id="ntCForm"><textarea id="ntCText" rows="2" placeholder="Add a comment…"></textarea>' +
       '<button class="nt-pop-btn" type="submit">Post</button></form>';
-    d.hidden = false; if (s) s.hidden = false;
 
+    /* Wired here rather than through the container's delegated listener, which
+       resolves its task from the clicked .nt-row and so cannot serve the drawer. */
     d.onclick = function (ev) {
-      if (ev.target.closest('[data-act="drclose"]')) closeDrawer();
+      var act = ev.target.closest && ev.target.closest('[data-act]');
+      if (!act) return;
+      var kind = act.getAttribute('data-act');
+      if (kind === 'drclose') { closeDrawer(); return; }
+      var t = taskById(ui.openTaskId);
+      if (!t) return;
+      if (kind === 'status') openStatusPop(t, act);
+      if (kind === 'assign') openAssignPop(t, act);
+      if (kind === 'due') openDuePop(t, act);
+      if (kind === 'pri') openPriorityPop(t, act);
     };
-    if (s) s.onclick = closeDrawer;
 
-    loadComments(task);
+    if (keep != null) {
+      var box = document.getElementById('ntComments');
+      if (box) box.innerHTML = keep;
+    } else {
+      loadComments(task);
+    }
     var form = document.getElementById('ntCForm');
     if (form) form.onsubmit = function (ev) {
       ev.preventDefault();
@@ -802,9 +948,12 @@
     var d = document.getElementById('ntDrawer'), s = document.getElementById('ntScrim');
     if (d) d.hidden = true;
     if (s) s.hidden = true;
+    ui.openTaskId = null;
+    hidePop();
   }
 
   function toast(msg, bad) {
+    ensureOverlays();
     var el = document.getElementById('ntToast');
     if (!el) return;
     el.textContent = msg;
@@ -893,7 +1042,13 @@
       '.nt-blank-t{font-size:14.5px;font-weight:600;color:var(--text);margin-bottom:6px}',
       '.nt-blank-b{font-size:12.5px;color:var(--text2);max-width:440px;margin:0 auto;line-height:1.55}',
 
-      '.nt-pop{position:absolute;z-index:60;min-width:210px;max-width:260px;max-height:300px;overflow:auto;',
+      /* Overlays sit on <body>. [hidden] is restated because any display rule
+         added below would otherwise beat the UA sheet and pin them open. */
+      '#ntOverlays [hidden]{display:none}',
+      /* fixed, not absolute: placePop() works in viewport coordinates and the
+         task container is not a positioned ancestor. z-index clears the drawer
+         so the same popovers work from inside it. */
+      '.nt-pop{position:fixed;z-index:80;min-width:210px;max-width:260px;max-height:300px;overflow:auto;',
         'background:var(--surface);border:1px solid var(--border);border-radius:10px;',
         'box-shadow:var(--shadow-md,0 8px 24px -6px rgba(0,0,0,.35));padding:5px}',
       '.nt-pop-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:none;background:none;',
@@ -911,10 +1066,18 @@
       '.nt-pop-btn.ghost{background:none;border-color:var(--border);color:var(--text2)}',
 
       '.nt-scrim{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.34)}',
-      '.nt-drawer{position:fixed;top:0;right:0;bottom:0;z-index:71;width:min(440px,94vw);overflow:auto;',
-        'background:var(--surface);border-left:1px solid var(--border);padding:18px 20px}',
+      /* Centred modal, matching the ops dashboard's task drilldown. It was a
+         right-edge drawer, which read as a different product from the same
+         thing on the Executive Board. */
+      '.nt-drawer{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:71;',
+        'width:min(760px,94vw);max-height:86vh;overflow:auto;background:var(--surface);',
+        'border:1px solid var(--border);border-radius:var(--radius,12px);',
+        'box-shadow:var(--shadow-lg,0 24px 70px -12px rgba(0,0,0,.5));padding:18px 20px}',
       '.nt-dr-head{display:flex;align-items:flex-start;gap:10px;margin-bottom:14px}',
-      '.nt-dr-title{font-size:15px;font-weight:650;color:var(--text);line-height:1.35}',
+      '.nt-dr-head>div:first-child{flex:1;min-width:0}',
+      /* Wrap rather than clip: long task names are the norm here. */
+      '.nt-dr-title{font-size:15px;font-weight:650;color:var(--text);line-height:1.35;',
+        'min-width:0;overflow-wrap:anywhere}',
       '.nt-dr-sub{font-size:11.5px;color:var(--text3);margin-top:3px}',
       '.nt-dr-row{display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--border);font-size:12.5px}',
       '.nt-dr-k{width:96px;flex:none;color:var(--text3)}',
@@ -957,6 +1120,13 @@
 
   window.PortalTasks = {
     render: render,
+    /* Overlays live on <body>, so leaving the Tasks screen has to dismiss them:
+       portal.html only replaces the content container, which no longer holds them. */
+    close: function () {
+      closeDrawer();
+      var t = document.getElementById('ntToast');
+      if (t) t.hidden = true;
+    },
     invalidate: function () { payloadAt = 0; },
     refresh: refresh,
     setCard: setCard,
