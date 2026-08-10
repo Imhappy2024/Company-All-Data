@@ -64,7 +64,8 @@
   /* depth: hairline borders do the work; shadow is for true overlays only */
   --shadow-pop: 0 0 0 1px rgba(11, 11, 11, .07), 0 6px 20px -6px rgba(11, 11, 11, .16);
 
-  --font: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
 
   color-scheme: light;
 }
@@ -146,7 +147,8 @@
   --header-text: var(--ink);
   --radius: var(--r-lg);
   --radius-sm: var(--r-sm);
-  --mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   --shadow: 0 0 0 1px var(--border);
   --shadow-sm: 0 0 0 1px var(--border);
   --shadow-md: var(--shadow-pop);
@@ -208,6 +210,10 @@ html.embed-dark body {
   --shadow-sm: 0 0 0 1px var(--border);
   --shadow-md: var(--shadow-pop);
 }
+
+/* --purple gets a lighter step on dark surfaces (the compat-shim value #4a3aa7 is too
+   dark to read on the dark palette). Covers portal (data-theme) + ops embed/standalone. */
+[data-theme='dark'], body.dark-mode, html.embed-dark body { --purple: #8b7cf0; }
 
 /* --------------------------------------------------------------------------
    Primitives shared by both surfaces.
