@@ -110,11 +110,27 @@
 
   var CACHE_MS = 10 * 60 * 1000;
   var payload = null, payloadAt = 0, inflight = null, loadError = null;
+  /* Which scope the cached payload is for. It used to be the whole workspace for
+     every brand, so one cache served all of them; now the server scopes the
+     response, so a payload fetched for Leadli must not be reused for Folio. */
+  var payloadKey = null, inflightKey = null;
 
+  function scopeKey() { return (ui.spaces || []).slice().sort().join(','); }
+
+  /* slim=1 trims each task to the 11 fields this screen renders and spaces=
+     filters server-side, which is what keeps this off the ~5MB whole-workspace
+     payload that /ops still receives. scoped() below re-filters by space anyway,
+     so if the server ever ignored the param the screen would still be correct. */
   function load(force) {
+    var key = scopeKey();
+    if (key !== payloadKey) { payload = null; payloadAt = 0; }
     if (!force && payload && Date.now() - payloadAt < CACHE_MS) return Promise.resolve(payload);
-    if (inflight) return inflight;
-    var url = '/api/tasks' + (force ? '?force=1' : '');
+    if (inflight && inflightKey === key) return inflight;
+    var qs = ['slim=1'];
+    if (key) qs.push('spaces=' + encodeURIComponent(key));
+    if (force) qs.push('force=1');
+    var url = '/api/tasks?' + qs.join('&');
+    inflightKey = key;
     inflight = PortalAuth.fetch(url)
       .then(function (res) {
         if (!res.ok) throw new Error('HTTP ' + res.status);
@@ -124,6 +140,7 @@
         if (data && data.error && !data.tasks) throw new Error(data.error);
         payload = data;
         payloadAt = Date.now();
+        payloadKey = key;
         loadError = null;
         return payload;
       })

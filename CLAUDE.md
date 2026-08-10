@@ -339,6 +339,54 @@ New env var `SUPABASE_WEBHOOK_SECRET` (plus optional `SSE_*` tuning).
 `/ops`. That function is a security boundary - an unvalidated value there is an
 open redirect. It does not affect the registered `redirect_uri`.
 
+### /api/tasks fetch strategy and payload shaping (added 2026-08-11)
+The screen was slow because this was bulk in two places at once. Both are fixed;
+the numbers below are measured by `test/test-tasks-api.js`.
+
+**Fetching.** `fetchAllWorkspaceTasks()` discovers lists once, then prefers
+`GET /team/{id}/task` - one paginated walk (100/page) - over the old per-list
+crawl, which issued a paginated fetch **per list** (200-300 requests, enough to
+trip ClickUp's 100-req/min limit and sit in 429 backoff). The crawl survives as
+`crawlListTasks()` and runs if the team walk throws or returns 0 tasks while lists
+exist. Which path ran is reported as `mode` (`team` / `crawl` / `list`) in the
+payload and `/api/health` - **check it before assuming the fast path is live**, a
+silent downgrade just looks like "it got slow again".
+
+Two things the team endpoint does NOT give you, both handled:
+- **Space names.** It returns space ids only. `withListNames()` resolves space /
+  folder / list names from the discovered list metadata, and both paths funnel
+  through it. Skip it and every Space and List column renders blank.
+- **Archived tasks.** Still fetched per list for `ARCHIVED_FETCH_LIST_IDS` (the
+  Wins source) by `fetchArchivedExtras()`.
+
+`crawlListTasks()` uses `runConcurrent()` (the pool already in the file), not the
+old `for (i += 5) { await Promise.all(slice) }`, which made the slowest list in
+each group of five gate the next group.
+
+**Shaping.** `/api/tasks` takes `?slim=1` and `?spaces=a,b`. Both default OFF, so
+`/ops` receives byte-for-byte what it always did - it needs `description`,
+`text_content`, `custom_fields`, `canonical_fields`, `tags`, all four date
+fields, `archived` and `orderindex`. `slimTask()` trims to the 11 fields the
+portal renders. **Audit both consumers before changing that list**; dropping a
+field `/ops` reads is a silent blank column, not an error. Measured: 484KB -> 74KB
+slim, and 20KB for a single-space brand.
+
+`portal-tasks.js` requests `slim=1&spaces=<brand>`. Because the response is now
+scoped, its client cache is keyed on the space set (`payloadKey`) - one brand's
+payload must not be served to another. `scoped()` still re-filters by space, so a
+server that ignored the param would still render correctly.
+
+**Persistence.** `migrations/20260811_task_cache.sql` adds a single-row
+`clickup_task_cache`. The server snapshots after each refresh and restores on boot
+*before* pre-warming, so the first visitor after a deploy gets the snapshot rather
+than a cold walk. Entirely best-effort: no table or `DATA_SOURCE != supabase`
+means one warning and the old behaviour. The restored snapshot keeps its real age,
+so it is correctly seen as stale and still triggers a background refresh.
+**The migration is not applied yet** - until it is, cold starts stay slow.
+
+`CLICKUP_API_BASE` exists so the tests can point at a fake ClickUp. Never set it
+in production. The OAuth endpoints deliberately keep the literal host.
+
 ### Task modal + popovers (portal-tasks.js) - the overlay layer
 The task modal, the status/assignee/due/priority popovers and the toast live in
 a single `#ntOverlays` div appended **to `<body>`**, not inside the task
@@ -392,6 +440,20 @@ and loads later, so it wins and turns every embed white. The guard is
     node node_modules/playwright/cli.js install chromium
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
+    node test/test-oauth-url.js  # ClickUp authorize URL + redirect_uri
+    node test/test-portal-nav.js # brand/view routing, reload survival, PT board columns
+    node test/test-tasks-api.js  # fetch strategy, slim/spaces shaping, crawl fallback
+    node test/test-task-cache-persist.js   # cold start served from the snapshot
+
+`test-tasks-api.js` runs the real `server.js` as a child process against a fake
+ClickUp via `CLICKUP_API_BASE`. Its worker-pool assertion counts how many list
+fetches overlap one deliberately slow list: a pool reaches ~21, lockstep batches
+cannot exceed 4. The fake answers `sp2` faster than `sp1` so the slow list is
+always discovered first - without that the check passes or fails on luck.
+
+`test-task-cache-persist.js` stubs `supabase-db` in-process and lets the fake
+ClickUp hang forever, so any served task can only have come from the restored
+snapshot. It verifies the server's logic, NOT that the SQL runs on real Postgres.
     node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
 
