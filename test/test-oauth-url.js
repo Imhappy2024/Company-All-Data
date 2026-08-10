@@ -1,14 +1,15 @@
-/* The ClickUp authorize URL must carry exactly two parameters.
+/* What /auth/clickup sends ClickUp, and how the return path survives the trip.
 
-   ClickUp's authorize page is the legacy `app.clickup.com/api` endpoint. Handed
-   anything beyond client_id and redirect_uri it refuses the whole request with
-   "Whoops! Unable to authorize your teams", before the user ever sees the
-   consent step. The previous dashboard (imhappy2024/click-up-dashboard) sends
-   two params and works; this one added `&state=` to carry the return path and
-   sign-in broke. The return path now rides in a short-lived cookie instead.
+   History worth keeping: "Whoops! Unable to authorize your teams" was blamed on
+   the `state` parameter, which was removed in ca5d396 and restored here once the
+   error persisted without it. state is documented by ClickUp and is not the
+   cause - that error comes from the OAuth app or its registered redirect URL,
+   which is deployment config, not code. So this file pins the parameter set as
+   THREE, and pins redirect_uri behaviour, which is the part that actually breaks
+   sign-in when it drifts.
 
-   This test exists so nobody re-adds a query parameter to that URL. It boots the
-   real server.js with throwaway OAuth credentials - it never talks to ClickUp. */
+   Boots the real server.js with throwaway OAuth credentials - never talks to
+   ClickUp. */
 const { spawn } = require('child_process');
 const http = require('http');
 const path = require('path');
@@ -57,10 +58,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     check('redirects', r.status, 302);
     const u = new URL(r.headers.location);
     check('to ClickUp\'s authorize page', u.origin + u.pathname, 'https://app.clickup.com/api');
-    /* The assertion that matters: the exact parameter set, not a subset. A
-       `state` here is what broke sign-in. */
-    check('with exactly client_id and redirect_uri', [...u.searchParams.keys()].sort(), ['client_id', 'redirect_uri']);
-    check('no state parameter', u.searchParams.has('state'), false);
+    /* The exact parameter set, not a subset - so dropping `state` is caught as
+       readily as adding something new. */
+    check('with client_id, redirect_uri and state', [...u.searchParams.keys()].sort(), ['client_id', 'redirect_uri', 'state']);
     check('client_id is passed through', u.searchParams.get('client_id'), 'TESTCLIENTID');
     check('redirect_uri is this host\'s callback', u.searchParams.get('redirect_uri'), 'https://portal.example.com/auth/callback');
     /* redirect_uri must match what is registered in the ClickUp app EXACTLY,
@@ -71,7 +71,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     check('scheme comes from x-forwarded-proto',
       new URL(plain.headers.location).searchParams.get('redirect_uri'), 'http://portal.example.com/auth/callback');
 
-    console.log('\nThe return path rides in a cookie instead');
+    console.log('\nThe return path travels in state AND a cookie');
     const r2 = await get('/auth/clickup?state=' + encodeURIComponent('/?v=brand%3Dleavenwealth%26view%3Dtasks%26sub%3Dptasks'), PROD);
     const setCookie = [].concat(r2.headers['set-cookie'] || []);
     const ret = setCookie.find(c => c.startsWith('du_return='));
@@ -82,7 +82,9 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     /* Short-lived: it is only needed for the hop to ClickUp and back, and it is
        not a credential worth keeping around. */
     check('expires in minutes, not a year', /Max-Age=600\b/.test(ret || ''), true);
-    check('still no state in the URL', new URL(r2.headers.location).searchParams.has('state'), false);
+    /* Same value both ways, so whichever the callback reads it lands identically. */
+    check('state carries the same screen', new URL(r2.headers.location).searchParams.get('state'),
+      '/?v=brand%3Dleavenwealth%26view%3Dtasks%26sub%3Dptasks');
 
     console.log('\nsafeReturnPath still refuses an open redirect');
     for (const [bad, why] of [['//evil.com', 'protocol-relative'], ['https://evil.com', 'absolute'],
@@ -90,6 +92,8 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
       const rr = await get('/auth/clickup?state=' + encodeURIComponent(bad), PROD);
       const c = [].concat(rr.headers['set-cookie'] || []).find(x => x.startsWith('du_return=')) || '';
       check('rejected: ' + why, decodeURIComponent(c.split(';')[0].replace('du_return=', '')), '/');
+      /* Sanitised on the way out too, not just in the cookie. */
+      check('  and not echoed into state', new URL(rr.headers.location).searchParams.get('state'), '/');
     }
   } finally {
     srv.kill();

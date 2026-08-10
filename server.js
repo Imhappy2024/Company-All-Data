@@ -728,23 +728,22 @@ app.get('/auth/clickup', (req, res) => {
     return res.status(500).send('OAuth not configured. CLICKUP_OAUTH_CLIENT_ID missing.');
   }
   const redirect = oauthRedirectUri(req);
-  /* Where to send the user afterwards rides in a short-lived cookie, NOT in a
-     `state` query param.
+  /* Where to send the user afterwards travels two ways, deliberately.
 
-     ClickUp's authorize page is the legacy `app.clickup.com/api` endpoint, and
-     it rejects the request outright when handed anything beyond client_id and
-     redirect_uri - the user gets "Whoops! Unable to authorize your teams" and
-     never reaches the consent step. The previous dashboard
-     (imhappy2024/click-up-dashboard) sends exactly two params and works; adding
-     `&state=` is the only difference, and it is what broke sign-in.
+     `state` is what ClickUp documents, and it is NOT the cause of "Whoops!
+     Unable to authorize your teams": that error predates this parameter, and
+     removing it (briefly, in ca5d396) did not fix sign-in. Do not delete it
+     again chasing that error - the cause is the OAuth app / registered redirect
+     URL, which is config, not code. See the redirect_uri notes above.
 
-     So the URL below must stay byte-for-byte the two-parameter form. If you need
-     to pass something through OAuth, put it in a cookie here and read it in
-     /auth/callback - do not add it to this URL. */
+     The du_return cookie is the belt to that braces: ClickUp only echoes `state`
+     back on the success path, so the cookie is what makes the return path
+     survive if it ever does not. /auth/callback prefers the cookie and falls
+     back to the echoed param. Both are revalidated by safeReturnPath. */
   const dest = safeReturnPath(req.query.state) || '/';
   res.setHeader('Set-Cookie',
     `${COOKIE_RETURN}=${encodeURIComponent(dest)}; Path=/; HttpOnly; Secure; SameSite=None; Max-Age=600`);
-  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}`;
+  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(dest)}`;
   res.redirect(url);
 });
 
