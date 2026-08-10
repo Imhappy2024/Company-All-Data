@@ -1957,7 +1957,12 @@
   /* Property task rows use the shared .task-row, but show a 2nd line (property ·
      category). Scoped to Properties so other views' single-line rows are untouched. */
   #view-properties .task-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; white-space: normal; }
+  /* Name + sync chip share one line. Without the flex row the chip is a child of
+     the column flex above and stretches to the full card width — a small warning
+     rendered as a full-width red bar. */
+  #view-properties .pt-nameline { display: flex; align-items: center; gap: 6px; min-width: 0; }
   #view-properties .task-name .task-link { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #view-properties .pt-nameline .pt-syncbadge { flex: 0 0 auto; }
   #view-properties .pt-sub { font-size: 11px; color: var(--text3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pt-syncbadge { font-size: 9.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; padding: 1px 6px; border-radius: 999px; white-space: nowrap; vertical-align: middle; }
   .pt-sync-pending { background: rgba(233,193,98,0.18); color: #9a7a1a; }
@@ -3367,12 +3372,15 @@ function getKpi(task) {
 }
 
 function getStatusKey(status) {
-  const s = (status || '').toLowerCase().replace(/\s+/g, '');
-  if (s.includes('inprogress') || s === 'inprogress') return 'inprogress';
-  if (s.includes('inreview') || s === 'inreview') return 'inreview';
+  // Underscores and hyphens are separators, same as spaces: Supabase-originated
+  // tasks carry statuses like "in_progress" where ClickUp sends "in progress",
+  // and both must land on the same badge/dot colour.
+  const s = (status || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (s.includes('inprogress')) return 'inprogress';
+  if (s.includes('inreview')) return 'inreview';
   if (s === 'blocked') return 'blocked';
   if (s === 'done') return 'done';
-  if (s === 'todo' || s === 'to do') return 'todo';
+  if (s === 'todo') return 'todo';
   return 'todo';
 }
 
@@ -4044,7 +4052,10 @@ function clearFilters() {
 // client-side fallback when the server didn't enrich (e.g., during a stale localStorage cache).
 const CANONICAL_STATUSES = ['To Do', 'In Progress', 'Blocked', 'Long Term', 'In Review', 'Completed'];
 function toCanonicalFallback(rawStatus) {
-  const s = (rawStatus || '').toLowerCase().trim();
+  // Separators are normalised to spaces so "in_progress" (Supabase) and
+  // "in progress" (ClickUp) resolve to the same bucket. Without this,
+  // "in_progress" fell through every branch and silently became To Do.
+  const s = (rawStatus || '').toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (!s) return 'To Do';
   if (/^(to\s*do|todo|backlog|open|new|not started|pending)$/.test(s)) return 'To Do';
   if (/in\s*progress|working|doing|active|started|wip|on track/.test(s)) return 'In Progress';
@@ -5383,9 +5394,10 @@ function ptIsCompleted(t) {
   return toCanonicalFallback(t.status) === 'Completed';
 }
 function ptIsCounterStatus(name) {
-  const n = propNorm(name);
   const st = (propTasksData?.statuses || []).find(s => s.status === name);
-  return n === 'in review' || toCanonicalFallback(name) === 'Completed' || (st && st.type === 'closed');
+  if (st && st.type === 'closed') return true;
+  const canon = toCanonicalFallback(name);
+  return canon === 'In Review' || canon === 'Completed';
 }
 function ptStatusColor(name) { return ((propTasksData?.statuses || []).find(s => s.status === name) || {}).color || 'var(--text3)'; }
 
@@ -5487,7 +5499,9 @@ const PT_DRILL = {
   overdue:    { title: 'Overdue',       match: (t, c) => t.due_date && Number(t.due_date) < c.sod && t.statusType !== 'closed' },
   dueweek:    { title: 'Due this week', match: (t, c) => t.due_date && Number(t.due_date) >= c.now && Number(t.due_date) <= c.now + 7 * 86400000 },
   unassigned: { title: 'Unassigned',    match: (t) => !t.assignees.length },
-  inreview:   { title: 'In Review',     match: (t) => propNorm(t.status) === 'in review' },
+  // Canonical, not a literal string match: the board hides every In Review task
+  // from the columns, so anything this counter missed would vanish entirely.
+  inreview:   { title: 'In Review',     match: (t) => toCanonicalFallback(t.status) === 'In Review' },
   complete:   { title: 'Complete',      match: (t) => ptIsCompleted(t) },
 };
 function ptDrillList(key) {
@@ -5565,8 +5579,8 @@ function ptAvatar(a) { const n = asgName(a); return `<div class="ov-avatar" styl
 function ptSyncBadge(t) {
   const s = t.sync_state;
   if (!s || s === 'synced') return '';
-  if (s === 'pending') return ' <span class="pt-syncbadge pt-sync-pending" title="Not yet synced to ClickUp">⏳ pending</span>';
-  if (s === 'error') return ' <span class="pt-syncbadge pt-sync-error" title="Last sync to ClickUp failed">⚠ error</span>';
+  if (s === 'pending') return '<span class="pt-syncbadge pt-sync-pending" title="Not yet pushed to ClickUp — the next sync will retry">⏳ pending</span>';
+  if (s === 'error') return '<span class="pt-syncbadge pt-sync-error" title="Last push to ClickUp failed. Press ⇅ Sync tasks to retry.">⚠ error</span>';
   return '';
 }
 // Property task row — uses the SAME classes as the L10/main task rows
@@ -5582,7 +5596,7 @@ function ptCardHtml(t) {
   return `<div class="task-row" data-task-id="${id}">
     <div class="task-status-dot status-dot-${key}"></div>
     <div class="task-name">
-      <a class="task-link" onclick="event.preventDefault();openPropTaskDetail('${id}')" title="${escHtml(t.name)}">${escHtml(t.name)}</a>${ptSyncBadge(t)}
+      <div class="pt-nameline"><a class="task-link" onclick="event.preventDefault();openPropTaskDetail('${id}')" title="${escHtml(t.name)}">${escHtml(t.name)}</a>${ptSyncBadge(t)}</div>
       ${sub ? `<span class="pt-sub">${escHtml(sub)}</span>` : ''}
     </div>
     <div class="task-meta">
@@ -5605,32 +5619,47 @@ function ptOpenTaskMenu(anchor, taskId) {
     <div class="popover-option" onclick="window.open('${escHtml(url)}','_blank');closeAnyPopover()">↗ Open in ClickUp</div>
   </div>`);
 }
-// List columns only — To Do / In Progress / Blocked (counter statuses excluded).
+// List columns only — In Review / Completed are counters, not columns.
+//
+// Columns are CANONICAL buckets, not raw status strings. The Property Tasks list
+// carries both ClickUp-native statuses ("To Do", "in progress") and
+// Supabase-originated ones ("open", "IN_PROGRESS") for the same thing, and
+// grouping on the raw string gave a separate column to each spelling. Cards still
+// show their raw status in the pill, because that is what gets written back.
+const PT_COLS = [
+  { canon: 'To Do',       tint: 'tint-blue',   desc: 'Not started yet' },
+  { canon: 'In Progress', tint: 'tint-teal',   desc: 'Being worked on' },
+  { canon: 'Blocked',     tint: 'tint-red',    desc: 'Stuck on a dependency' },
+  { canon: 'Long Term',   tint: 'tint-purple', desc: 'Parked for later' },
+];
+function ptCanon(t) {
+  if (t.statusType === 'closed') return 'Completed';
+  return t.canonical_status || toCanonicalFallback(t.status);
+}
 // Uses the shared .card system (tinted header + scrollable body) like the L10 view.
-function ptTintFor(name) {
-  const n = propNorm(name);
-  if (n === 'to do' || n === 'open' || n === 'to-do') return 'tint-blue';
-  if (n === 'in progress') return 'tint-teal';
-  if (n === 'blocked') return 'tint-red';
-  return 'tint-purple';
-}
-function ptColDesc(name) {
-  const n = propNorm(name);
-  return n === 'to do' ? 'Not started yet' : n === 'in progress' ? 'Being worked on' : n === 'blocked' ? 'Stuck on a dependency' : '';
-}
 function renderPTBoard(tasks) {
-  const statuses = (propTasksData.statuses || []);
-  const order = (statuses.length ? statuses.map(s => s.status) : [...new Set(tasks.map(t => t.status || '(no status)'))]).filter(s => !ptIsCounterStatus(s));
-  const byStatus = new Map(); order.forEach(s => byStatus.set(s, []));
-  tasks.forEach(t => { const k = t.status || '(no status)'; if (ptIsCounterStatus(k)) return; if (!byStatus.has(k)) byStatus.set(k, []); byStatus.get(k).push(t); });
-  const cols = [...byStatus.entries()].map(([status, ts]) =>
-    `<div class="card ${ptTintFor(status)}">
+  const byCanon = new Map(PT_COLS.map(c => [c.canon, []]));
+  tasks.forEach(t => {
+    if (ptIsCounterStatus(t.status)) return;
+    const bucket = byCanon.get(ptCanon(t));
+    if (bucket) bucket.push(t);
+  });
+  // A column appears if it holds tasks, or if the ClickUp list defines a status
+  // that maps to it — so Blocked stays visible at zero, while Long Term stays
+  // hidden on a list that has no such status.
+  const defined = new Set((propTasksData.statuses || [])
+    .filter(s => !ptIsCounterStatus(s.status))
+    .map(s => toCanonicalFallback(s.status)));
+  const cols = PT_COLS.filter(c => defined.has(c.canon) || byCanon.get(c.canon).length).map(c => {
+    const ts = byCanon.get(c.canon);
+    return `<div class="card ${c.tint}">
       <div class="card-header">
-        <div class="card-head-text"><span class="card-title">${escHtml(status)}</span><span class="card-desc">${escHtml(ptColDesc(status))}</span></div>
+        <div class="card-head-text"><span class="card-title">${escHtml(c.canon)}</span><span class="card-desc">${escHtml(c.desc)}</span></div>
         <span class="card-count">${ts.length}</span>
       </div>
       <div class="card-body card-scroll">${ts.map(ptCardHtml).join('') || '<div class="empty" style="padding:14px;color:var(--text3)">No tasks</div>'}</div>
-    </div>`).join('');
+    </div>`;
+  }).join('');
   // Shared .grid-3 → 3 columns on desktop, 1 column on mobile (same as L10).
   document.getElementById('ptasks-board').innerHTML = `<div class="grid-3">${cols}</div>`;
   // Match L10: collapse the cards on mobile (tap a header to expand — accordion).

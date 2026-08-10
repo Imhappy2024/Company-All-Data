@@ -503,13 +503,16 @@ const V={
     const segdefs=[['overview','Overview'],['all','All Tasks']];
     if(brand==='leavenwealth') segdefs.push(['ptasks','Property Tasks']);
     const seg=`<div class="seg">${segdefs.map(([id,label])=>`<button class="segbtn ${tab===id?'on':''}" onclick="setTasksTab('${id}')">${label}</button>`).join('')}</div>`;
-    if(tab==='all')    return seg+`<div id="tasksNative"></div>`;
+    if(tab==='all')    return seg+`<div id="tasksNative"></div>`;   /* portal-tasks.js paints its own gate */
+    if(clickUpGated()) return seg+clickUpGateHtml();
     if(tab==='ptasks') return seg;                     /* Property Tasks iframe in #embedHost */
     if(brandSpaces(brand).length) return seg;          /* Overview iframe in #embedHost */
     return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its overview and counters will appear here.</div></div>`;
   },
   alltasks(){
-    return `<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;   /* ops iframe lives in #embedHost (keep-alive) */
+    const seg=`<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;
+    if(clickUpGated()) return seg+clickUpGateHtml();
+    return seg;   /* ops iframe lives in #embedHost (keep-alive) */
   },
   integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
   access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
@@ -648,7 +651,19 @@ function buildNav(){const items=MENUS[brand];document.getElementById('nav').inne
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
 function currentLabel(){const it=currentItem();return it?it.label:view;}
 function tasksSub(){return (brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;}
+/* Every Tasks screen reads ClickUp — Property Tasks and Tasks > Overview are
+   /ops embeds rather than native, but the data behind them is the same ClickUp
+   workspace the native All Tasks screen already gates. Without this the embeds
+   render off the server's shared token, so an unauthenticated visitor sees (and
+   can edit) ClickUp tasks attributed to nobody. portal-auth.js still gates only
+   the Tasks screens; the rest of the portal is untouched. */
+function needsClickUp(){return view==='tasks'||view==='alltasks';}
+function clickUpGated(){return needsClickUp()&&!!window.PortalAuth&&!PortalAuth.isSignedIn();}
+function clickUpGateHtml(){
+  return PortalAuth.gateHtml({note:'You only need this for Tasks. The rest of the portal works without it.'});
+}
 function isEmbedView(){
+  if(clickUpGated()) return false;
   if(view==='properties'||view==='alltasks') return true;
   if(view==='loans'&&loansTab==='views') return true;
   if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if(s==='overview'&&brandSpaces(brand).length)return true;}
@@ -681,7 +696,58 @@ function showEmbed(info){
   Array.prototype.forEach.call(host.children,function(c){c.style.display=(c===f)?'':'none';});
 }
 function hideAllEmbeds(){const host=document.getElementById('embedHost');if(host)Array.prototype.forEach.call(host.children,function(c){c.style.display='none';});}
+/* ---- URL state ---------------------------------------------------------
+   The screen you are on lives in the hash, so a reload lands where you left off
+   instead of bouncing back to Overview, and a screen can be linked to. Written
+   with replaceState: navigating the portal is not browser history, and pushState
+   here would make Back walk backwards through every tab you touched.
+
+   portal-auth.js parses this same hash for its #auth=<token> hand-back and
+   preserves the params it does not own, so the two coexist. It also runs first
+   (script order in <head>), which means the token is already stripped by the
+   time readState() looks. */
+const SUBOF={tasks:()=>tasksTab,alltasks:()=>opsTab,loans:()=>loansTab,orgdept:()=>orgTab,departments:()=>orgTab};
+const SUBOK={tasks:['overview','all','ptasks'],alltasks:OPS_TABS.map(t=>t[0]),loans:['book','views'],orgdept:['org','dept'],departments:['org','dept']};
+function writeState(){
+  try{
+    const p=new URLSearchParams();
+    p.set('brand',brand);p.set('view',view);
+    const sub=SUBOF[view]&&SUBOF[view]();
+    if(sub)p.set('sub',sub);
+    /* ?v= is the one-shot hand-back from the ClickUp round trip (see
+       defaultReturnPath in portal-auth.js). It has been consumed by now, so drop
+       it - leaving it would pin the URL to a screen you have since navigated off. */
+    const q=new URLSearchParams(location.search);q.delete('v');
+    const qs=q.toString();
+    history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#'+p.toString());
+  }catch(e){/* a hash we cannot write is not worth breaking a render over */}
+}
+/* Anything unrecognised falls back to the default rather than throwing: the hash
+   is user-editable, and a stale link (a renamed view, a brand you lost access to)
+   must not leave the portal on a blank screen. */
+function readState(){
+  let p;
+  try{
+    /* Straight from the fragment on a reload; from ?v= when we have just come
+       back through ClickUp OAuth, which consumed the fragment for its token. */
+    const v=new URLSearchParams(location.search).get('v');
+    p=new URLSearchParams(v||(location.hash||'').replace(/^#/,''));
+  }catch(e){return;}
+  const b=p.get('brand');
+  if(b&&BRANDS[b]&&MENUS[b])brand=b;
+  const v=p.get('view');
+  if(v&&(MENUS[brand]||[]).some(x=>x.id===v))view=v;
+  else{const first=(MENUS[brand]||[]).find(x=>x.id);view=first?first.id:'overview';}
+  const s=p.get('sub');
+  if(s&&SUBOK[view]&&SUBOK[view].indexOf(s)!==-1){
+    if(view==='tasks')tasksTab=s;
+    else if(view==='alltasks')opsTab=s;
+    else if(view==='loans')loansTab=s;
+    else orgTab=s;
+  }
+}
 function render(){
+  writeState();
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
   document.getElementById('bpGlyph').style.background='var(--ink)';document.getElementById('bpGlyph').style.color='var(--surface)';document.getElementById('bpGlyph').textContent=b.short;
@@ -713,7 +779,12 @@ document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
    paint is right, then verifies against /auth/me in the background.
    portal-tasks.js subscribes to PortalAuth.onChange itself, so a correction
    re-renders the Tasks view without portal.html doing anything. */
-if(window.PortalAuth) PortalAuth.init();
+if(window.PortalAuth){
+  PortalAuth.init();
+  /* A sign-out, or a 401 from a revoked token, has to put the gate back on the
+     embedded Tasks screens too - portal-tasks.js only owns #tasksNative. */
+  PortalAuth.onChange(function(){render();});
+}
 
 /* Live sync. The server sends table names only; portal-realtime.js decides which
    views are stale. Only the visible view refetches - the rest are marked dirty
@@ -733,6 +804,12 @@ if(window.PortalRealtime) PortalRealtime.start({
 fetch('/api/org/summary').then(r => r.ok ? r.json() : null).then(d => {
   if (d && !d.error) { orgSummary = d; render(); }
 }).catch(() => {});
+readState();   /* before the first render, so a reload paints the right screen once */
+/* Someone pasting a portal link into the tab they already have open changes only
+   the fragment, which is not a navigation - without this the URL would say one
+   screen and the app would show another. writeState() uses replaceState, which
+   never fires hashchange, so this cannot loop. */
+window.addEventListener('hashchange',function(){readState();render();});
 render();
 restoreSidebar();
 </script>

@@ -137,8 +137,28 @@
     return h;
   }
 
+  /* Where /auth/callback should drop the user back.
+
+     It cannot carry a fragment: the server appends #auth=<token> to whatever it
+     is handed, and a second '#' would swallow the token. The portal keeps the
+     screen you are on in the fragment, so it moves into ?v= here and portal.html
+     reads it back after the round trip. Without this, signing in from Property
+     Tasks returns you to Overview. */
+  function defaultReturnPath() {
+    try {
+      var frag = (location.hash || '').replace(/^#/, '');
+      var qs = new URLSearchParams(location.search);
+      qs.delete('v');
+      if (frag) qs.set('v', frag);
+      var q = qs.toString();
+      return location.pathname + (q ? '?' + q : '');
+    } catch (e) {
+      return location.pathname;
+    }
+  }
+
   function signInUrl(returnPath) {
-    var dest = returnPath || (location.pathname + location.search);
+    var dest = returnPath || defaultReturnPath();
     /* Same-origin absolute path only. The server validates this again before
        redirecting to it - an unvalidated return path here would be an open
        redirect. Belt and braces. */

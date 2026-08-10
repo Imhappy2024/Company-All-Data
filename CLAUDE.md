@@ -170,6 +170,61 @@ that reads too high against real data, the single lever is `NOT_OPEN` at the top
 of `portal-tasks.js` - but adding `'Long Term'` there makes the portal and `/ops`
 disagree about the same task, so treat it as a decision, not a tweak.
 
+### The gate covers every Tasks screen, embeds included
+`clickUpGated()` in portal.html gates `view === 'tasks'` (all three sub-tabs) and
+Executive Board `alltasks`. Property Tasks and Tasks > Overview are `/ops`
+iframes rather than native, and they used to render with no gate at all - the
+embed falls back to the server's shared ClickUp token, so a signed-out visitor
+saw, and could edit, real tasks attributed to nobody. `isEmbedView()` returns
+false while gated so the iframe is never created. Everything outside Tasks stays
+ungated: portal-auth.js still owns Tasks only, never the whole app.
+
+`PortalAuth.onChange` is subscribed twice on purpose - portal-tasks.js re-paints
+`#tasksNative`, portal.html re-renders everything else. Dropping the portal.html
+one leaves a signed-out user still looking at an embedded board.
+
+### Screen state lives in the URL
+`writeState()`/`readState()` in portal.html keep `brand`, `view` and the active
+sub-tab in the fragment (`#brand=…&view=…&sub=…`), so a reload lands where you
+were instead of bouncing to Overview, and a screen can be linked to. `render()`
+calls `writeState()` first, which makes it the single choke point - every setter
+already routes through `render()`.
+
+It is **replaceState**, not pushState: navigating the portal is not browser
+history, and pushState would make Back walk through every tab you touched. A
+`hashchange` listener covers a link pasted into an already-open tab; replaceState
+never fires that event, so it cannot loop. Unrecognised values fall back to the
+brand's first screen - the fragment is user-editable and a stale link must not
+leave the portal blank.
+
+`?v=` is the ClickUp OAuth hand-back. `/auth/callback` appends `#auth=<token>` to
+the return path, so that path **cannot carry a fragment of its own** - a second
+`#` swallows the token and sign-in silently fails. `defaultReturnPath()` in
+portal-auth.js moves the fragment into `?v=`, `readState()` reads it, and the
+next `writeState()` drops it. `safeReturnPath()` in server.js now rejects any
+`#` as a backstop.
+
+### Property Tasks board columns are canonical, not raw
+`PT_COLS` + `ptCanon()` in `public/index.html` group the board by canonical
+bucket. The list carries two spellings of the same state - ClickUp's `To Do` /
+`in progress` next to Supabase-originated `OPEN` / `IN_PROGRESS` - and grouping
+on the raw status string gave each spelling its own column. Cards still show
+their **raw** status in the pill, because that is the value written back to
+ClickUp; only the grouping is canonical.
+
+`toCanonicalFallback()` and `getStatusKey()` now treat `_` and `-` as separators.
+Before that, `in_progress` matched no branch and fell through to To Do, which is
+why the duplicate column was also the wrong colour. `ptIsCounterStatus()` and
+`PT_DRILL.inreview` are canonical for the same reason: the board hides every In
+Review task from the columns, so a counter that missed one would lose it
+entirely.
+
+The `⏳ pending` / `⚠ error` chip is a real sync state from `public.task`
+(`supabase-sync.js` sets `error` when a push to ClickUp fails; **⇅ Sync tasks**
+retries). It is not decoration - do not hide it. It used to render as a
+full-width red bar because it was a direct child of the column-flex
+`.task-name`; `.pt-nameline` keeps it beside the task name.
+
 ### ClickUp space map
 `LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
 space by explicit decision. `EXEC_SPACES` (12) is the whole workspace. Leadli and
@@ -222,10 +277,17 @@ and loads later, so it wins and turns every embed white. The guard is
     npm install --no-save playwright express
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
+    node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, sync chip
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
-to fail.
+to fail. `test-portal-nav.js` follows the same rule: its expectations describe the
+intended behaviour, and its board fixture deliberately carries both spellings of
+To Do and In Progress.
+
+In the sandbox `run-tests.js` reports one failure, `no page errors ->
+ERR_CONNECTION_RESET`: the staff headshots are hotlinked from static.showit.co
+and there is no outbound network. That one is an environment artefact.
 
 ## Still baked - the biggest remaining inaccuracy
 `V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:
