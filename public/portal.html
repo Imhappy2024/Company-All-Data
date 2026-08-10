@@ -1,672 +1,505 @@
 <!DOCTYPE html>
-<html lang="en"><head>
+<html lang="en" data-theme="light" data-density="comfortable"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LeavenWealth Group</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
-<!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails
-     to load, the app falls back to baked data and never breaks. -->
-<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- Default to dark, set before first paint so there's no light flash. -->
-<script>document.documentElement.setAttribute('data-theme','dark');</script>
+<script>try{var t=localStorage.getItem('lw-theme');if(t)document.documentElement.setAttribute('data-theme',t);
+var d=localStorage.getItem('lw-density');if(d)document.documentElement.setAttribute('data-density',d);}catch(e){}</script>
+<link rel="stylesheet" href="/tokens.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#f4f5f7; --side:#ffffff; --panel:#ffffff; --panel-2:#fafbfc;
-  --border:#e7e9ee; --border-2:#eef0f4;
-  --text:#171a1f; --dim:#666e7a; --faint:#98a0ac;
-  --accent:#4f6bed; --accent-soft:#eef1fd; --accent-line:#c9d4fb;
-  --green:#12a150; --green-soft:#e7f6ee; --amber:#c67c11; --amber-soft:#fdf3e2;
-  --rose:#d1435b; --rose-soft:#fce8ec; --radius:14px;
-  --shadow:0 1px 2px rgba(16,24,40,.04),0 4px 16px rgba(16,24,40,.05);
-}
-[data-theme="dark"]{
-  --bg:#0e1015; --side:#14171e; --panel:#171b22; --panel-2:#1b1f27;
-  --border:#272c36; --border-2:#20242d;
-  --text:#e7e9ee; --dim:#98a1ae; --faint:#6a7280;
-  --green-soft:#12351f; --amber-soft:#3a2c12; --rose-soft:#3a1720; --accent-soft:#1e2740;
-  --shadow:0 1px 2px rgba(0,0,0,.3),0 4px 16px rgba(0,0,0,.35);
-}
-body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:14px}
-.app{display:grid;grid-template-columns:250px 1fr;height:100vh;overflow:hidden;transition:grid-template-columns .18s ease}
-.app.nav-hidden{grid-template-columns:0 1fr}
+html,body{height:100%}
+body{font-family:var(--font);background:var(--page);color:var(--ink);font-size:13.5px;line-height:1.45;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none}
+a{color:var(--s1);text-decoration:none}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+
+.app{display:grid;grid-template-columns:var(--sidebar-w) 1fr;height:100vh;overflow:hidden;transition:grid-template-columns .2s ease-out}
+.app[data-rail="1"]{--sidebar-w:56px}
 
 /* sidebar */
-.side{background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow:hidden;min-width:0}
-.brandpick{padding:14px 14px 10px;border-bottom:1px solid var(--border-2)}
-.bp-btn{display:flex;align-items:center;gap:10px;width:100%;padding:8px;border-radius:11px;background:var(--panel-2);border:1px solid var(--border);cursor:pointer;transition:.15s}
-.bp-btn:hover{background:var(--panel-2)}
-.bp-glyph{width:34px;height:34px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:13px;flex:none}
-.bp-meta{text-align:left;flex:1;min-width:0}
-.bp-name{font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.bp-sub{font-size:11px;color:var(--faint)}
-.bp-caret{color:var(--faint);flex:none}
-.bp-menu{display:none;flex-direction:column;gap:2px;margin-top:8px}
-.bp-menu.open{display:flex}
-.bp-item{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:9px;cursor:pointer;font-size:13px;color:var(--dim)}
-.bp-item:hover{background:var(--panel-2)}
-.bp-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
-.bp-dot{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:9px;flex:none}
-
-.nav{flex:1;overflow-y:auto;padding:12px 10px}
-.nav::-webkit-scrollbar{width:8px}.nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
-.nav-lbl{font-size:10.5px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--faint);padding:14px 10px 6px}
-.nav-item{display:flex;align-items:center;gap:11px;padding:8px 10px;border-radius:9px;cursor:pointer;color:var(--dim);font-size:13.5px;font-weight:500;transition:.12s;position:relative}
-.nav-item svg{width:17px;height:17px;flex:none}
-.nav-item:hover{background:var(--panel-2);color:var(--text)}
-.nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
-.nav-item .badge{margin-left:auto;font-size:11px;font-weight:600;background:var(--panel-2);color:var(--faint);padding:1px 8px;border-radius:20px}
-.nav-item.active .badge{background:var(--side);color:var(--accent)}
-.side-foot{border-top:1px solid var(--border-2);padding:10px 14px;display:flex;align-items:center;gap:10px}
-.avatar{width:32px;height:32px;border-radius:50%;object-fit:cover;flex:none}
-.avatar.mono{display:grid;place-items:center;background:var(--accent);color:#fff;font-weight:700;font-size:12px}
+.side{background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0}
+.side-top{padding:10px;border-bottom:1px solid var(--border);position:relative}
+.ws{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:var(--r-md);text-align:left;min-width:0}
+.ws:hover{background:var(--surface-2)}
+.ws-mark{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;color:#fff;font-weight:650;font-size:11px;flex:0 0 auto}
+.ws-txt{min-width:0;flex:1;display:block;overflow:hidden}
+.ws-name{display:block;font-weight:600;font-size:12.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-sub{display:block;font-size:11px;color:var(--ink-3);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ws-menu{display:none;position:absolute;left:10px;right:10px;top:52px;z-index:40;background:var(--surface);
+  border:1px solid var(--border-strong);border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:5px}
+.ws-menu.open{display:block}
+.ws-item{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:var(--r-sm);font-size:12.5px;text-align:left}
+.ws-item:hover{background:var(--surface-2)}
+.ws-item.on{background:var(--surface-3);font-weight:600}
+.ws-dot{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:8.5px;flex:0 0 auto}
+.nav{padding:8px;overflow-y:auto;flex:1}
+.nav-lbl{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:12px 8px 5px}
+.nav-item{display:flex;align-items:center;gap:9px;width:100%;padding:6px 8px;border-radius:var(--r-sm);color:var(--ink-2);font-size:13px;white-space:nowrap;overflow:hidden}
+.nav-item:hover{background:var(--surface-2);color:var(--ink)}
+.nav-item[aria-current=page]{background:var(--surface-3);color:var(--ink);font-weight:550}
+.nav-item svg{flex:0 0 auto;opacity:.85}
+.nav-item .cnt{margin-left:auto;font-size:11px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+.nav-item .dot{margin-left:auto;width:6px;height:6px;border-radius:50%;background:var(--crit)}
+.side-foot{padding:8px;border-top:1px solid var(--border)}
+[data-rail="1"] .ws-txt,[data-rail="1"] .nav-lbl,[data-rail="1"] .nav-item span,[data-rail="1"] .nav-item .cnt{display:none}
+[data-rail="1"] .nav-item{justify-content:center;padding:8px}
+[data-rail="1"] .ws{justify-content:center;padding:7px 0}
 
 /* main */
-.main{overflow-y:auto;height:100vh}
-.topbar{position:sticky;top:0;z-index:5;background:color-mix(in srgb,var(--bg) 82%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:16px}
-.crumb{font-size:13px;color:var(--faint)}.crumb b{color:var(--text);font-weight:600}
-.search{flex:1;max-width:420px;display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px;color:var(--faint);font-size:13px}
-.search svg{width:15px;height:15px}
-.tb-actions{margin-left:auto;display:flex;align-items:center;gap:8px}
-.tb-btn{width:36px;height:36px;border-radius:9px;border:1px solid var(--border);background:var(--panel);display:grid;place-items:center;cursor:pointer;color:var(--dim);padding:0;box-sizing:border-box}
-.tb-btn:hover{color:var(--text)}
-.tb-btn svg{width:17px;height:17px}
-.content{padding:26px 28px 60px;max-width:1200px}
-.content.wide{max-width:none}
-.page-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:22px;gap:16px;flex-wrap:wrap}
-.page-t{font-size:23px;font-weight:700;letter-spacing:-.02em}
-.page-s{font-size:13.5px;color:var(--dim);margin-top:3px}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:7px}
-.btn svg{width:15px;height:15px}
-.btn.ghost{background:var(--panel);color:var(--text);border:1px solid var(--border)}
+.main{display:flex;flex-direction:column;min-width:0;overflow:hidden}
+.top{height:46px;flex:0 0 auto;display:flex;align-items:center;gap:10px;padding:0 16px;background:var(--surface);border-bottom:1px solid var(--border)}
+.crumb{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--ink-3);min-width:0}
+.crumb b{color:var(--ink);font-weight:600}
+.spacer{flex:1}
+.icon-btn{width:29px;height:29px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--ink-2)}
+.icon-btn:hover{background:var(--surface-2);color:var(--ink)}
+.bar{flex:0 0 auto;display:flex;align-items:center;gap:8px;padding:9px 16px;flex-wrap:wrap;background:var(--surface);border-bottom:1px solid var(--border)}
+.ctl{display:flex;align-items:center;gap:6px;padding:4px 9px;border:1px solid var(--border);border-radius:var(--r-sm);font-size:12.5px;color:var(--ink-2);background:var(--surface)}
+.ctl:hover{border-color:var(--border-strong)}
+.ctl select{border:none;background:none;outline:none;font-size:12.5px}
+.ctl.on{border-color:var(--s1);color:var(--s1);background:var(--s1-soft)}
+.meta{font-size:11.5px;color:var(--ink-3);display:flex;align-items:center;gap:5px}
+.scroll{overflow-y:auto;flex:1}
+.wrap{padding:18px 16px 60px;max-width:1560px;margin:0 auto}
+.page-head{margin:0 0 16px}
+.page-head h1{margin:0 0 3px;font-size:19px;font-weight:650;letter-spacing:-.012em}
+.page-head p{margin:0;color:var(--ink-3);font-size:12.5px;max-width:78ch}
 
-/* components */
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
-.kpi{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow)}
-.kpi .k{font-size:11.5px;color:var(--faint);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:8px}
-.kpi .k svg{width:15px;height:15px;color:var(--accent)}
-.kpi .v{font-family:'JetBrains Mono',monospace;font-size:24px;font-weight:700;margin-top:10px;letter-spacing:-.02em}
-.kpi .d{font-size:12px;margin-top:4px;color:var(--dim)}
-.kpi .d.up{color:var(--green)}.kpi .d.down{color:var(--rose)}
-.grid{display:grid;gap:16px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow)}
-.card-h{padding:15px 18px;border-bottom:1px solid var(--border-2);display:flex;align-items:center;gap:10px;font-weight:600;font-size:14px}
-.card-h svg{width:16px;height:16px;color:var(--accent)}
-.card-h .badge{margin-left:auto;font-size:11px;color:var(--faint);background:var(--panel-2);padding:2px 9px;border-radius:20px;font-weight:600}
-.card-b{padding:16px 18px}.card-b.flush{padding:0}
-table{width:100%;border-collapse:collapse;font-size:13px}
-th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:var(--faint);padding:11px 18px;border-bottom:1px solid var(--border-2);white-space:nowrap}
-td{padding:12px 18px;border-bottom:1px solid var(--border-2)}
-tbody tr:last-child td{border-bottom:none}
-tbody tr:hover{background:var(--panel-2)}
-.r{text-align:right;font-family:'JetBrains Mono',monospace}
-.who{display:flex;align-items:center;gap:10px}
-.who img,.who .mo{width:30px;height:30px;border-radius:50%;flex:none;object-fit:cover}
-.who .mo{display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
-.pill{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px}
-.pill.green{background:var(--green-soft);color:var(--green)}.pill.amber{background:var(--amber-soft);color:var(--amber)}
-.pill.blue{background:var(--accent-soft);color:var(--accent)}.pill.rose{background:var(--rose-soft);color:var(--rose)}
-.pill.gray{background:var(--panel-2);color:var(--dim)}
-.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--dim)}
-.chip .sw{width:8px;height:8px;border-radius:50%}
-.tilegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.ptile{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);cursor:pointer;transition:.15s}
-.ptile:hover{transform:translateY(-2px);border-color:var(--accent-line);box-shadow:0 6px 20px rgba(16,24,40,.08)}
-.ptile .pt{font-weight:600;font-size:14.5px}
-.ptile .ps{font-size:12.5px;color:var(--dim);margin:3px 0 10px}
-.people{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.person{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:16px;box-shadow:var(--shadow);cursor:pointer;display:flex;gap:13px;align-items:center;transition:.15s}
-.person:hover{border-color:var(--accent-line);box-shadow:0 6px 18px rgba(16,24,40,.08)}
-.person img{width:48px;height:48px;border-radius:12px;object-fit:cover;flex:none}
-.person .pn{font-weight:600;font-size:14px}.person .pr{font-size:12px;color:var(--dim);margin-top:2px}
-.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
-.col{background:var(--panel-2);border:1px solid var(--border);border-radius:14px;padding:10px}
-.col-h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding:6px 8px 10px}
-.col-h .cnt{color:var(--faint);font-weight:600}
-.col-add{margin-left:auto;color:var(--faint);cursor:pointer}.col-add svg{width:14px;height:14px}
-.col-dot{width:8px;height:8px;border-radius:50%;flex:none}
-.tcard{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:12px;box-shadow:var(--shadow);margin-bottom:9px;cursor:pointer;transition:.12s}
-.tcard:hover{border-color:var(--accent-line);transform:translateY(-1px)}
-.tcard .tt{font-weight:600;font-size:13.5px;margin:8px 0;line-height:1.35}
-.tcard .tf{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--faint);text-transform:capitalize}
-.tcard .tf svg{width:13px;height:13px}
-.tcard .tf .due{margin-left:auto;display:flex;align-items:center;gap:6px}
-.prio{width:8px;height:8px;border-radius:50%;flex:none}
-.miniav{width:22px;height:22px;border-radius:50%;object-fit:cover}
-@media(max-width:900px){.board{grid-template-columns:1fr}}
-.segbtn{all:unset;cursor:pointer;padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--dim)}
-.segbtn.on{background:var(--panel);color:var(--accent);box-shadow:var(--shadow)}
-.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:3px;gap:2px;margin-bottom:20px}
-.orgwrap{overflow-x:auto;padding:6px 2px 10px}
-.org{display:inline-flex;flex-direction:column;align-items:center;min-width:100%}
-.org-level{display:flex;justify-content:center;gap:18px;flex-wrap:nowrap}
-.onode{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;min-width:190px;position:relative;transition:.12s}
-.onode:hover{border-color:var(--accent-line);transform:translateY(-1px)}
-.onode:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.onode img{width:36px;height:36px;border-radius:9px;object-fit:cover;flex:none}
-.onode .on{font-weight:600;font-size:13px;white-space:nowrap}
-.onode .or{font-size:11px;color:var(--dim);white-space:nowrap}
-.org-trunk{width:2px;height:22px;background:var(--border)}
-.org-children{position:relative;display:flex;justify-content:center;gap:16px;flex-wrap:nowrap;padding-top:22px}
-.org-children::before{content:"";position:absolute;top:0;left:9%;right:9%;height:2px;background:var(--border)}
-.org-children>.onode::before{content:"";position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:2px;height:22px;background:var(--border)}
-.deptgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.deptcard{background:var(--panel);border:1px solid var(--border);border-radius:12px;box-shadow:var(--shadow);overflow:hidden}
-.deptcard .dh{padding:12px 14px;border-bottom:1px solid var(--border-2);font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
-.deptcard .dh .cnt{margin-left:auto;font-size:11px;color:var(--faint);font-weight:600}
-.deptcard .dm{padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px}
-.deptcard .dm:hover{background:var(--panel-2)}
-.deptcard .dm img{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:none}
-.deptcard .dm .lead{margin-left:auto;font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.03em}
-@media(max-width:900px){.deptgrid{grid-template-columns:1fr}}
-.bars{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:8px}
-.bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
-.bars .bar .fill{width:100%;max-width:22px;border-radius:5px 5px 0 0;background:var(--accent)}
-.bars .bar .bl{font-size:10px;color:var(--faint);font-family:'JetBrains Mono',monospace}
-.selectbox{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font:600 13px Inter,sans-serif;color:var(--text);cursor:pointer}
-.livedot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,161,80,.5)}70%{box-shadow:0 0 0 6px rgba(18,161,80,0)}100%{box-shadow:0 0 0 0 rgba(18,161,80,0)}}
-.muted{font-size:12.5px;color:var(--faint)}
-.embedframe{width:100%;height:calc(100vh - 120px);min-height:460px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);display:block}
-.embedhost{padding:0 28px 28px}
-.content.embed-lean{padding:14px 28px 0}
-.placeholder{background:var(--panel);border:1px dashed var(--border);border-radius:var(--radius);padding:44px;text-align:center;color:var(--faint)}
-.placeholder svg{width:34px;height:34px;margin-bottom:12px;color:var(--accent-line)}
+.grid{display:grid;gap:12px}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g23{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.mt{margin-top:12px}
+@media(max-width:1180px){.g4{grid-template-columns:repeat(2,minmax(0,1fr))}.g3,.g2,.g23{grid-template-columns:minmax(0,1fr)}}
+@media(max-width:760px){.app{grid-template-columns:0 1fr}}
 
-/* drawer (profile) */
-.scrim{position:fixed;inset:0;background:rgba(16,24,40,.35);opacity:0;pointer-events:none;transition:.2s;z-index:40}
-.scrim.open{opacity:1;pointer-events:auto}
-.drawer{position:fixed;top:0;right:0;height:100vh;width:390px;max-width:92vw;background:var(--panel);border-left:1px solid var(--border);transform:translateX(100%);transition:.24s cubic-bezier(.4,0,.2,1);z-index:41;overflow-y:auto}
-.drawer.open{transform:none}
-.dr-hero{padding:26px 24px 20px;text-align:center;border-bottom:1px solid var(--border-2);position:relative}
-.dr-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:18px;color:var(--dim);line-height:1}
-.dr-av{width:80px;height:80px;border-radius:20px;object-fit:cover;margin:0 auto 12px;display:block}
-.dr-nm{font-size:18px;font-weight:700}
-.dr-rl{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px}
-.dr-tag{display:inline-block;margin-top:10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--dim);padding:3px 11px;border-radius:20px}
-.dr-b{padding:20px 24px}
-.dr-sec{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
-.bio{font-size:13.5px;line-height:1.55;color:var(--text)}
-.bio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-.bio-toggle{margin-top:7px;background:none;border:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent);padding:0}
-.dr-field{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--border-2);font-size:13.5px}
-.dr-field svg{width:16px;height:16px;color:var(--faint);flex:none}
-.dr-field .fk{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-@media(max-width:900px){.app{grid-template-columns:64px 1fr}.bp-meta,.nav-lbl,.nav-item span:not(.badge),.bp-name,.bp-sub,.bp-caret{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3,.tilegrid,.people{grid-template-columns:1fr}}
-</style></head>
+/* panels */
+.panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden}
+.panel-h{display:flex;align-items:flex-start;gap:10px;padding:12px 14px 10px}
+.panel-h h2{margin:0;font-size:13.5px;font-weight:600}
+.panel-h p{margin:2px 0 0;font-size:11.5px;color:var(--ink-3)}
+.panel-b{padding:0 14px 14px}
+.panel-b.flush{padding:0}
+.panel-f{padding:9px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--ink-3);display:flex;gap:8px;flex-wrap:wrap;align-items:center;background:var(--surface-2)}
+
+/* kpi */
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:13px 14px 12px;display:flex;flex-direction:column;gap:5px;min-width:0}
+.kpi-l{font-size:11.5px;color:var(--ink-2);font-weight:550;display:flex;align-items:center;gap:5px}
+.kpi-v{font-size:25px;font-weight:640;letter-spacing:-.022em;line-height:1.12}
+.kpi-v.sm{font-size:18px}
+.kpi-s{font-size:11.5px;color:var(--ink-3);display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.delta{display:inline-flex;align-items:center;gap:3px;font-weight:600;font-size:11.5px}
+.delta.up{color:var(--good-ink)}.delta.dn{color:var(--crit-ink)}.delta.flat{color:var(--ink-3)}
+
+/* tables */
+.tw{overflow:auto}
+.tw.cap{max-height:520px}
+table.dt{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+table.dt th{position:sticky;top:0;z-index:2;background:var(--surface-2);text-align:left;font-weight:600;font-size:11px;
+  letter-spacing:.03em;text-transform:uppercase;color:var(--ink-3);padding:0 10px;height:32px;white-space:nowrap;
+  border-bottom:1px solid var(--border);cursor:pointer;user-select:none}
+table.dt th:hover{color:var(--ink)}
+table.dt th.r,table.dt td.r{text-align:right}
+table.dt th .ar{opacity:.45;margin-left:3px}
+table.dt th[aria-sort] .ar{opacity:1;color:var(--s1)}
+table.dt td{padding:0 10px;height:var(--row-h);border-bottom:1px solid var(--border);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:300px}
+table.dt tbody tr:hover td{background:var(--surface-2)}
+table.dt tfoot td{position:sticky;bottom:0;background:var(--surface-2);font-weight:650;border-top:1px solid var(--border-strong);border-bottom:none;height:34px}
+
+/* states */
+.empty{padding:38px 18px;text-align:center;color:var(--ink-3);font-size:12.5px}
+.empty b{display:block;color:var(--ink-2);font-size:13.5px;margin-bottom:4px}
+.empty code{background:var(--surface-2);border:1px solid var(--border);border-radius:4px;padding:1px 5px;font-size:11.5px}
+.err{padding:14px;border:1px solid color-mix(in srgb,var(--crit) 35%,transparent);background:var(--crit-soft);
+  color:var(--crit-ink);border-radius:var(--r-md);font-size:12.5px}
+.err b{display:block;margin-bottom:3px}
+.sk{background:var(--surface-3);border-radius:5px;animation:pulse 1.7s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.55}50%{opacity:1}}
+.note{display:flex;gap:9px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface-2);font-size:12px;color:var(--ink-2);align-items:flex-start}
+.note svg{flex:0 0 auto;margin-top:1px;color:var(--ink-3)}
+.note b{color:var(--ink)}
+.prov{font-size:11px;color:var(--ink-3);display:inline-flex;align-items:center;gap:4px}
+
+/* charts */
+.chart{position:relative;width:100%}
+.chart svg{display:block;width:100%;overflow:visible}
+.ax{font-size:10.5px;fill:var(--ink-3)}
+.gl{stroke:var(--grid);stroke-width:1;shape-rendering:crispEdges}
+.bl{stroke:var(--border-strong);stroke-width:1;shape-rendering:crispEdges}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:0 0 9px;font-size:11.5px;color:var(--ink-2)}
+.legend i{width:9px;height:9px;border-radius:2.5px;display:inline-block;margin-right:5px;vertical-align:-1px}
+.tip{position:fixed;z-index:80;pointer-events:none;background:var(--surface);border:1px solid var(--border-strong);
+  border-radius:var(--r-md);box-shadow:var(--shadow-pop);padding:8px 10px;font-size:12px;min-width:130px;opacity:0;transition:opacity .1s}
+.tip.on{opacity:1}
+.tip .th{font-weight:640;margin-bottom:5px}
+.tip .tr{display:flex;gap:7px;justify-content:space-between;line-height:1.7;align-items:center}
+.tip .tr i{width:8px;height:8px;border-radius:2px;display:inline-block}
+.tip .tr b{font-variant-numeric:tabular-nums}
+.tip .tn{color:var(--ink-3);font-size:11px;margin-top:4px;padding-top:4px;border-top:1px solid var(--border)}
+.bars{display:flex;flex-direction:column;gap:9px;padding-top:2px}
+.bh-l{display:flex;justify-content:space-between;font-size:12px;gap:10px}
+.bh-l span{color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bh-l b{font-variant-numeric:tabular-nums;flex:0 0 auto}
+.bh-t{height:7px;border-radius:3px;background:var(--surface-3);overflow:hidden;margin-top:3px}
+.bh-t i{display:block;height:100%;border-radius:3px;background:var(--s1)}
+
+/* attention list */
+.attlist{display:flex;flex-direction:column}
+.att{display:flex;align-items:center;gap:11px;padding:10px 14px;border-top:1px solid var(--border);text-align:left;width:100%}
+.att:first-child{border-top:none}
+.att:hover{background:var(--surface-2)}
+.att-ic{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex:0 0 auto}
+.att-ic.crit{background:var(--crit-soft);color:var(--crit)}
+.att-ic.warn{background:var(--warn-soft);color:var(--warn-ink)}
+.att-ic.info{background:var(--s1-soft);color:var(--s1)}
+.att-t{flex:1;min-width:0}
+.att-t b{display:block;font-size:12.8px;font-weight:600}
+.att-t span{display:block;font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.att-v{text-align:right;flex:0 0 auto}
+.att-v b{display:block;font-size:13px;font-weight:640}
+.att-v span{display:block;font-size:11px;color:var(--ink-3)}
+
+/* segmented control */
+.seg{display:inline-flex;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r-sm);padding:2px;margin-bottom:14px}
+.seg button{padding:4px 12px;border-radius:4px;font-size:12.5px;color:var(--ink-3);font-weight:500}
+.seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 0 0 1px var(--border-strong)}
+
+/* people */
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.person{display:flex;align-items:center;gap:11px;padding:11px 12px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);text-align:left;width:100%}
+.person:hover{border-color:var(--border-strong);background:var(--surface-2)}
+.av{width:34px;height:34px;border-radius:50%;object-fit:cover;flex:0 0 auto;background:var(--s1);color:#fff;display:grid;place-items:center;font-weight:650;font-size:12px}
+.pn{font-weight:600;font-size:13px}
+.pr{font-size:11.5px;color:var(--ink-3)}
+
+/* org / dept chart */
+.orgwrap{overflow-x:auto;padding:6px 2px 14px}
+.orgrow{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.orgnode{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:10px 12px;min-width:170px;text-align:center}
+.orgnode .pn{font-size:12.5px}
+.deptcard{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-lg);padding:12px 14px}
+.deptcard h4{margin:0 0 2px;font-size:13px;font-weight:640}
+.deptcard .sub{font-size:11.5px;color:var(--ink-3);margin-bottom:9px}
+.chips{display:flex;flex-wrap:wrap;gap:6px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;background:var(--surface-2);border:1px solid var(--border);font-size:11.5px}
+
+/* embed host */
+#embedHost{display:none;position:absolute;inset:0}
+#embedHost.on{display:block}
+#embedHost iframe{width:100%;height:100%;border:0;display:none;background:var(--page)}
+#embedHost iframe.on{display:block}
+.embedwrap{position:relative;flex:1;min-height:0}
+
+/* drawer */
+.scrim{position:fixed;inset:0;background:rgba(11,11,11,.28);z-index:90;opacity:0;pointer-events:none;transition:opacity .18s}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(440px,92vw);background:var(--surface);border-left:1px solid var(--border);
+  z-index:95;transform:translateX(100%);transition:transform .22s ease-out;display:flex;flex-direction:column}
+.drawer.on{transform:none}
+.dr-h{padding:14px 16px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start}
+.dr-h h3{margin:0;font-size:15px;font-weight:640}
+.dr-h p{margin:2px 0 0;font-size:11.5px;color:var(--ink-3)}
+.dr-b{overflow-y:auto;padding:14px 16px 40px;flex:1}
+.dl{display:grid;grid-template-columns:auto 1fr;gap:7px 16px;font-size:12.5px;margin:0 0 16px}
+.dl dt{color:var(--ink-3)}
+.dl dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.sec-t{font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.hr{height:1px;background:var(--border);margin:14px 0}
+</style>
+</head>
 <body>
-<div class="app" id="app">
+<div class="app" id="app" data-rail="0">
   <aside class="side">
-    <div class="brandpick">
-      <button class="bp-btn" onclick="document.getElementById('bpMenu').classList.toggle('open')">
-        <span class="bp-glyph" id="bpGlyph">LW</span>
-        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth Group</span><span class="bp-sub">Switch workspace</span></span>
-        <span class="bp-caret">&#9662;</span>
+    <div class="side-top">
+      <button class="ws" id="wsBtn" aria-haspopup="true" aria-expanded="false">
+        <span class="ws-mark" id="wsMark">LW</span>
+        <span class="ws-txt"><span class="ws-name" id="wsName">LeavenWealth</span><span class="ws-sub" id="wsSub">workspace</span></span>
+        <span style="color:var(--ink-3);flex:0 0 auto"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg></span>
       </button>
-      <div class="bp-menu" id="bpMenu"></div>
+      <div class="ws-menu" id="wsMenu"></div>
     </div>
-    <nav class="nav" id="nav"></nav>
+    <nav class="nav" id="nav" aria-label="Sections"></nav>
     <div class="side-foot">
-      <div class="avatar mono">CP</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">Chris Pomerleau</div><div style="font-size:11px;color:var(--faint)">Owner &middot; Admin</div></div>
+      <button class="nav-item" id="railBtn" title="Collapse sidebar">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.2 3v10"/></svg><span>Collapse</span>
+      </button>
     </div>
   </aside>
 
-  <main class="main">
-    <div class="topbar">
-      <button class="tb-btn" id="navToggle" onclick="toggleSidebar()" title="Hide menu" aria-label="Toggle menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
-      <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
-      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg> Search&hellip;</div>
-      <div class="tb-actions">
-        <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></div>
-        <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
-        <div class="tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></div>
-      </div>
+  <div class="main">
+    <header class="top">
+      <div class="crumb" id="crumb"></div>
+      <div class="spacer"></div>
+      <button class="ctl" id="refreshBtn" title="Clear the server cache and refetch">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><path d="M13.6 7a5.6 5.6 0 1 0-1.3 4.2"/><path d="M13.8 3.2V7h-3.8"/></svg> Refresh
+      </button>
+      <button class="icon-btn" id="themeBtn" aria-label="Toggle theme"></button>
+    </header>
+    <div class="bar" id="bar"></div>
+    <div class="embedwrap">
+      <div class="scroll" id="scroll"><main class="wrap" id="view"></main></div>
+      <div id="embedHost"></div>
     </div>
-    <div class="content" id="content"></div>
-    <div class="embedhost" id="embedHost" hidden></div>
-  </main>
+  </div>
 </div>
 
-<div class="scrim" id="scrim" onclick="closeDrawer()"></div>
-<aside class="drawer" id="drawer"></aside>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-label="Detail"></aside>
 
 <script>
+/* =========================================================================
+   LeavenWealth portal.
+   Every figure on screen is fetched from /api/portal/*. There is no baked
+   data in this file. If a query returns nothing, the UI says so; it never
+   substitutes a plausible-looking number.
+   ========================================================================= */
+
+/* ---------- icons ---------- */
 const I={
-  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
-  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".6" fill="currentColor"/></svg>',
-  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.2a3 3 0 0 1 0 5.6M18.5 20a5 5 0 0 0-3-4.6"/></svg>',
-  layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M2 13l10 5 10-5M2 18l10 5 10-5"/></svg>',
-  wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0-5.4 5L3 17.6 6.4 21l6.3-6.3a4 4 0 0 0 5-5.4l-2.5 2.5-2.3-.6-.6-2.3 2.5-2.5z"/></svg>',
-  dollar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M16 7.5C16 6 14.2 5 12 5S8 6 8 7.8s1.8 2.6 4 3 4 1.4 4 3.2S14.2 19 12 19s-4-1-4-2.5"/></svg>',
-  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
-  building:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6"/></svg>',
-  bank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10l9-6 9 6"/><path d="M4 10v9M20 10v9M8 10v9M16 10v9M12 10v9M3 21h18"/></svg>',
-  hand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9M8 21a6 6 0 0 1 8 0"/><circle cx="12" cy="14" r="7"/></svg>',
-  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>',
-  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
-  trend:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>',
-  card:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
-  gauge:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-4"/></svg>',
-  org:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v4M6 17v-2h12v2M12 15v-4"/></svg>',
-  plug:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>',
-  lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
-  mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
-  phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5c0 9 6 15 15 15l2-3-4-2-2 2c-3-1.4-5.6-4-7-7l2-2-2-4z"/></svg>',
-  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
-  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+ home:'<path d="M2.5 6.6 8 2.5l5.5 4.1V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z"/>',
+ bldg:'<path d="M2.5 13.5v-10a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v10M9.5 6.5h3a1 1 0 0 1 1 1v6M2 13.5h12M4.8 5h2M4.8 7.5h2M4.8 10h2"/>',
+ bank:'<path d="M2 6.2 8 2.6l6 3.6M3.4 6.8v5.4M6.4 6.8v5.4M9.6 6.8v5.4M12.6 6.8v5.4M2 13.4h12"/>',
+ shield:'<path d="M8 2 3 4v4c0 3 2.2 5.1 5 6 2.8-.9 5-3 5-6V4z"/>',
+ trend:'<path d="M2.5 13.5V8M6.2 13.5V3.5M9.9 13.5v-7M13.6 13.5v-4"/>',
+ check:'<path d="M3 8.6l3 3 7-7.2"/>',
+ doc:'<path d="M9 1.8H4.5a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.3zM9 1.8v3.5h3.5M6 8.5h4M6 11h4"/>',
+ users:'<circle cx="6" cy="5.6" r="2.4"/><path d="M1.8 13.4c0-2.3 1.9-4.1 4.2-4.1s4.2 1.8 4.2 4.1M11 3.6a2.4 2.4 0 0 1 0 4.5M12.2 9.7c1.3.5 2.1 1.7 2.1 3.1"/>',
+ org:'<rect x="5.6" y="1.8" width="4.8" height="3.4" rx="1"/><rect x="1.4" y="10.8" width="4.4" height="3.4" rx="1"/><rect x="10.2" y="10.8" width="4.4" height="3.4" rx="1"/><path d="M8 5.2v2.6M3.6 10.8V7.8h8.8v3"/>',
+ wrench:'<path d="M10.6 2.4a3.6 3.6 0 0 0-4.5 4.6L2.3 10.8a1.4 1.4 0 0 0 2 2l3.8-3.8a3.6 3.6 0 0 0 4.6-4.5l-2 2-1.7-1.7z"/>',
+ dollar:'<path d="M8 1.8v12.4M10.8 4.4H6.7a2 2 0 0 0 0 4h2.6a2 2 0 0 1 0 4H5"/>',
+ target:'<circle cx="8" cy="8" r="6"/><circle cx="8" cy="8" r="2.4"/>',
+ cal:'<rect x="2.2" y="3.2" width="11.6" height="10.6" rx="1.4"/><path d="M2.2 6.4h11.6M5.4 1.8v2.6M10.6 1.8v2.6"/>',
+ alert:'<path d="M8 5.6v3.2M8 11.2h.01M6.9 2.6 1.6 11.8a1.2 1.2 0 0 0 1.1 1.8h10.6a1.2 1.2 0 0 0 1.1-1.8L9.1 2.6a1.2 1.2 0 0 0-2.2 0z"/>',
+ clock:'<circle cx="8" cy="8" r="6"/><path d="M8 4.6V8l2.3 1.4"/>',
+ info:'<circle cx="8" cy="8" r="6"/><path d="M8 7.4v3.4M8 5.2h.01"/>',
+ x:'<path d="M4 4l8 8M12 4l-8 8"/>',
+ chev:'<path d="M6 3.5 10.5 8 6 12.5"/>',
+ sun:'<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v1.5M8 13.1v1.5M14.6 8h-1.5M2.9 8H1.4M12.7 3.3l-1 1M4.3 11.7l-1 1M12.7 12.7l-1-1M4.3 4.3l-1-1"/>',
+ moon:'<path d="M13.4 9.6A5.8 5.8 0 0 1 6.4 2.6a5.9 5.9 0 1 0 7 7z"/>',
+ grid:'<rect x="2.2" y="2.2" width="4.8" height="4.8" rx="1"/><rect x="9" y="2.2" width="4.8" height="4.8" rx="1"/><rect x="2.2" y="9" width="4.8" height="4.8" rx="1"/><rect x="9" y="9" width="4.8" height="4.8" rx="1"/>',
+ plug:'<path d="M6 2.2v4M10 2.2v4M4.4 6.2h7.2v2.2a3.6 3.6 0 0 1-7.2 0zM8 12v2"/>',
+ lock:'<rect x="3.2" y="7" width="9.6" height="6.6" rx="1.4"/><path d="M5.6 7V5.2a2.4 2.4 0 0 1 4.8 0V7"/>',
+ card:'<rect x="1.8" y="3.6" width="12.4" height="8.8" rx="1.4"/><path d="M1.8 6.8h12.4"/>'
 };
+const ic=(n,s=15)=>`<svg width="${s}" height="${s}" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${I[n]||''}</svg>`;
 
+/* ---------- brands ---------- */
 const BRANDS={
-  all:{name:'All Brands',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
-  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
-  leadli:{name:'Leadli AI',short:'AI',color:'#8b5cf6',soft:'#f1ecfe',line:'#dccbfb'},
-  folio:{name:'Folio Excel',short:'FE',color:'#0d9488',soft:'#e4f5f2',line:'#b8e6df'},
-  liquid:{name:'Liquid Lending',short:'LL',color:'#e08a0b',soft:'#fdf1de',line:'#f5d79f'},
+  all:{name:'All brands',sub:'group view',mark:'LW',color:'#0b0b0b'},
+  leavenwealth:{name:'LeavenWealth',sub:'real estate',mark:'LW',color:'#2a78d6'},
+  leadli:{name:'Leadli AI',sub:'growth & automation',mark:'AI',color:'#4a3aa7'},
+  folio:{name:'Folio Excel',sub:'bookkeeping SaaS',mark:'FE',color:'#1baf7a'},
+  liquid:{name:'Liquid Lending',sub:'private credit',mark:'LL',color:'#eb6834'}
 };
-/* portal brand id -> Supabase company_id (CLAUDE.md) */
-const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
-const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
-/* brand -> ClickUp space ids. Drives the per-brand Tasks tab (Overview + Tasks embeds
-   scoped to these spaces so each business sees ONLY its own tasks). LeavenWealth = every
-   workspace space except the two brand spaces (Leadli, Folio Excel). Liquid Lending has
-   no ClickUp space yet -> empty-state. Edit this map as the ClickUp workspace evolves. */
-const BRAND_SPACES={
-  leavenwealth:['90145330145','90141115716','90141115773','90141166726','90141124838','90141115902','90142520340','90142564321','90142742038','90144437822'],
-  leadli:['90144463335'],
-  folio:['90145986363'],
-  liquid:[],
-};
-const brandSpaces=b=>BRAND_SPACES[b]||[];
-const OPS_URL='/ops';
-
-/* nav menus per brand */
-const CORE=[
-  {id:'tasks',ic:'check',label:'Tasks',badge:'8'},
-  {id:'leads',ic:'target',label:'Leads',badge:'37'},
-  {id:'team',ic:'users',label:'Team'},
-  {id:'departments',ic:'org',label:'Departments'},
-  {id:'tools',ic:'wrench',label:'Tools & Apps'},
-  {id:'financials',ic:'dollar',label:'Financials'},
-  {id:'documents',ic:'file',label:'Documents'},
-];
+const BRAND_SPACES={leadli:['90143774333'],folio:['90143774334'],leavenwealth:[],liquid:[]};
+const CORE=[{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},
+  {id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},
+  {id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'doc',label:'Documents'}];
 const MENUS={
-  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{id:'investors',ic:'hand',label:'Investors'},{lbl:'Admin'},{id:'integrations',ic:'plug',label:'Integrations'},{id:'access',ic:'lock',label:'Access & Roles'}],
-  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties',badge:'66'},{id:'loans',ic:'bank',label:'Loans',badge:'83'},{id:'investors',ic:'hand',label:'Investors',badge:'5'},{id:'insurance',ic:'shield',label:'Insurance / Risk'},{lbl:'Workspace'},...CORE],
-  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'}],
-  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+  all:[{lbl:'Group'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Workspace'},...CORE],
+  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},
+    {lbl:'Real estate'},{id:'properties',ic:'bldg',label:'Properties'},{id:'loans',ic:'bank',label:'Debt'},
+    {id:'investors',ic:'users',label:'Investors'},{id:'insurance',ic:'shield',label:'Insurance'},
+    {lbl:'Workspace'},...CORE],
+  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},
+    {lbl:'Growth'},{id:'leads',ic:'target',label:'Leads'},{id:'appointments',ic:'cal',label:'Appointments'},
+    {id:'ads',ic:'trend',label:'Marketing'},{id:'services',ic:'grid',label:'Services'},
+    {lbl:'Workspace'},...CORE],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},
+    {lbl:'SaaS'},{id:'subscriptions',ic:'card',label:'Subscriptions'},
+    {lbl:'Workspace'},...CORE],
+  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},
+    {lbl:'Lending'},{id:'lending',ic:'bank',label:'Pipeline'},
+    {lbl:'Workspace'},...CORE]
 };
+const TITLES={overview:'Overview',properties:'Properties',loans:'Debt',investors:'Investors',
+  insurance:'Insurance',leads:'Leads',appointments:'Appointments',ads:'Marketing',services:'Services',
+  subscriptions:'Subscriptions',lending:'Pipeline',tasks:'Tasks',team:'Team',departments:'Departments',
+  tools:'Tools & Apps',financials:'Financials',documents:'Documents'};
 
-/* ---- data (mirrors seeded Supabase) ---- */
-const STAFF=[
-  {id:1,name:'Chris Pomerleau',role:'Co-Founder & Director of Investment Strategy',brand:'leavenwealth',img:'https://static.showit.co/400/IBC54nCgkZafZf0Y6UStUg/328551/chris_pomerleau_headshot.jpg',email:'chris@leavenwealth.com',phone:'—',bio:'Co-founder leading acquisitions, portfolio strategy, and long-term growth. Former U.S. Army and attorney (J.D. plus M.S. in Negotiation from Creighton). Has helped acquire 3,300+ units worth $330M+, and co-founded Point Guard Omaha and Liquid Lending Solutions. Known for disciplined underwriting and a long-term hold philosophy.'},
-  {id:2,name:'Collin Schwartz',role:'Co-Founder & Director of Business Development',brand:'leavenwealth',img:'https://static.showit.co/400/UQt7sNMvf4sQUDEi7F4aeg/328551/collin_schwartz_headshot.jpg',email:'collin@leavenwealth.com',phone:'—',bio:'Co-founder leading growth strategy, investor relations, and operational expansion across a $330M+ multifamily portfolio spanning 3,300+ units in the Midwest. Co-founded Liquid Lending Solutions ($100M+ deployed in hard money loans) and Point Guard Omaha, and created Nebraska’s largest real estate meetup with 6,500+ members.'},
-  {id:3,name:'Jason Belt',role:'Director of Capital Resources',brand:'leavenwealth',img:'https://static.showit.co/400/neN0-2ol9v8xYO6kLl3SNw/328551/jason_belt_headshot.jpg',email:'jason@leavenwealth.com',phone:'—',bio:'Directs capital sourcing and deployment, working with accredited investors to align their goals with the deal pipeline. Holds a Master’s in Public Administration and focuses on transparent, scalable capital raises.'},
-  {id:4,name:'Mitch Hagen',role:'Director of Finance',brand:'leavenwealth',img:'https://static.showit.co/400/or8hIxZr-fNNsicjtuGJiA/shared/mitch_hagen_-_leavenwealth.jpg',email:'mitch@leavenwealth.com',phone:'—',bio:'Oversees financial reporting and strategy. A CPA specializing in real estate finance and tax consulting, and a Creighton graduate in financial analysis and accounting.'},
-  {id:5,name:'Nick Bruhn',role:'Acquisition Specialist',brand:'leavenwealth',img:'https://static.showit.co/400/ofTjBQHqrFoQXpxr29nQAg/shared/nick_bruhn_-_leavenwealth.jpg',email:'nick@leavenwealth.com',phone:'—',bio:'Sources and analyzes multifamily opportunities, with experience across investor relations, asset management, and property development. Marketing and management degree from the University of Nebraska-Lincoln.'},
-  {id:6,name:'Megan Richardson',role:'Risk Management & Investor Relations Advisor',brand:'leavenwealth',img:'https://static.showit.co/400/PolUncD_trDoICQhSl-E5g/shared/megan_richardson_-_leavenwealth.jpg',email:'megan@leavenwealth.com',phone:'—',bio:'Leads insurance, risk management, and investor relations strategy with 10+ years in commercial insurance for major healthcare systems. Based in Denver.'},
-  {id:7,name:'John Younes',role:'Director of Property Management',brand:'leavenwealth',img:'https://static.showit.co/400/PtanfGLIc8gigKNKxl3tWA/shared/john-younes-leavenwealth.jpg',email:'john@leavenwealth.com',phone:'—',bio:'Oversees property management operations, establishing communication systems and KPI frameworks that drive portfolio performance, efficiency, and accountability.'},
-  {id:8,name:'Brian Nelson',role:'Director of Asset Management',brand:'leavenwealth',img:'https://static.showit.co/400/fRxzlQ9skMmfswPunOibZA/shared/brian-nelson-leavenwealth.jpg',email:'brian@leavenwealth.com',phone:'—',bio:'15 years in real estate investing and 11 as a financial advisor, spanning property management, financial strategy, and software product development. Previously managed 1,200 units.'},
-];
-const PROPS=[{n:'Lincoln Portfolio',u:14,o:93,noi:9800},{n:'Midwest Portfolio 1',u:22,o:95,noi:12600},{n:'Midwest Portfolio 2',u:18,o:89,noi:8900},{n:'48 SF Unit Portfolio',u:48,o:91,noi:24100},{n:'Midwest Portfolio 5',u:16,o:97,noi:10200},{n:'Midwest Portfolio 8',u:12,o:83,noi:6400}];
-const INVESTORS=[{n:'Robert Hensley',stake:35,where:'Midwest Portfolio 1'},{n:'Patel Family Trust',stake:20,where:'Fund-level'},{n:'Diane Foster',stake:15,where:'Lincoln Portfolio'},{n:'Kwan Holdings LLC',stake:25,where:'Fund-level'},{n:'Miguel Santos',stake:5,where:'48 SF Portfolio'}];
-const PROV={closers:{n:'Closers.io',c:'#4f6bed'},aia:{n:'AIA',c:'#8b5cf6'},organic:{n:'Organic',c:'#0d9488'},none:{n:'—',c:'#98a0ac'}};
-const LEADS=[{n:'Olivia Bennett',p:'closers',s:'Booked',pc:'blue'},{n:'Ethan Carter',p:'aia',s:'Application',pc:'amber'},{n:'Sophia Nguyen',p:'organic',s:'New',pc:'gray'},{n:'Liam Patel',p:'closers',s:'Won',pc:'green'},{n:'Ava Thompson',p:'aia',s:'No Show',pc:'rose'},{n:'Mia Flores',p:'closers',s:'Booked',pc:'blue'},{n:'Lucas Kim',p:'aia',s:'Lost',pc:'gray'},{n:'james jenet',p:'closers',s:'Application',pc:'amber'}];
-const APPTS=[{n:'Olivia Bennett',c:'Strategy Call',t:'Jul 21, 3:00 PM',s:'confirmed'},{n:'Mia Flores',c:'Strategy Call',t:'Jul 22, 6:00 PM',s:'confirmed'},{n:'Ryan McGuire',c:'Strategy Call',t:'Jul 20, 11:00 AM',s:'confirmed'},{n:'Liam Patel',c:'Strategy Call',t:'Jul 8, 4:00 PM',s:'completed'}];
-const TOOLS=[
-  {n:'ClickUp',cat:'Project mgmt',plan:'Business',cost:228,user:'ops@leavenwealth.com',brand:'all'},
-  {n:'GoHighLevel',cat:'CRM',plan:'Agency Pro',cost:497,user:'admin@leadliai.com',brand:'leadli'},
-  {n:'AppFolio',cat:'Property mgmt',plan:'Plus',cost:1400,user:'pm@leavenwealth.com',brand:'leavenwealth'},
-  {n:'QuickBooks',cat:'Accounting',plan:'Advanced',cost:200,user:'books@folioexcel.com',brand:'folio'},
-  {n:'Supabase',cat:'Database',plan:'Pro',cost:25,user:'dev@leavenwealth.com',brand:'all'},
-  {n:'Meta Ads Manager',cat:'Advertising',plan:'—',cost:0,user:'ads@leadliai.com',brand:'leadli'},
-];
-const SUBS=[
-  {n:'Bluebird Property Mgmt',units:340,plan:'Scale',amt:1360,status:'active',pay:'paid'},
-  {n:'Redwood Residential',units:120,plan:'Growth',amt:540,status:'active',pay:'paid'},
-  {n:'Cornerstone Realty',units:64,plan:'Growth',amt:320,status:'active',pay:'due'},
-  {n:'Harbor Homes LLC',units:28,plan:'Starter',amt:149,status:'active',pay:'paid'},
-  {n:'Prairie Rentals',units:210,plan:'Scale',amt:840,status:'past_due',pay:'overdue'},
-  {n:'Elm Street Holdings',units:12,plan:'Starter',amt:99,status:'trial',pay:'trial'},
-];
-const PLANS=[{n:'Starter',price:99,per:'0.00',range:'1-25 units'},{n:'Growth',price:0,per:'4.50',range:'26-150 units'},{n:'Scale',price:0,per:'4.00',range:'151+ units'}];
-const TXNS=[{d:'Jul 14',desc:'Bookkeeping retainer - client A',dir:'in',amt:7500},{d:'Jul 12',desc:'Monthly loan interest',dir:'out',amt:3100},{d:'Jul 10',desc:'July rent - Midwest 1',dir:'in',amt:12600},{d:'Jul 06',desc:'Landscaping - monthly',dir:'out',amt:540},{d:'Jul 03',desc:'Meta Ads - Leadli',dir:'out',amt:6100},{d:'Jul 02',desc:'July rent - Lincoln',dir:'in',amt:10150}];
-const TASKS=[
-  {t:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'todo',prio:'high',due:'Jul 25',who:7},
-  {t:'Q2 investor distributions',cat:'Investor Relations',status:'todo',prio:'high',due:'Jul 31',who:6},
-  {t:'June close - client A',cat:'Bookkeeping',status:'todo',prio:'med',due:'Jul 20',who:4},
-  {t:'Loan 7a18 rate review',cat:'Lending',status:'in_progress',prio:'low',due:'Aug 5',who:2},
-  {t:'Ship lead-scoring update',cat:'Leadli Ops',status:'in_progress',prio:'med',due:'Jul 24',who:3},
-  {t:'Roof inspection - Midwest 2',cat:'Maintenance',status:'in_progress',prio:'high',due:'Jul 22',who:8},
-  {t:'Reconcile June statements',cat:'Accounting',status:'done',prio:'med',due:'Jul 10',who:4},
-  {t:'Onboard client B',cat:'Bookkeeping',status:'done',prio:'low',due:'Jul 9',who:4},
-  {t:'Send Q2 investor update',cat:'Investor Relations',status:'done',prio:'high',due:'Jul 5',who:6},
-];
+/* ---------- state ---------- */
+const state={brand:'leavenwealth',view:'overview',rail:0,
+  theme:document.documentElement.dataset.theme||'light',
+  density:document.documentElement.dataset.density||'comfortable',
+  tasksTab:'overview'};
+(function(){const h=new URLSearchParams(location.hash.replace(/^#/,''));
+  if(h.get('brand')&&BRANDS[h.get('brand')])state.brand=h.get('brand');
+  if(h.get('view'))state.view=h.get('view');})();
 
-/* Meta ads baked fallback (mirrors the 3 Leadli campaigns in meta_ads_insight) */
-function mkAdDay(spend,imp,clicks,leads,i){return {date:'Jul '+(i+1),spend,imp,clicks,leads};}
-const ADS_CAMPAIGNS=[
-  {id:'120000000000001',name:'B2B - FA $15M AUM',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(180+((i*7)%90),8000+((i*533)%6000),120+((i*13)%100),3+(i%6),i))},
-  {id:'120000000000002',name:'Med-Spa - Prospecting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(95+((i*7)%40),5000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
-  {id:'120000000000003',name:'Med-Spa - Retargeting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(60+((i*7)%40),3000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
-];
+/* ---------- formatters ----------
+   Three distinct empty states. A blank cell reads as a bug; a zero is a claim. */
+const NIL='<span class="nil" title="Not reported in the database">&mdash;</span>';
+const NA='<span class="na" title="Not applicable">N/A</span>';
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const N=v=>(v===null||v===undefined||v===''||Number.isNaN(Number(v)))?null:Number(v);
+function abbr(v){const a=Math.abs(v);
+  if(a>=1e9)return(v/1e9).toFixed(2).replace(/\.?0+$/,'')+'B';
+  if(a>=1e6)return(v/1e6).toFixed(1).replace(/\.0$/,'')+'M';
+  if(a>=1e3)return Math.round(v/1e3)+'K';
+  return String(Math.round(v));}
+/* Full precision where a figure might be verified; abbreviated where it is scanned. */
+function money(v,dp=0){const n=N(v);if(n===null)return NIL;
+  const b='$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:dp,maximumFractionDigits:dp});
+  return n<0?`(${b})`:b;}
+function m$(v){const n=N(v);if(n===null)return NIL;
+  const b='$'+abbr(Math.abs(n));return n<0?`(${b})`:b;}
+function pct(v,dp=1){const n=N(v);return n===null?NIL:(n*100).toFixed(dp)+'%';}
+function pctRaw(v,dp=1){const n=N(v);return n===null?NIL:n.toFixed(dp)+'%';}
+function ratio(v,dp=2){const n=N(v);return n===null?NIL:n.toFixed(dp)+'x';}
+function n0(v){const n=N(v);return n===null?NIL:n.toLocaleString('en-US');}
+function dt(s){if(!s)return NIL;const d=new Date(String(s).slice(0,10)+'T00:00:00');
+  return isNaN(d)?NIL:d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});}
+function dtY(s){if(!s)return NIL;const d=new Date(String(s).slice(0,10)+'T00:00:00');
+  return isNaN(d)?NIL:d.toLocaleDateString('en-US',{day:'numeric',month:'short',year:'2-digit'}).replace(',','');}
+function dtTime(s){if(!s)return NIL;const d=new Date(s);return isNaN(d)?NIL:
+  d.toLocaleString('en-US',{month:'short',day:'numeric',year:'2-digit',hour:'numeric',minute:'2-digit'});}
+const daysFrom=s=>{if(!s)return null;const d=new Date(String(s).slice(0,10)+'T00:00:00');
+  return isNaN(d)?null:Math.round((d-new Date(new Date().toDateString()))/864e5);};
 
-/* ---- helpers ---- */
-const money=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:0});
-const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
-const ini=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
-const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const kpi=(ic,k,v,d,dc)=>`<div class="kpi"><div class="k">${I[ic]||''} ${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;
-const card=(ic,t,badge,body,flush)=>`<div class="card"><div class="card-h">${I[ic]||''} ${t}${badge!=null?`<span class="badge">${badge}</span>`:''}</div><div class="card-b ${flush?'flush':''}">${body}</div></div>`;
-const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
-const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
-function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
+/* Severity is relative to a threshold, never absolute. */
+const dscrSev=v=>v==null?null:v<1?'crit':v<1.25?'warn':'good';
+const ltvSev=v=>v==null?null:v>.9?'crit':v>.8?'warn':'good';
+const matSev=d=>d==null?null:d<0?'crit':d<=180?'warn':d<=365?'info':null;
+function badge(sev,txt){const m={crit:'alert',warn:'clock',good:'check',info:'info',mute:'info'};
+  return `<span class="badge ${sev}">${ic(m[sev]||'info',11)}${esc(txt)}</span>`;}
 
-let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
-/* All Brands -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
-const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
-
-/* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
-const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
-const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
-function getSb(){if(window.__sb)return window.__sb;if(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY){try{window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return window.__sb;}catch(e){}}return null;}
-
-/* ---- org / dept ---- */
-const DEPTMEM=[
-  {n:'Leadership',ids:[1,2]},
-  {n:'Capital',ids:[3]},
-  {n:'Finance',ids:[4]},
-  {n:'Acquisitions',ids:[5]},
-  {n:'Investor Relations & Risk',ids:[6]},
-  {n:'Property Management',ids:[7]},
-  {n:'Asset Management',ids:[8]},
-];
-function setOrgTab(t){orgTab=t;render();}
-function setTasksTab(t){tasksTab=t;render();}
-function setOpsTab(t){opsTab=t;render();}
-function setLoansTab(t){loansTab=t;render();}
-function shortRole(r){return r.replace('Co-Founder & ','').replace('Director of ','Dir. ').replace(' & Investor Relations Advisor','');}
-function orgNode(id){const p=STAFF.find(s=>s.id===id);return `<div class="onode" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div class="on">${esc(p.name)}</div><div class="or">${esc(shortRole(p.role))}</div></div></div>`;}
-function orgChartHtml(){
-  const tops=[1,2], dirs=[3,4,5,6,7,8];
-  return `<div class="orgwrap"><div class="org">
-    <div class="org-level">${tops.map(orgNode).join('')}</div>
-    <div class="org-trunk"></div>
-    <div class="org-children">${dirs.map(orgNode).join('')}</div>
-  </div></div>`;
+/* ---------- fetch layer ---------- */
+const apiCache=new Map();
+async function api(section,brand){
+  const b=brand===undefined?state.brand:brand;
+  const key=section+'|'+b;
+  if(apiCache.has(key))return apiCache.get(key);
+  const p=(async()=>{
+    const r=await fetch(`/api/portal/${section}?brand=${encodeURIComponent(b||'all')}`,{headers:{Accept:'application/json'}});
+    let j=null;try{j=await r.json();}catch(_){}
+    if(!r.ok||!j||!j.ok){const e=new Error((j&&j.error)||('HTTP '+r.status));e.detail=j&&j.detail;e.code=j&&j.error;throw e;}
+    return j;
+  })();
+  apiCache.set(key,p);
+  p.catch(()=>apiCache.delete(key));
+  return p;
 }
-function deptChartHtml(){
-  return `<div class="deptgrid">${DEPTMEM.map(d=>`<div class="deptcard"><div class="dh">${I.org} ${esc(d.n)}<span class="cnt">${d.ids.length}</span></div>${d.ids.map((id,i)=>{const p=STAFF.find(s=>s.id===id);return `<div class="dm" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div style="font-weight:600">${esc(p.name)}</div><div style="font-size:11px;color:var(--dim)">${esc(shortRole(p.role))}</div></div>${i===0?'<span class="lead">LEAD</span>':''}</div>`;}).join('')}</div>`).join('')}</div>`;
+function errorBlock(e){
+  if(e.code==='database_not_configured') return `<div class="err"><b>No database connection</b>
+    The portal reads every figure live. Set <code>DATA_SOURCE=supabase</code> and <code>SUPABASE_DB_URL</code>
+    on the server, then reload. Nothing is shown from cache or defaults because a wrong number is worse than no number.</div>`;
+  return `<div class="err"><b>Couldn't load this section</b>${esc(e.message)}${e.detail?' &middot; '+esc(e.detail):''}</div>`;
 }
-function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;applyAccent();syncEmbedTheme();}
-/* Show/hide the left menu. State persists across reloads. */
-function toggleSidebar(){const app=document.getElementById('app');const hidden=app.classList.toggle('nav-hidden');const btn=document.getElementById('navToggle');if(btn)btn.title=hidden?'Show menu':'Hide menu';try{localStorage.setItem('portalNavHidden',hidden?'1':'0');}catch(e){}}
-function restoreSidebar(){try{if(localStorage.getItem('portalNavHidden')==='1'){document.getElementById('app').classList.add('nav-hidden');const btn=document.getElementById('navToggle');if(btn)btn.title='Show menu';}}catch(e){}}
-/* Push the current theme into any open /ops embed (same-origin) so it follows dark/light live. */
-function syncEmbedTheme(){document.querySelectorAll('.embedframe').forEach(function(f){try{f.contentWindow.postMessage({type:'theme',theme:theme},location.origin);}catch(e){}});}
-/* Refresh the current view (the ops header/refresh is hidden inside embeds). */
-function refreshCurrent(){
-  if(isEmbedView()){const info=embedInfo();const f=info&&document.querySelector('#embedHost iframe[data-key="'+info.key+'"]');if(f){try{f.contentWindow.location.reload();}catch(e){f.src=f.src;}}return;}
-  if(view==='loans'){loadLoans(true);return;}
-  if(view==='ads'){loadAds(true);return;}
-  render();
-}
+const skeleton=()=>`<div class="grid g4">${'<div class="kpi"><div class="sk" style="height:12px;width:58%"></div><div class="sk" style="height:26px;width:74%;margin-top:8px"></div><div class="sk" style="height:11px;width:48%;margin-top:8px"></div></div>'.repeat(4)}</div>
+  <div class="mt panel" style="height:260px"><div style="padding:16px;height:100%"><div class="sk" style="height:100%"></div></div></div>`;
 
-/* ---- views ---- */
-const V={
-  overview(){
-    if(brand==='leavenwealth') return `<div class="kpis">${kpi('building','Properties','66','224 units')}${kpi('gauge','Avg occupancy','92%','','up')}${kpi('trend','Portfolio NOI',moneyk(72000),'monthly','up')}${kpi('bank','Total debt',moneyk(2036000),'3 loans')}</div>`+
-      `<div class="grid g2">${card('dollar','Cash & accounts',null,tbl([{t:'Account'},{t:'Balance',r:1}],[['Operating Checking',196845],['Reserve Savings',512750],['Property Escrow',26500]].map(a=>`<tr><td>${a[0]}</td><td class="r">${money(a[1])}</td></tr>`).join('')),true)}${card('hand','Investors','5',tbl([{t:'Investor'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true)}</div>`;
-    if(brand==='leadli') return `<div class="kpis">${kpi('target','Open leads','37','2 booked','up')}${kpi('cal','Appointments','4','80% show','up')}${kpi('dollar','Ad spend (14d)',moneyk(5370),'')}${kpi('trend','Avg CPL',money(38),'','down')}</div>`+V.leads();
-    if(brand==='folio') return V.reports();
-    if(brand==='liquid') return `<div class="kpis">${kpi('bank','Active loans',moneyk(3200000),'12 notes')}${kpi('target','Applications','9','pipeline')}${kpi('gauge','Avg yield','11.4%','')}${kpi('trend','Deployed (YTD)',moneyk(4800000),'','up')}</div>`+`<div class="placeholder">${I.bank}<div>Loan pipeline detail</div></div>`;
-    return V.exec();
-  },
-  exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
-    `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
-  properties(){return '';},   /* iframe lives in the persistent #embedHost (keep-alive) */
-  loans(){
-    const seg=`<div class="seg"><button class="segbtn ${loansTab==='book'?'on':''}" onclick="setLoansTab('book')">Loan Book</button><button class="segbtn ${loansTab==='views'?'on':''}" onclick="setLoansTab('views')">Loan Views</button></div>`;
-    if(loansTab==='views') return seg;   // Loan Views iframe rendered in #embedHost (keep-alive)
-    if(!loansCache) setTimeout(function(){loadLoans(false);},0);
-    const body = loansCache ? renderLoans(loansCache) : '<div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div>';
-    return seg+`<div id="loansBody">${body}</div>`;
-  },
-  investors(){return card('hand','Investors',INVESTORS.length,tbl([{t:'Investor'},{t:'Position'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td>${esc(i.where)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true);},
-  insurance(){return `<div class="placeholder">${I.shield}<div>Insurance & risk &mdash; 257 policies in <b>insurance_policy</b></div></div>`;},
-  leads(){
-    const byP={};LEADS.forEach(l=>byP[l.p]=(byP[l.p]||0)+1);
-    const chips=Object.entries(byP).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROV[p].c}"></span>${PROV[p].n} &middot; ${n}</span>`).join(' ');
-    return card('target','Pipeline by provider',null,chips)+`<div style="height:16px"></div>`+
-      card('users','Leads',LEADS.length,tbl([{t:'Name'},{t:'Provider'},{t:'Status'}],LEADS.map(l=>`<tr><td><span class="who"><span class="mo" style="background:${PROV[l.p].c}">${ini(l.n)}</span>${esc(l.n)}</span></td><td><span class="chip"><span class="sw" style="background:${PROV[l.p].c}"></span>${PROV[l.p].n}</span></td><td>${pill(l.s,l.pc)}</td></tr>`).join('')),true);
-  },
-  appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
-  ads(){ setTimeout(function(){loadAds(false);},0); return `<div id="adsBody">${renderAdsBody()}</div>`; },
-  subscribers(){
-    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
-    return `<div class="kpis">${kpi('users','Active users',SUBS.filter(s=>s.status!=='trial').length,'subscribers')}${kpi('grid','Units billed',SUBS.reduce((a,s)=>a+s.units,0).toLocaleString(),'')}${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('card','Past due','1','follow up','down')}</div>`+
-    card('users','App users / subscribers',SUBS.length,tbl([{t:'Client'},{t:'Units',r:1},{t:'Plan'},{t:'Amount / mo',r:1},{t:'Status'},{t:'Payment'}],SUBS.map(s=>`<tr><td>${esc(s.n)}</td><td class="r">${s.units}</td><td>${pill(s.plan,'blue')}</td><td class="r">${money(s.amt)}</td><td>${pill(s.status.replace('_',' '),s.status==='active'?'green':s.status==='trial'?'gray':'rose')}</td><td>${pill(s.pay,s.pay==='paid'?'green':s.pay==='due'?'amber':s.pay==='trial'?'gray':'rose')}</td></tr>`).join('')),true);
-  },
-  plans(){return `<div class="tilegrid">${PLANS.map(p=>`<div class="ptile"><div class="pt">${p.n}</div><div class="ps">${p.range}</div><div style="font-family:'JetBrains Mono';font-size:20px;font-weight:700">${p.price>0?money(p.price)+'/mo':'$'+p.per+'/unit'}</div></div>`).join('')}</div>`;},
-  reports(){
-    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
-    return `<div class="kpis">${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('trend','ARR',moneyk(mrr*12),'run rate','up')}${kpi('users','Active users',SUBS.filter(s=>s.status==='active').length,'')}${kpi('gauge','Net revenue retention','104%','','up')}</div>`+
-    `<div class="grid g2">${card('trend','MRR trend',null,barChart([['Apr',2600,'#0d9488'],['May',2900,'#0d9488'],['Jun',3100,'#0d9488'],['Jul',3308,'#0d9488']]))}${card('card','Revenue by plan',null,tbl([{t:'Plan'},{t:'Clients',r:1},{t:'MRR',r:1}],[['Scale',2,2200],['Growth',2,860],['Starter',2,248]].map(r=>`<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="r">${money(r[2])}</td></tr>`).join('')),true)}</div>`;
-  },
-  pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
-  borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
-  team(){
-    return `<div class="people">${STAFF.map(p=>`<div class="person" role="button" tabindex="0" onclick="openStaff(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${p.id})}"><img src="${p.img}" alt=""><div><div class="pn">${esc(p.name)}</div><div class="pr">${esc(p.role)}</div></div></div>`).join('')}</div>`;
-  },
-  departments(){return V.orgdept();},
-  orgdept(){
-    const seg=`<div class="seg"><button class="segbtn ${orgTab==='org'?'on':''}" onclick="setOrgTab('org')">Org chart</button><button class="segbtn ${orgTab==='dept'?'on':''}" onclick="setOrgTab('dept')">Department chart</button></div>`;
-    return seg + (orgTab==='org'?orgChartHtml():deptChartHtml());
-  },
-  tools(){
-    return card('wrench','Tools & software',TOOLS.length,tbl([{t:'Tool'},{t:'Category'},{t:'Plan'},{t:'Account'},{t:'Cost / mo',r:1}],TOOLS.map(t=>`<tr><td><b>${esc(t.n)}</b></td><td>${esc(t.cat)}</td><td>${pill(t.plan,'gray')}</td><td>${esc(t.user)}</td><td class="r">${t.cost?money(t.cost):'—'}</td></tr>`).join('')),true)+`<div style="margin-top:10px;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px">${I.lock} Credentials are stored server-side (Supabase Vault) and revealed to admins via a secure endpoint &mdash; never sent to the browser here.</div>`;
-  },
-  financials(){return `<div class="kpis">${kpi('bank','Cash',moneyk(770785),'5 accounts')}${kpi('trend','Income (recent)',moneyk(30250),'','up')}${kpi('dollar','Expenses',moneyk(9740),'','down')}${kpi('gauge','Net',moneyk(20510),'','up')}</div>`+
-    card('dollar','Recent transactions',TXNS.length,tbl([{t:'Date'},{t:'Description'},{t:'Amount',r:1}],TXNS.map(t=>`<tr><td>${t.d}</td><td>${esc(t.desc)}</td><td class="r" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('')),true);},
-  documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
-  tasks(){
-    /* Per-brand Tasks tab: Overview + Tasks reuse the ops dashboard views (live ClickUp),
-       scoped to this brand's ClickUp spaces so each business sees ONLY its own tasks.
-       LeavenWealth also keeps its live Property Tasks board. All three are keep-alive
-       embeds in #embedHost. */
-    const tab=(brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;
-    const segdefs=[['overview','Overview'],['all','Tasks']];
-    if(brand==='leavenwealth') segdefs.push(['ptasks','Property Tasks']);
-    const seg=`<div class="seg">${segdefs.map(([id,label])=>`<button class="segbtn ${tab===id?'on':''}" onclick="setTasksTab('${id}')">${label}</button>`).join('')}</div>`;
-    if(tab==='ptasks') return seg;                     /* Property Tasks iframe in #embedHost */
-    if(brandSpaces(brand).length) return seg;          /* Overview/Tasks ops iframe in #embedHost */
-    return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its ${tab==='overview'?'overview and counters':'task board'} will appear here.</div></div>`;
-  },
-  alltasks(){
-    return `<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;   /* ops iframe lives in #embedHost (keep-alive) */
-  },
-  integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
-  access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
-};
+/* ---------- components ---------- */
+function kpi(o){return `<div class="kpi">
+  <div class="kpi-l">${esc(o.label)}${o.help?`<span title="${esc(o.help)}" style="color:var(--ink-3);display:inline-flex">${ic('info',12)}</span>`:''}</div>
+  <div class="kpi-v num ${o.sm?'sm':''}">${o.value}</div>
+  <div class="kpi-s">${o.delta||''}${o.sub?`<span>${o.sub}</span>`:''}</div></div>`;}
+function panel(title,sub,body,o={}){return `<section class="panel">
+  <div class="panel-h"><div><h2>${esc(title)}</h2>${sub?`<p>${sub}</p>`:''}</div><div class="spacer"></div>${o.actions||''}</div>
+  <div class="panel-b ${o.flush?'flush':''}">${body}</div>
+  ${o.foot?`<div class="panel-f">${o.foot}</div>`:''}</section>`;}
+const legend=a=>`<div class="legend">${a.map(i=>`<span><i style="background:${i.color}"></i>${esc(i.label)}</span>`).join('')}</div>`;
+const prov=t=>`<span class="prov">${ic('info',12)}${t}</span>`;
+function empty(title,body){return `<div class="empty"><b>${esc(title)}</b>${body}</div>`;}
+function bars(rows){const max=Math.max(...rows.map(r=>N(r.v)||0))||1;
+  return `<div class="bars">${rows.map(r=>`<div><div class="bh-l"><span title="${esc(r.k)}">${esc(r.k)}</span><b>${r.disp??m$(r.v)}</b></div>
+    <div class="bh-t"><i style="width:${Math.max(1.5,(N(r.v)||0)/max*100)}%;background:${r.color||'var(--s1)'}"></i></div></div>`).join('')}</div>`;}
 
-/* ---- Loans (live from Supabase via /api/loans) ---- */
-let loansCache=null;   // cached loans; only refetched when force=true (Refresh button)
-async function loadLoans(force){
-  const el=document.getElementById('loansBody'); if(!el) return;
-  if(loansCache && !force){ el.innerHTML=renderLoans(loansCache); return; }
-  try{
-    const r=await fetch('/api/loans',{headers:{'Accept':'application/json'}});
-    let data=null; try{ data=await r.json(); }catch(_){}
-    if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
-    if(data && data.error) throw new Error(data.error);
-    loansCache=(data&&data.loans)||[];
-    el.innerHTML=renderLoans(loansCache);
-  }catch(e){
-    el.innerHTML=`<div class="muted" style="color:var(--rose);padding:10px 2px">Couldn't load loans (${esc(e.message)}). Needs DATA_SOURCE=supabase + a valid SUPABASE_DB_URL on the server. <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a></div>`;
-  }
+let tipEl;
+function showTip(html,x,y){if(!tipEl){tipEl=document.createElement('div');tipEl.className='tip';document.body.appendChild(tipEl);}
+  tipEl.innerHTML=html;tipEl.classList.add('on');const r=tipEl.getBoundingClientRect();
+  tipEl.style.left=Math.min(x+14,innerWidth-r.width-10)+'px';
+  tipEl.style.top=Math.max(8,Math.min(y-12,innerHeight-r.height-10))+'px';}
+const hideTip=()=>tipEl&&tipEl.classList.remove('on');
+function niceMax(v,steps=4){if(!(v>0))return 1;const raw=v/steps,mag=Math.pow(10,Math.floor(Math.log10(raw)));
+  return ([1,2,2.5,5,10].find(k=>raw<=k*mag)||10)*mag*steps;}
+
+function stackedBars(el,rows,series,o={}){
+  if(!el)return;const W=el.clientWidth||700,H=o.h||240,PL=54,PR=8,PT=10,PB=30;
+  const iw=W-PL-PR,ih=H-PT-PB;
+  const max=niceMax(Math.max(...rows.map(r=>series.reduce((s,k)=>s+(N(r[k.key])||0),0))));
+  const gap=iw/rows.length,bw=Math.min(o.maxBar||60,gap*.66),y=v=>PT+ih-(v/max)*ih;
+  let g='',t='';
+  for(let i=0;i<=4;i++){const v=max/4*i,yy=y(v);
+    t+=`<line class="gl" x1="${PL}" x2="${W-PR}" y1="${yy}" y2="${yy}"/><text class="ax" x="${PL-8}" y="${yy+3.5}" text-anchor="end">$${abbr(v)}</text>`;}
+  rows.forEach((r,i)=>{const cx=PL+gap*i+gap/2,x=cx-bw/2;let acc=0;
+    series.forEach((s,si)=>{const v=N(r[s.key])||0;if(v<=0)return;const h=(v/max)*ih,yy=y(acc+v);
+      const top=series.slice(si+1).every(k=>!(N(r[k.key])>0)),rad=top?4:0;
+      g+=`<path class="bar" data-b="${esc(r.bucket)}" fill="${s.color}" d="M${x} ${yy+h} L${x} ${yy+rad} Q${x} ${yy} ${x+rad} ${yy} L${x+bw-rad} ${yy} Q${x+bw} ${yy} ${x+bw} ${yy+rad} L${x+bw} ${yy+h} Z"/>`;acc+=v;});
+    if(acc>0)g+=`<text class="ax" x="${cx}" y="${y(acc)-7}" text-anchor="middle" font-weight="600" fill="var(--ink-2)">$${abbr(acc)}</text>`;
+    g+=`<text class="ax" x="${cx}" y="${H-10}" text-anchor="middle">${esc(r.bucket)}</text>`;
+    g+=`<rect class="bar" data-b="${esc(r.bucket)}" x="${PL+gap*i}" y="${PT}" width="${gap}" height="${ih}" fill="transparent"/>`;});
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.aria||'bar chart')}">${t}${g}<line class="bl" x1="${PL}" x2="${W-PR}" y1="${PT+ih}" y2="${PT+ih}"/></svg>`;
+  el.querySelectorAll('[data-b]').forEach(n=>{
+    n.addEventListener('mousemove',e=>{const r=rows.find(r=>String(r.bucket)===n.dataset.b);if(!r)return;
+      const tot=series.reduce((s,k)=>s+(N(r[k.key])||0),0);
+      showTip(`<div class="th">${esc(r.bucket)}</div>`+series.map(s=>`<div class="tr"><span><i style="background:${s.color}"></i>${s.label}</span><b>$${abbr(N(r[s.key])||0)}</b></div>`).join('')
+        +`<div class="tr" style="border-top:1px solid var(--border);margin-top:4px;padding-top:4px"><span>Total</span><b>$${abbr(tot)}</b></div>`
+        +(r.note?`<div class="tn">${esc(r.note)}</div>`:''),e.clientX,e.clientY);});
+    n.addEventListener('mouseleave',hideTip);});
 }
-function loanPillClass(s){const x=String(s||'').toLowerCase();if(x==='active'||x==='current')return 'green';if(x==='pending')return 'amber';return 'gray';}
-function renderLoans(loans){
-  if(!loans.length) return `<div class="placeholder">${I.bank}<div>No loans found in Supabase.</div></div>`;
-  const num=v=>(v==null||v==='')?null:Number(v);
-  const total=loans.reduce((a,l)=>a+(num(l.currentDebt)||0),0);
-  const rated=loans.filter(l=>num(l.interestRatePct)!=null);
-  const avg=rated.length?(rated.reduce((a,l)=>a+num(l.interestRatePct),0)/rated.length).toFixed(2)+'%':'—';
-  const mats=loans.map(l=>l.maturityDate).filter(Boolean).sort();
-  const active=loans.filter(l=>String(l.status||'').toLowerCase()==='active').length;
-  const kpis=`<div class="kpis">${kpi('bank','Total debt',moneyk(total),loans.length+' loans')}${kpi('gauge','Avg rate',avg,'')}${kpi('cal','Next maturity',mats.length?mats[0]:'—','')}${kpi('check','Active',active,'of '+loans.length)}</div>`;
-  const rows=loans.slice().sort((a,b)=>(num(b.currentDebt)||0)-(num(a.currentDebt)||0)).map(l=>{
-    const nm=l.name||l.lender||l.loanNumber||('Loan '+String(l.id).slice(0,8));
-    const sub=[l.lender,l.positionLabel].filter(Boolean).map(esc).join(' &middot; ');
-    const debt=num(l.currentDebt)!=null?money(num(l.currentDebt)):'—';
-    const rate=num(l.interestRatePct)!=null?num(l.interestRatePct)+'%':'—';
-    return `<tr><td>${esc(nm)}${sub?`<div style="font-size:11px;color:var(--faint)">${sub}</div>`:''}</td><td class="r">${debt}</td><td class="r">${rate}</td><td>${l.maturityDate||'—'}</td><td>${pill(l.status||'None',loanPillClass(l.status))}</td></tr>`;
-  }).join('');
-  return kpis+card('bank','Loan book',loans.length,tbl([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows),true);
+function lineChart(el,rows,series,o={}){
+  if(!el)return;const W=el.clientWidth||700,H=o.h||200,PL=50,PR=12,PT=12,PB=28;
+  const iw=W-PL-PR,ih=H-PT-PB;
+  const max=niceMax(Math.max(...rows.flatMap(r=>series.map(s=>N(r[s.key])||0))));
+  const x=i=>PL+(rows.length===1?iw/2:iw*i/(rows.length-1)),y=v=>PT+ih-(v/max)*ih;
+  let t='';for(let i=0;i<=4;i++){const v=max/4*i,yy=y(v);
+    t+=`<line class="gl" x1="${PL}" x2="${W-PR}" y1="${yy}" y2="${yy}"/><text class="ax" x="${PL-8}" y="${yy+3.5}" text-anchor="end">${o.fmtAxis?o.fmtAxis(v):'$'+abbr(v)}</text>`;}
+  let p='';
+  series.forEach(s=>{const pts=rows.map((r,i)=>[x(i),y(N(r[s.key])||0)]);
+    const d=pts.map((q,i)=>(i?'L':'M')+q[0].toFixed(1)+' '+q[1].toFixed(1)).join(' ');
+    p+=`<path d="${d} L${x(rows.length-1)} ${PT+ih} L${x(0)} ${PT+ih} Z" fill="${s.color}" opacity=".10"/>`;
+    p+=`<path d="${d}" fill="none" stroke="${s.color}" stroke-width="2" stroke-linejoin="round"/>`;
+    pts.forEach(q=>p+=`<circle cx="${q[0]}" cy="${q[1]}" r="2.6" fill="${s.color}" stroke="var(--surface)" stroke-width="1.4"/>`);});
+  let xl='';const step=Math.max(1,Math.ceil(rows.length/7));
+  rows.forEach((r,i)=>{if(i%step===0||i===rows.length-1)xl+=`<text class="ax" x="${x(i)}" y="${H-9}" text-anchor="middle">${esc(o.xfmt?o.xfmt(r):r.label)}</text>`;});
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(o.aria||'line chart')}">${t}${p}${xl}
+    <line class="bl" x1="${PL}" x2="${W-PR}" y1="${PT+ih}" y2="${PT+ih}"/>
+    <line id="cx" x1="0" x2="0" y1="${PT}" y2="${PT+ih}" stroke="var(--border-strong)" opacity="0"/>
+    <rect x="${PL}" y="${PT}" width="${iw}" height="${ih}" fill="transparent" id="hit"/></svg>`;
+  const svg=el.querySelector('svg'),hit=el.querySelector('#hit'),cx=el.querySelector('#cx');
+  hit.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect(),sx=(e.clientX-r.left)/r.width*W;
+    const i=Math.max(0,Math.min(rows.length-1,Math.round((sx-PL)/iw*(rows.length-1))));
+    cx.setAttribute('x1',x(i));cx.setAttribute('x2',x(i));cx.setAttribute('opacity','1');
+    const row=rows[i];
+    showTip(`<div class="th">${esc(o.xfmt?o.xfmt(row):row.label)}</div>`+
+      series.map(s=>`<div class="tr"><span><i style="background:${s.color}"></i>${s.label}</span><b>${s.fmt?s.fmt(row[s.key]):'$'+abbr(N(row[s.key])||0)}</b></div>`).join('')+
+      (row.note?`<div class="tn">${esc(row.note)}</div>`:''),e.clientX,e.clientY);});
+  hit.addEventListener('mouseleave',()=>{cx.setAttribute('opacity','0');hideTip();});
 }
 
-/* ---- Marketing / Ads (live meta_ads_insight via Supabase; baked fallback) ---- */
-let adsCampaign='all', adsRows=null, adsMode='baked', adsFetched=false, adsBrandKey=null;
-function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBody');if(el)el.innerHTML=renderAdsBody();}
-function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
-function adsScopedRows(){
-  if(adsMode==='live'&&adsRows){
-    return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id),cname:r.campaign_name||('Campaign '+r.campaign_id)}))};
-  }
-  const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);
-  const rows=[];
-  camps.forEach(c=>c.days.forEach(d=>rows.push({date:d.date,spend:d.spend,imp:d.imp,clicks:d.clicks,leads:d.leads,cid:c.id,cname:c.name})));
-  return {source:'baked',rows};
-}
-async function loadAds(force){
-  const el=document.getElementById('adsBody'); if(!el) return;
-  if(adsFetched && adsBrandKey===brand && !force){ el.innerHTML=renderAdsBody(); return; }  // cached
-  const sb=getSb(); let session=null;
-  if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
-  if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
-  el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
-  try{
-    const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
-    let q=sb.from('meta_ads_insight').select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name').gte('date_start',since);
-    const cid=brandCompanyId(brand); if(cid) q=q.eq('company_id',cid);
-    const {data,error}=await q;
-    if(error) throw error;
-    adsRows=data||[]; adsMode='live';
-  }catch(e){ adsRows=null; adsMode='baked'; }
-  adsFetched=true; adsBrandKey=brand;
-  el.innerHTML=renderAdsBody();
-}
-function renderAdsBody(){
-  const {source,rows}=adsScopedRows();
-  if(!rows.length) return `<div class="placeholder">${I.trend}<div>No ad data for ${brand==='all'?'this date range':esc(BRANDS[brand].name)} yet</div></div>`;
-  const campMap=new Map(); rows.forEach(r=>{if(!campMap.has(r.cid))campMap.set(r.cid,r.cname);});
-  if(adsCampaign!=='all'&&!campMap.has(adsCampaign)) adsCampaign='all';
-  const scoped=adsCampaign==='all'?rows:rows.filter(r=>r.cid===adsCampaign);
-  const spend=scoped.reduce((a,r)=>a+r.spend,0), leads=scoped.reduce((a,r)=>a+r.leads,0);
-  const imp=scoped.reduce((a,r)=>a+r.imp,0), clicks=scoped.reduce((a,r)=>a+r.clicks,0);
-  const cpl=leads?spend/leads:0, ctr=imp?(clicks/imp)*100:0;
-  const kpis=`<div class="kpis">${kpi('dollar','Spend (14d)',money(spend),source==='live'?'live':'sample')}${kpi('target','Leads (14d)',leads,'','up')}${kpi('trend','Avg CPL',leads?money(cpl):'—','','down')}${kpi('gauge','Avg CTR',imp?ctr.toFixed(2)+'%':'—','')}</div>`;
-  const opts=['<option value="all">All campaigns</option>'].concat([...campMap.entries()].map(([id,nm])=>`<option value="${esc(id)}"${adsCampaign===id?' selected':''}>${esc(nm)}</option>`)).join('');
-  const srcLabel=source==='live'?'Live &middot; meta_ads_insight <span class="livedot" title="Live from Supabase"></span>':'Sample data';
-  const controls=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap"><select class="selectbox" onchange="setAdsCampaign(this.value)">${opts}</select><span class="muted" style="display:inline-flex;align-items:center;gap:6px">${srcLabel}</span></div>`;
-  const byDate=new Map(); scoped.forEach(r=>byDate.set(r.date,(byDate.get(r.date)||0)+r.spend));
-  const dates=[...byDate.keys()].sort();
-  const bars=barChart(dates.map(d=>[adShortDay(d).replace(/^\w+ /,''),byDate.get(d),'var(--accent)']));
-  let tblHtml;
-  if(adsCampaign==='all'){
-    const per=new Map();
-    rows.forEach(r=>{const p=per.get(r.cid)||{name:r.cname,spend:0,imp:0,clicks:0,leads:0};p.spend+=r.spend;p.imp+=r.imp;p.clicks+=r.clicks;p.leads+=r.leads;per.set(r.cid,p);});
-    const trs=[...per.entries()].map(([id,p])=>`<tr onclick="setAdsCampaign('${esc(id)}')" style="cursor:pointer"><td>${esc(p.name)}</td><td class="r">${money(p.spend)}</td><td class="r">${p.imp.toLocaleString()}</td><td class="r">${p.clicks.toLocaleString()}</td><td class="r">${p.leads}</td><td class="r">${p.leads?money(p.spend/p.leads):'—'}</td></tr>`).join('');
-    tblHtml=card('grid','By campaign',per.size,tbl([{t:'Campaign'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
-  }else{
-    const trs=scoped.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(r=>`<tr><td>${esc(adShortDay(r.date))}</td><td class="r">${money(r.spend)}</td><td class="r">${r.imp.toLocaleString()}</td><td class="r">${r.clicks.toLocaleString()}</td><td class="r">${r.leads}</td><td class="r">${r.leads?money(r.spend/r.leads):'—'}</td></tr>`).join('');
-    tblHtml=card('grid','Campaign: '+esc(campMap.get(adsCampaign)||'Campaign'),scoped.length,tbl([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
-  }
-  return kpis+controls+card('trend','Daily spend',null,bars)+`<div style="height:16px"></div>`+tblHtml;
+/* sortable table */
+const sortState={};
+function table(id,cols,rows,o={}){
+  const s=sortState[id]||(sortState[id]={k:o.sortK,dir:o.sortDir||'asc'});
+  let data=rows;
+  if(s.k){const c=cols.find(c=>c.k===s.k);
+    if(c)data=[...rows].sort((a,b)=>{let x=c.sv?c.sv(a):a[s.k],y=c.sv?c.sv(b):b[s.k];
+      if(x==null&&y==null)return 0;if(x==null)return 1;if(y==null)return -1;
+      if(typeof x==='string')return s.dir==='asc'?x.localeCompare(y):y.localeCompare(x);
+      return s.dir==='asc'?x-y:y-x;});}
+  if(!data.length)return empty(o.emptyTitle||'No rows',o.emptyBody||'');
+  const head=cols.map(c=>`<th class="${c.r?'r ':''}" data-sort="${c.k}" ${s.k===c.k?`aria-sort="${s.dir==='asc'?'ascending':'descending'}"`:''} title="${esc(c.help||c.t)}">${esc(c.t)}<span class="ar">${s.k===c.k?(s.dir==='asc'?'↑':'↓'):'↕'}</span></th>`).join('');
+  const body=data.map((r,i)=>`<tr data-row="${i}">${cols.map(c=>`<td class="${c.r?'r':''}">${c.f(r)}</td>`).join('')}</tr>`).join('');
+  const foot=o.totals?`<tfoot><tr>${cols.map(c=>`<td class="${c.r?'r':''}">${o.totals(data)[c.k]??''}</td>`).join('')}</tr></tfoot>`:'';
+  setTimeout(()=>{const t=document.getElementById(id);if(!t)return;
+    t.querySelectorAll('th[data-sort]').forEach(th=>th.onclick=()=>{const k=th.dataset.sort;
+      if(s.k===k)s.dir=s.dir==='asc'?'desc':'asc';else{s.k=k;s.dir=(cols.find(c=>c.k===k)||{}).r?'desc':'asc';}render();});
+    if(o.onRow)t.querySelectorAll('tbody tr').forEach(tr=>tr.onclick=()=>o.onRow(data[+tr.dataset.row]));},0);
+  return `<div class="tw ${o.cap?'cap':''}"><table class="dt" id="${id}"><thead><tr>${head}</tr></thead><tbody>${body}</tbody>${foot}</table></div>`;
 }
 
-/* ---- profile drawer ---- */
-function openStaff(id){const p=STAFF.find(s=>s.id===id);if(!p)return;
-  document.getElementById('drawer').innerHTML=`
-    <div class="dr-hero"><button class="dr-x" onclick="closeDrawer()">&times;</button>
-      <img class="dr-av" src="${p.img}" alt=""><div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role)}</div><div class="dr-tag">${esc(BRANDS[p.brand].name)}</div></div>
-    <div class="dr-b">
-      <div class="dr-sec">About</div>
-      <div class="bio clamp" id="bioText">${esc(p.bio)}</div>
-      <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>
-      <div style="height:8px"></div>
-      <div class="dr-field">${I.mail}<div><div class="fk">Email</div><div>${esc(p.email)}</div></div></div>
-      <div class="dr-field">${I.phone}<div><div class="fk">Phone</div><div>${esc(p.phone)}</div></div></div>
-    </div>`;
-  document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');
-  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});
+/* coverage sentence — printed wherever an aggregate is shown */
+function coverageNote(c){
+  if(!c)return '';
+  return `<div class="note">${ic('info',15)}<div><b>What these figures are built from.</b>
+    ${c.properties_with_financials} of ${c.properties_total} properties carry a financial snapshot, all dated ${dt(c.financials_as_of)}
+    &mdash; a single observation, so no trend is drawn anywhere in this portal.
+    ${c.loans_with_balance} of ${c.loans_total} loans have a recorded balance; ${c.loans_without_maturity} have no maturity date.
+    ${c.policies_with_premium} of ${c.policies_total} insurance policies carry a premium.
+    Blank cells mean <em>not reported</em>, never zero.</div></div>`;
 }
-function toggleBio(){const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(!t||!b)return;const clamped=t.classList.toggle('clamp');b.textContent=clamped?'See more':'See less';}
-function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
-
-/* ---- nav / render ---- */
-function applyAccent(){const b=BRANDS[brand];const soft=theme==='dark'?b.color+'26':b.soft;const line=theme==='dark'?b.color+'59':b.line;document.documentElement.style.setProperty('--accent',b.color);document.documentElement.style.setProperty('--accent-soft',soft);document.documentElement.style.setProperty('--accent-line',line);}
-function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.entries(BRANDS).map(([id,b])=>`<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')"><span class="bp-dot" style="background:${b.color}">${b.short}</span>${b.name}</div>`).join('');}
-function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
-function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
-function currentLabel(){const it=currentItem();return it?it.label:view;}
-function tasksSub(){return (brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;}
-function isEmbedView(){
-  if(view==='properties'||view==='alltasks') return true;
-  if(view==='loans'&&loansTab==='views') return true;
-  if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if((s==='overview'||s==='all')&&brandSpaces(brand).length)return true;}
-  return false;
-}
-/* Persistent iframes (kept alive across navigation so switching views never reloads/refetches the ops). */
-function embedInfo(){
-  const th=`&theme=${theme}`;
-  if(view==='properties') return {key:'properties',src:`${OPS_URL}#tab=properties&embed=1${th}`,title:'Properties'};
-  if(view==='tasks'){
-    const s=tasksSub();
-    if(s==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
-    if((s==='overview'||s==='all')&&brandSpaces(brand).length){
-      const sp=brandSpaces(brand).join(',');
-      const opsTab=s==='overview'?'overview':'alltasks';
-      return {key:`btasks-${s}-${brand}`,src:`${OPS_URL}#tab=${opsTab}&embed=1&spaces=${sp}${th}`,title:s==='overview'?'Tasks Overview':'Tasks'};
-    }
-  }
-  if(view==='loans'&&loansTab==='views') return {key:'loanviews',src:`${OPS_URL}#tab=loanviews&embed=1${th}`,title:'Loan Views'};
-  if(view==='alltasks'){const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];return {key:'ops-'+cur[0],src:`${OPS_URL}#tab=${cur[0]}&embed=1${th}`,title:cur[1]};}
-  return null;
-}
-function showEmbed(info){
-  const host=document.getElementById('embedHost');
-  let f=host.querySelector('iframe[data-key="'+info.key+'"]');
-  if(!f){f=document.createElement('iframe');f.className='embedframe';f.setAttribute('data-key',info.key);f.title=info.title;f.loading='lazy';f.src=info.src;host.appendChild(f);}
-  Array.prototype.forEach.call(host.children,function(c){c.style.display=(c===f)?'':'none';});
-}
-function hideAllEmbeds(){const host=document.getElementById('embedHost');if(host)Array.prototype.forEach.call(host.children,function(c){c.style.display='none';});}
-function render(){
-  applyAccent();buildBrandMenu();buildNav();
-  const b=BRANDS[brand];
-  document.getElementById('bpGlyph').style.background=b.color;document.getElementById('bpGlyph').textContent=b.short;
-  document.getElementById('bpName').textContent=b.name+(brand==='all'?'':' workspace');
-  document.getElementById('cbBrand').textContent=b.name;
-  document.getElementById('cbView').textContent=' / '+currentLabel();
-  const content=document.getElementById('content');
-  const host=document.getElementById('embedHost');
-  const embed=isEmbedView();
-  const info=embed?embedInfo():null;
-  content.className='content'+(embed?' wide embed-lean':'');
-  const pageH=embed?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`;
-  content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
-  if(embed && info){ showEmbed(info); host.hidden=false; }
-  else { host.hidden=true; hideAllEmbeds(); }
-}
-function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);view=first?first.id:'overview';tasksTab='overview';document.getElementById('bpMenu').classList.remove('open');render();}
-function setView(id){view=id;if(id!=='tasks')tasksTab='overview';render();}
-document.documentElement.setAttribute('data-theme',theme);
-document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
-render();
-restoreSidebar();
 </script>
+<script src="/portal-views.js"></script>
 </body></html>

@@ -6,7 +6,7 @@
 <title>Dashboard</title>
 <!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
      class in <head> BEFORE render so the dashboard chrome never flashes. -->
-<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}else{var _s=null;try{_s=localStorage.getItem('theme');}catch(e){}if(_s!=='light'){document.documentElement.classList.add('boot-dark');new MutationObserver(function(m,o){if(document.body){document.body.classList.add('dark-mode');o.disconnect();}}).observe(document.documentElement,{childList:true,subtree:true});}}}catch(e){}</script>
+<script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}else{var _s=null;try{_s=localStorage.getItem('lw-theme')||localStorage.getItem('theme');}catch(e){}if(_s!=='light'){document.documentElement.classList.add('boot-dark');new MutationObserver(function(m,o){if(document.body){document.body.classList.add('dark-mode');o.disconnect();}}).observe(document.documentElement,{childList:true,subtree:true});}}}catch(e){}</script>
 <!-- PWA: installable, standalone home-screen app -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
@@ -20,59 +20,17 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="/tokens.css"/>
 <style>
   :root {
-    --bg: #f5efe2;
-    --surface: #ffffff;
-    --surface2: #faf6ec;
-    --border: #e5ddc9;
-    --border2: #d6cdb6;
-    --text: #0e2e2e;
-    --text2: #4a5b5b;
-    --text3: #7a8a8a;
-    --accent: #5d9694;
-    --accent2: #3f7674;
-    --green: #76a878;
-    --mint: #d8e5d4;
-    --yellow: #b5874a;
-    --red: #a85850;
-    --orange: #b87146;
-    --purple: #7a6a8e;
-    --teal: #5d9694;
-    --header-bg: #0e2e2e;
-    --header-text: #e8e1d0;
-    --rock-color: #2fa39e;
-    --ids-color: #d97706;
-    --refi-color: #3fb978;
-    --wins-color: #6b4f9a;
-    --shadow-sm: 0 1px 2px rgba(14,46,46,0.05), 0 1px 3px rgba(14,46,46,0.07);
-    --shadow-md: 0 2px 4px rgba(14,46,46,0.05), 0 4px 12px rgba(14,46,46,0.08);
-    --radius: 10px;
-    --radius-sm: 6px;
+    /* Colour tokens now come from /tokens.css so /ops and / match.
+       Only type is kept local. */
     --font: 'DM Sans', sans-serif;
     --mono: 'DM Mono', monospace;
   }
 
   body.dark-mode {
-    --bg: #0f1419;          /* page: darker, so cards lift off it */
-    --surface: #1a2029;     /* cards / rows */
-    --surface2: #232b36;    /* nested panels, hover, headers */
-    --border: #313b48;
-    --border2: #3e4a59;
-    --text: #eef3f8;
-    --text2: #b3c0cd;
-    --text3: #8593a3;
-    --accent: #5fb3d4;      /* brighter teal-blue */
-    --accent2: #4a93b0;     /* hover/darker accent */
-    --green: #5fc88a;
-    --mint: #14352a;        /* dark chip bg for green status */
-    --yellow: #e0a94a;
-    --red: #e06b66;
-    --orange: #c08864;
-    --purple: #968aa8;
-    --teal: #5fb3d4;
-    --header-bg: #0c1116;
-    --header-text: #eef3f8;
+    /* dark tokens come from /tokens.css */
   }
   /* Card/row elevation so layers read as distinct, not flat. */
   body.dark-mode .prop-entity-wrap,
@@ -171,7 +129,7 @@
     padding: 14px 24px;
     background: var(--header-bg);
     color: var(--header-text);
-    border-bottom: 1px solid #0a2424;
+    border-bottom: 1px solid var(--border);
   }
   .logo {
     display: flex;
@@ -180,7 +138,7 @@
     font-weight: 600;
     font-size: 15px;
     letter-spacing: -0.3px;
-    color: #ffffff;
+    color: var(--header-text);
   }
   .logo-dot {
     width: 8px; height: 8px;
@@ -1647,15 +1605,13 @@
     --header-bg:#ffffff; --header-text:#171a1f; --radius:14px;
   }
   html.embed-dark body {
-    --bg:#0e1015; --surface:#171b22; --surface2:#1b1f27; --border:#272c36; --border2:#20242d;
-    --text:#e7e9ee; --text2:#98a1ae; --text3:#6a7280;
-    --accent:#4f6bed; --accent2:#6b83f0; --teal:#4f6bed;
-    --green:#12a150; --mint:#12351f; --yellow:#e0a94a; --red:#e06b66; --orange:#c08864; --purple:#968aa8;
-    --header-bg:#0e1015; --header-text:#e7e9ee;
+    /* dark tokens come from /tokens.css via body.dark-mode; this class only
+       needs to switch the scheme when the portal iframes us. */
+    color-scheme: dark;
   }
-  html.embed-dark { background:#0e1015; }
+  html.embed-dark { background:#0d0d0d; }
   /* Standalone /ops defaults to dark: paint the page bg dark before body.dark-mode applies (no flash). */
-  html.boot-dark { background:#0f1419; }
+  html.boot-dark { background:#0d0d0d; }
 
   #view-properties .main { gap: 14px; }
   .prop-metrics { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; }
@@ -7805,7 +7761,7 @@ function applyTheme(theme) {
 function toggleTheme() {
   const next = document.body.classList.contains('dark-mode') ? 'light' : 'dark';
   applyTheme(next);
-  try { localStorage.setItem('theme', next); } catch (e) {}
+  try { localStorage.setItem('theme', next); localStorage.setItem('lw-theme', next); } catch (e) {}
 }
 
 // Embed theme sync: when embedded in the portal, the parent drives dark/light
@@ -7905,7 +7861,7 @@ window.addEventListener('load', updateFrozenHeight);
     if (document.documentElement.classList.contains('embed-only')) {
       embedApplyTheme(window.__embedTheme || 'dark');   // portal drives the embed theme (default dark)
     } else {
-      const saved = localStorage.getItem('theme');
+      const saved = localStorage.getItem('lw-theme') || localStorage.getItem('theme');
       if (saved !== 'light') applyTheme('dark');   // default to dark unless the user explicitly chose light
     }
   } catch (e) {}

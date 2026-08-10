@@ -22,3 +22,6 @@ Thumbs.db
 # Python (migration script)
 __pycache__/
 *.pyc
+
+# dev-only harness (fixtures + screenshots), never deployed
+dev/

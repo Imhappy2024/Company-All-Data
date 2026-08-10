@@ -6,6 +6,7 @@ const fs = require('fs');
 const compression = require('compression');
 const taskSync = require('./supabase-sync'); // gated: inert unless DATA_SOURCE=supabase
 const supaProps = require('./supabase-properties'); // gated: Properties from Supabase when enabled
+const portalApi = require('./portal-api'); // portal read layer (live Supabase, no baked data)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1559,6 +1560,9 @@ app.post('/api/properties/building', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ---- Portal read layer: every figure the portal shows comes from here ----
+portalApi.mount(app);
 
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
