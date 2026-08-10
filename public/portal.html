@@ -192,8 +192,8 @@ tbody tr:hover{background:var(--panel-2)}
     <div class="brandpick">
       <button class="bp-btn" onclick="document.getElementById('bpMenu').classList.toggle('open')">
         <span class="bp-glyph" id="bpGlyph">LW</span>
-        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth Group</span><span class="bp-sub">Switch workspace</span></span>
-        <span class="bp-caret">&#9662;</span>
+        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth</span><span class="bp-sub">4 companies &middot; 1 tenant</span></span>
+        <span class="bp-caret"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg></span>
       </button>
       <div class="bp-menu" id="bpMenu"></div>
     </div>
@@ -206,13 +206,13 @@ tbody tr:hover{background:var(--panel-2)}
 
   <main class="main">
     <div class="topbar">
-      <button class="tb-btn" id="navToggle" onclick="toggleSidebar()" title="Hide menu" aria-label="Toggle menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></svg></button>
+      <button class="tb-btn" id="navToggle" onclick="toggleSidebar()" title="Hide menu" aria-label="Toggle menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.2 3v10"/></svg></button>
       <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
-      <div class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="m21 21-4-4"/></svg> Search&hellip;</div>
+      <div class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="4.4"/><path d="M10.6 10.6 14 14"/></svg><span style="flex:1">Search or jump to&hellip;</span><span style="border:1px solid var(--border-2);border-radius:4px;padding:1px 5px;font-size:10.5px;color:var(--faint)">&#8984;K</span></div>
       <div class="tb-actions">
-        <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12a9 9 0 1 1-2.64-6.36M21 3v6h-6"/></svg></div>
+        <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.2v3h-3"/></svg></div>
         <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
-        <div class="tb-btn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9a6 6 0 1 1 12 0c0 5 2 6 2 6H4s2-1 2-6"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></div>
+        <div class="tb-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 3.8 1.2 3.8H3.3s1.2-.8 1.2-3.8"/><path d="M6.5 12.6a1.5 1.5 0 0 0 3 0"/></svg></div>
       </div>
     </div>
     <div class="content" id="content"></div>
@@ -224,40 +224,43 @@ tbody tr:hover{background:var(--panel-2)}
 <aside class="drawer" id="drawer"></aside>
 
 <script>
+/* Thin-line icon set (16x16, 1.4 stroke, round caps) to match the shared design. */
+const _IW='viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"';
+const _svg=(p,w)=>`<svg ${w?_IW.replace('1.4',w):_IW}>${p}</svg>`;
 const I={
-  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/></svg>',
-  grid:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>',
-  check:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
-  target:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r=".6" fill="currentColor"/></svg>',
-  users:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 20a5.5 5.5 0 0 1 11 0"/><path d="M17 8.2a3 3 0 0 1 0 5.6M18.5 20a5 5 0 0 0-3-4.6"/></svg>',
-  layers:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3 2 8l10 5 10-5-10-5z"/><path d="M2 13l10 5 10-5M2 18l10 5 10-5"/></svg>',
-  wrench:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14.7 6.3a4 4 0 0 0-5.4 5L3 17.6 6.4 21l6.3-6.3a4 4 0 0 0 5-5.4l-2.5 2.5-2.3-.6-.6-2.3 2.5-2.5z"/></svg>',
-  dollar:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v18M16 7.5C16 6 14.2 5 12 5S8 6 8 7.8s1.8 2.6 4 3 4 1.4 4 3.2S14.2 19 12 19s-4-1-4-2.5"/></svg>',
-  file:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>',
-  building:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M9 8h.01M15 8h.01M9 12h.01M15 12h.01M9 16h6"/></svg>',
-  bank:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 10l9-6 9 6"/><path d="M4 10v9M20 10v9M8 10v9M16 10v9M12 10v9M3 21h18"/></svg>',
-  hand:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3v9M8 21a6 6 0 0 1 8 0"/><circle cx="12" cy="14" r="7"/></svg>',
-  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></svg>',
-  cal:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M3 9h18M8 2v4M16 2v4"/></svg>',
-  trend:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 17l6-6 4 4 8-8"/><path d="M21 7v5h-5"/></svg>',
-  card:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>',
-  gauge:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 15a8 8 0 1 1 16 0"/><path d="M12 15l4-4"/></svg>',
-  org:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="9" y="3" width="6" height="4" rx="1"/><rect x="3" y="17" width="6" height="4" rx="1"/><rect x="15" y="17" width="6" height="4" rx="1"/><path d="M12 7v4M6 17v-2h12v2M12 15v-4"/></svg>',
-  plug:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v5"/></svg>',
-  lock:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>',
-  mail:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M4 7l8 6 8-6"/></svg>',
-  phone:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5c0 9 6 15 15 15l2-3-4-2-2 2c-3-1.4-5.6-4-7-7l2-2-2-4z"/></svg>',
-  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>',
-  sun:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>',
-  moon:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>',
+  home:_svg('<path d="M2.5 6.6 8 2.5l5.5 4.1V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z"/>'),
+  grid:_svg('<rect x="2.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="2.2" y="9.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="9.2" width="4.6" height="4.6" rx="1"/>'),
+  check:_svg('<path d="M3 8.6l3 3 7-7.2"/>'),
+  target:_svg('<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.5"/>'),
+  users:_svg('<circle cx="6" cy="5.6" r="2.4"/><path d="M1.8 13.4c0-2.3 1.9-4.1 4.2-4.1s4.2 1.8 4.2 4.1M11 3.6a2.4 2.4 0 0 1 0 4.5M12.2 9.7c1.3.5 2.1 1.7 2.1 3.1"/>'),
+  layers:_svg('<path d="M8 2 2 5l6 3 6-3-6-3zM2 8.5l6 3 6-3M2 11.5l6 3 6-3"/>'),
+  wrench:_svg('<path d="M10.4 4.1a2.9 2.9 0 0 0-3.9 3.6L2.6 11.6 4.4 13.4l3.9-3.9a2.9 2.9 0 0 0 3.6-3.9L10.1 7.4 8.6 7l-.4-1.5z"/>'),
+  dollar:_svg('<path d="M8 2v12M10.6 4.4C10.6 3.4 9.4 2.7 8 2.7s-2.6.8-2.6 1.9 1.2 1.7 2.6 2.1 2.6.9 2.6 2.1S9.4 13.3 8 13.3s-2.6-.7-2.6-1.7"/>'),
+  file:_svg('<path d="M9 1.8H4.5a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.3zM9 1.8v3.5h3.5M6 8.5h4M6 11h4"/>'),
+  building:_svg('<path d="M2.5 13.5v-10a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v10M9.5 6.5h3a1 1 0 0 1 1 1v6M2 13.5h12M4.8 5h2M4.8 7.5h2M4.8 10h2"/>'),
+  bank:_svg('<path d="M2 6.2 8 2.6l6 3.6M3.4 6.8v5.4M6.4 6.8v5.4M9.6 6.8v5.4M12.6 6.8v5.4M2 13.4h12"/>'),
+  hand:_svg('<path d="M2.4 8.6c1.5-1.2 3.2-1.2 4.7 0M8 2.3v5M6 4.3 8 2.3l2 2M11 13.4a3 3 0 0 0-6 0"/>'),
+  shield:_svg('<path d="M8 2 3 4v4c0 3 2.2 5.1 5 6 2.8-.9 5-3 5-6V4z"/>'),
+  cal:_svg('<rect x="2.4" y="3" width="11.2" height="10.5" rx="1.3"/><path d="M2.4 6h11.2M5.4 1.8v2.4M10.6 1.8v2.4"/>'),
+  trend:_svg('<path d="M2.5 10.5 6 7l2.4 2.4L13.5 4.4M10.6 4.4h2.9v2.9"/>'),
+  card:_svg('<rect x="1.8" y="3.6" width="12.4" height="8.8" rx="1.3"/><path d="M1.8 6.4h12.4"/>'),
+  gauge:_svg('<path d="M2.6 11.2a5.5 5.5 0 1 1 10.8 0"/><path d="M8 11.2 10.6 8.6"/>'),
+  org:_svg('<rect x="6" y="1.8" width="4" height="3.1" rx=".6"/><rect x="1.8" y="11.1" width="4" height="3.1" rx=".6"/><rect x="10.2" y="11.1" width="4" height="3.1" rx=".6"/><path d="M8 4.9v2.9M3.8 11.1V9.3h8.4v1.8M8 9.3V7.8"/>'),
+  plug:_svg('<path d="M5.8 2v3M10.2 2v3M4.4 5h7.2v2a3.6 3.6 0 0 1-7.2 0z"/><path d="M8 10.6V14"/>'),
+  lock:_svg('<rect x="2.8" y="7" width="10.4" height="6.6" rx="1.3"/><path d="M5.1 7V5.1a2.9 2.9 0 0 1 5.8 0V7"/>'),
+  mail:_svg('<rect x="2" y="3.6" width="12" height="8.8" rx="1.3"/><path d="M2.5 4.6 8 8.5l5.5-3.9"/>'),
+  phone:_svg('<path d="M3.2 3.4c0 5.4 4 9.4 9.4 9.4l1.2-1.8-2.5-1.2-1.1 1.1c-1.8-.9-3.2-2.3-4.1-4.1l1.1-1.1L6 3.2z"/>'),
+  plus:_svg('<path d="M8 3.2v9.6M3.2 8h9.6"/>','1.6'),
+  sun:_svg('<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v1.5M8 13.1v1.5M14.6 8h-1.5M2.9 8H1.4M12.7 3.3l-1 1M4.3 11.7l-1 1M12.7 12.7l-1-1M4.3 4.3l-1-1"/>'),
+  moon:_svg('<path d="M13.4 9.6A5.8 5.8 0 0 1 6.4 2.6a5.9 5.9 0 1 0 7 7z"/>'),
 };
 
 const BRANDS={
-  all:{name:'All Brands',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
-  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#4f6bed',soft:'#eef1fd',line:'#c9d4fb'},
-  leadli:{name:'Leadli AI',short:'AI',color:'#8b5cf6',soft:'#f1ecfe',line:'#dccbfb'},
-  folio:{name:'Folio Excel',short:'FE',color:'#0d9488',soft:'#e4f5f2',line:'#b8e6df'},
-  liquid:{name:'Liquid Lending',short:'LL',color:'#e08a0b',soft:'#fdf1de',line:'#f5d79f'},
+  all:{name:'All Brands',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
+  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
+  leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9'},
+  folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5'},
+  liquid:{name:'Liquid Lending',short:'LL',color:'#eda100',soft:'#fdf2da',line:'#f6e2ac'},
 };
 /* portal brand id -> Supabase company_id (CLAUDE.md) */
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
@@ -640,8 +643,8 @@ function hideAllEmbeds(){const host=document.getElementById('embedHost');if(host
 function render(){
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
-  document.getElementById('bpGlyph').style.background=b.color;document.getElementById('bpGlyph').textContent=b.short;
-  document.getElementById('bpName').textContent=b.name+(brand==='all'?'':' workspace');
+  document.getElementById('bpGlyph').style.background='var(--ink)';document.getElementById('bpGlyph').style.color='var(--surface)';document.getElementById('bpGlyph').textContent=b.short;
+  document.getElementById('bpName').textContent=b.name;
   document.getElementById('cbBrand').textContent=b.name;
   document.getElementById('cbView').textContent=' / '+currentLabel();
   const content=document.getElementById('content');
