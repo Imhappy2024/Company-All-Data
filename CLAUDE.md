@@ -8,7 +8,7 @@ An all-company internal portal + dashboards for LeavenWealth Group (one company,
 several brands). Two front ends are merged into ONE Express service:
 
 - `/`     → **portal** (`public/portal.html`) — a **sidebar app shell with brand-as-workspace**.
-            The workspace switcher (top-left) picks a brand (All Brands / LeavenWealth / Leadli AI /
+            The workspace switcher (top-left) picks a brand (Executive Board / LeavenWealth / Leadli AI /
             Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
             LeavenWealth: Overview, Properties, Loans, Investors, Insurance + workspace core
             (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,

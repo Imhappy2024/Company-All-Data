@@ -29,8 +29,8 @@ body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tex
 .bp-btn:hover{background:var(--panel-2)}
 .bp-glyph{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:#fff;font-weight:650;font-size:11.5px;letter-spacing:-.2px;flex:none}
 .bp-meta{text-align:left;flex:1;min-width:0}
-.bp-name{font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
-.bp-sub{font-size:11px;color:var(--faint);line-height:1.25}
+.bp-name{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
+.bp-sub{display:block;font-size:11px;color:var(--faint);line-height:1.25}
 .bp-caret{color:var(--faint);flex:none}
 .bp-menu{display:none;flex-direction:column;gap:1px;margin-top:6px}
 .bp-menu.open{display:flex}
@@ -192,7 +192,7 @@ tbody tr:hover{background:var(--panel-2)}
     <div class="brandpick">
       <button class="bp-btn" onclick="document.getElementById('bpMenu').classList.toggle('open')">
         <span class="bp-glyph" id="bpGlyph">LW</span>
-        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth</span><span class="bp-sub">4 companies &middot; 1 tenant</span></span>
+        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth</span><span class="bp-sub"></span></span>
         <span class="bp-caret"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg></span>
       </button>
       <div class="bp-menu" id="bpMenu"></div>
@@ -256,7 +256,7 @@ const I={
 };
 
 const BRANDS={
-  all:{name:'All Brands',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
+  all:{name:'Executive Board',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
   leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6'},
   leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9'},
   folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5'},
@@ -362,7 +362,8 @@ const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
 function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
 
 let brand='leavenwealth', view='overview', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
-/* All Brands -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
+let orgSummary=null;   // /api/org/summary result; drives the workspace-switcher subtitle
+/* Executive Board -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
 /* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
@@ -605,6 +606,17 @@ function closeDrawer(){document.getElementById('drawer').classList.remove('open'
 
 /* ---- nav / render ---- */
 function applyAccent(){const b=BRANDS[brand];const soft=theme==='dark'?b.color+'26':b.soft;const line=theme==='dark'?b.color+'59':b.line;document.documentElement.style.setProperty('--accent',b.color);document.documentElement.style.setProperty('--accent-soft',soft);document.documentElement.style.setProperty('--accent-line',line);}
+/* Switcher subtitle. Counts come from /api/org/summary — never hard-coded.
+   Until the fetch lands (or if it fails) the subtitle is blank rather than a guess. */
+function switcherSub(){
+  if(!orgSummary) return '';
+  const t = orgSummary.tenants && orgSummary.tenants[0];
+  if(brand === 'all'){
+    const c = orgSummary.company_count, n = orgSummary.tenant_count;
+    return `${c} ${c === 1 ? 'company' : 'companies'} · ${n} ${n === 1 ? 'tenant' : 'tenants'}`;
+  }
+  return `1 company · ${t ? t.name : ''}`;
+}
 function buildBrandMenu(){document.getElementById('bpMenu').innerHTML=Object.entries(BRANDS).map(([id,b])=>`<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')"><span class="bp-dot" style="background:${b.color}">${b.short}</span>${b.name}</div>`).join('');}
 function buildNav(){const items=MENUS[brand];document.getElementById('nav').innerHTML=items.map(it=>it.lbl?`<div class="nav-lbl">${it.lbl}</div>`:`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.badge?`<span class="badge">${it.badge}</span>`:''}</div>`).join('');}
 function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
@@ -645,6 +657,7 @@ function render(){
   const b=BRANDS[brand];
   document.getElementById('bpGlyph').style.background='var(--ink)';document.getElementById('bpGlyph').style.color='var(--surface)';document.getElementById('bpGlyph').textContent=b.short;
   document.getElementById('bpName').textContent=b.name;
+  document.querySelector('.bp-sub').textContent = switcherSub();
   document.getElementById('cbBrand').textContent=b.name;
   document.getElementById('cbView').textContent=' / '+currentLabel();
   const content=document.getElementById('content');
@@ -661,6 +674,10 @@ function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);vie
 function setView(id){view=id;if(id!=='tasks')tasksTab='overview';render();}
 document.documentElement.setAttribute('data-theme',theme);
 document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
+/* Workspace-switcher counts: fetch once on boot, re-render when they land. */
+fetch('/api/org/summary').then(r => r.ok ? r.json() : null).then(d => {
+  if (d && !d.error) { orgSummary = d; render(); }
+}).catch(() => {});
 render();
 restoreSidebar();
 

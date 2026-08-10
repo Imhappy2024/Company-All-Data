@@ -6,6 +6,7 @@ const fs = require('fs');
 const compression = require('compression');
 const taskSync = require('./supabase-sync'); // gated: inert unless DATA_SOURCE=supabase
 const supaProps = require('./supabase-properties'); // gated: Properties from Supabase when enabled
+const db = require('./supabase-db'); // shared Supabase pg pool (same cached instance supaProps uses; not a new pool)
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1175,6 +1176,33 @@ app.get('/api/properties', async (req, res) => {
 });
 
 // Loan records from 001 - Loan Data (also used internally to hydrate links).
+// Org header counts for the portal workspace switcher subtitle. Read-only, tiny.
+// Cached for 5 minutes — this changes about once a year.
+let orgSummaryCache = null, orgSummaryAt = 0;
+app.get('/api/org/summary', async (req, res) => {
+  if (!db.enabled) return res.status(503).json({ error: 'database_not_configured' });
+  if (orgSummaryCache && Date.now() - orgSummaryAt < 5 * 60 * 1000) {
+    return res.json({ ...orgSummaryCache, cached: true });
+  }
+  try {
+    const [t, c] = await Promise.all([
+      db.q('select id, name from tenant where is_active is not false order by name'),
+      db.q('select id, tenant_id, name from company where is_active is not false order by name'),
+    ]);
+    orgSummaryCache = {
+      tenants: t.rows,
+      companies: c.rows,
+      tenant_count: t.rows.length,
+      company_count: c.rows.length,
+    };
+    orgSummaryAt = Date.now();
+    res.json({ ...orgSummaryCache, cached: false });
+  } catch (e) {
+    console.error('/api/org/summary:', e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.get('/api/loans', async (req, res) => {
   if (supaProps.enabled) {
     try { return res.json(await supaProps.getLoansPayload()); }
