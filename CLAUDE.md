@@ -60,8 +60,9 @@ Railway: push to the repo connected to the service; it runs `npm install` then `
 Ops dashboard (already in use):
 - `SUPABASE_DB_URL`  postgresql://postgres:PASSWORD@db.lhdpzalqrwepfjoicdiz.supabase.co:5432/postgres
 - `DATA_SOURCE=supabase`  (makes Properties/loans/tasks read from Supabase)
-- `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID`, `CLICKUP_LIST_ID`, `CLICKUP_ALLOWED_USERS`
+- `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID`, `CLICKUP_LIST_ID`
 - `CLICKUP_OAUTH_CLIENT_ID`, `CLICKUP_OAUTH_CLIENT_SECRET`
+- `CLICKUP_OAUTH_REDIRECT_URI` (optional) — pins the OAuth redirect; see the ClickUp sign-in notes
 - `PORT` (Railway injects this)
 Portal live-data + auth (to be added):
 - `SUPABASE_URL=https://lhdpzalqrwepfjoicdiz.supabase.co`
