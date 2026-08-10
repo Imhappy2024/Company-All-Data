@@ -604,6 +604,7 @@ function safeReturnPath(raw) {
   if (s[0] !== '/') return null;                    // must be a path
   if (s[1] === '/' || s[1] === '\\') return null;    // //evil.com and /\evil.com
   if (s.includes(':')) return null;                 // no scheme, no javascript:
+  if (s.includes('#')) return null;                 // we append #auth=… — a 2nd fragment eats the token
   if (/[\r\n\t]/.test(s)) return null;              // no header injection
   return s;
 }

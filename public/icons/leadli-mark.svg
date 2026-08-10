@@ -1,0 +1,13 @@
+<!-- Brand mark, redrawn to match the supplied artwork because the original
+     file was never in the repo. To use the official asset, replace THIS FILE and
+     keep the path: portal.html references marks by name only, so swapping one in
+     needs no code change. Colours are fixed rather than currentColor - the mark
+     always sits on the white plate .bp-glyph.has-logo paints, so it reads the
+     same in light and dark themes. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Leadli AI">
+  <rect width="128" height="128" rx="5" fill="#111111"/>
+  <g fill="#ffffff">
+    <path id="l2" d="M120 8H44C24 8 8 24 8 44c0 9 7 16 16 16h32c35 0 64-23 64-52Z"/>
+    <use href="#l2" transform="rotate(180 64 64)"/>
+  </g>
+</svg>
