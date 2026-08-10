@@ -250,31 +250,51 @@ use the official files, replace the SVG and keep the filename; nothing in
 portal.html needs editing. Executive Board deliberately shares the LeavenWealth
 mark, being the group view. Executive Board now has its own suited-figure mark.
 
-### ClickUp sign-in: the authorize URL takes TWO parameters
-`/auth/clickup` must hand ClickUp exactly `client_id` and `redirect_uri`.
+### ClickUp sign-in is failing on CONFIG, not code
+The symptom is **"Whoops! Unable to authorize your teams"** on ClickUp's own
+consent page (app "Dashboard-v2"). It fails at the authorize step, so nothing
+reaches `/auth/callback` and nothing appears in the server log.
 
-ClickUp's authorize page is the legacy `app.clickup.com/api` endpoint. Given any
-extra query parameter it refuses the whole request with **"Whoops! Unable to
-authorize your teams"**, before the consent step - so nothing reaches
-`/auth/callback` and there is nothing in the server log. Adding `&state=` to
-carry the return path is exactly what broke sign-in; the predecessor dashboard
-(`imhappy2024/click-up-dashboard`) sends two parameters and works. Verified by
-diffing the two OAuth blocks: that param was the only difference.
+**Do not go looking for this in the code.** The OAuth path here is functionally
+identical to the predecessor dashboard (`imhappy2024/click-up-dashboard`), which
+signs in fine: same `trust proxy`, same `getBaseUrl()`, same authorize URL, same
+token exchange. The only code difference is the post-callback landing, which is
+after the failing step.
 
-The return path now rides in the short-lived `du_return` cookie
-(`COOKIE_RETURN`), set in `/auth/clickup` and read back in `/auth/callback`. If
-you ever need to pass something else through OAuth, add a cookie - **do not add
-a query parameter to that URL.** `test/test-oauth-url.js` asserts the exact
-parameter set so this cannot regress.
+`&state=` was wrongly blamed and briefly removed (ca5d396); the error persisted
+without it and it was restored (it predates the parameter, and ClickUp documents
+it). Do not remove it again.
 
-`safeReturnPath()` still guards the value on both legs: the cookie is
-client-side, so it is revalidated on the way back, not trusted.
+What is left is deployment config, and it needs three facts gathered before any
+change:
+1. `computed_redirect_uri` from **`/auth/debug`** on the live host.
+2. `CLICKUP_OAUTH_CLIENT_ID` on this service vs the working dashboard's
+   (`/auth/debug` prints `oauth_client_id_prefix` on both, so this needs no
+   Railway access).
+3. The Redirect URL(s) registered on the matching ClickUp OAuth app.
 
-The other way to produce the same ClickUp error is a `redirect_uri` that does not
-**exactly** match the one registered on the ClickUp app - scheme included. It is
-built from `x-forwarded-proto`/`x-forwarded-host`, so open **`/auth/debug`** on
-the deployed host and compare `computed_redirect_uri` against the app settings
-before suspecting the code.
+1 and 3 must match character for character - scheme, host, no trailing slash,
+`/auth/callback` spelled the same. If they differ, register 1 on the app. If the
+two services use different client_ids, point this service at the working app's
+credentials and add this callback URL to it. If both match, it is a permission
+problem: the signed-in ClickUp account must be able to grant the workspace.
+
+### redirect_uri is pinnable - use it
+`oauthRedirectUri(req)` is the single source of truth, used by **both**
+`/auth/clickup` and `/auth/debug` so they can never disagree while someone is
+diagnosing a mismatch. It returns `CLICKUP_OAUTH_REDIRECT_URI` when set,
+otherwise derives it from `x-forwarded-proto`/`-host`.
+
+Derived is right behind Railway but is request-derived and can drift - a custom
+domain vs `*.up.railway.app`, or a proxy that rewrites `Host` - and ClickUp
+refuses the request when it no longer matches the registration. Once the correct
+value is known, pin it.
+
+`safeReturnPath()` guards the return path on both legs and is an open-redirect
+boundary, unrelated to this error. Leave it alone.
+
+`test/test-oauth-url.js` pins the authorize parameter set, the pin behaviour, and
+that `/auth/debug` never prints the client secret.
 
 ### ClickUp space map
 `LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
@@ -329,7 +349,7 @@ and loads later, so it wins and turns every embed white. The guard is
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
     node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
-    node test/test-oauth-url.js  # the ClickUp authorize URL takes TWO params
+    node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
