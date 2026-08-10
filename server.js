@@ -1564,6 +1564,52 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// ===================== LIVE SYNC: Supabase webhooks -> SSE =====================
+// Supabase database webhooks (one trigger per table, created by
+// migrations/20260810_realtime_webhooks.sql) POST here on every insert/update/
+// delete. We verify a shared secret, bust the affected server cache, and push a
+// small "table changed" ping to open dashboards over SSE so they refetch. Only the
+// table name + event type is broadcast over the (open) stream -- never row data.
+const WEBHOOK_SECRET = process.env.WEBHOOK_SECRET || '';
+const sseClients = new Set();
+
+app.get('/api/stream', (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  res.write('retry: 5000\n\n');
+  res.write('event: hello\ndata: {"ok":true}\n\n');
+  if (res.flush) res.flush();               // defeat the compression middleware's buffering
+  sseClients.add(res);
+  const ping = setInterval(() => { try { res.write(': keep-alive\n\n'); if (res.flush) res.flush(); } catch (e) {} }, 25000);
+  req.on('close', () => { clearInterval(ping); sseClients.delete(res); });
+});
+
+function broadcastChange(table, type) {
+  const msg = `event: db-change\ndata: ${JSON.stringify({ table, type, at: Date.now() })}\n\n`;
+  sseClients.forEach(res => { try { res.write(msg); if (res.flush) res.flush(); } catch (e) {} });
+}
+
+app.post('/api/hooks/supabase', (req, res) => {
+  if (WEBHOOK_SECRET && req.get('x-webhook-secret') !== WEBHOOK_SECRET) {
+    return res.status(401).json({ error: 'unauthorized' });
+  }
+  const b = req.body || {};
+  const table = String(b.table || 'unknown');
+  const type = String(b.type || b.event || 'UNKNOWN');
+  const t = table.toLowerCase();
+  // Bust whatever server-side cache this table feeds so the next read is fresh.
+  if (/(propert|loan|unit|entity|financial|insurance|ownership|investor)/.test(t)) {
+    cachedPropertiesAt = 0; cachedLoansAt = 0;
+  }
+  if (/task/.test(t)) cachedPropTasksAt = 0;
+  broadcastChange(table, type);
+  res.json({ ok: true });
+});
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`Dashboard running on port ${PORT}`);
   if (!CLICKUP_TOKEN) console.warn('WARNING: CLICKUP_API_TOKEN is not set.');

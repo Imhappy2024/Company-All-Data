@@ -7980,6 +7980,24 @@ setInterval(() => {
   loadFromClientCache();
   fetchData().then(scheduleAutoRefresh);
 })();
+
+// Live sync: the server relays Supabase row changes (via its webhook receiver) over
+// SSE; refetch the Supabase-backed views when a relevant table changes. Debounced so
+// a burst of changes triggers one refresh.
+(function liveSync() {
+  if (typeof EventSource === 'undefined') return;
+  let deb;
+  try {
+    const es = new EventSource('/api/stream');
+    es.addEventListener('db-change', (e) => {
+      let d = {}; try { d = JSON.parse(e.data); } catch (x) {}
+      const t = String(d.table || '').toLowerCase();
+      if (!/(propert|loan|unit|entity|financial|insurance|ownership|investor|task)/.test(t)) return;
+      clearTimeout(deb);
+      deb = setTimeout(() => { try { if (typeof refreshPropertiesData === 'function') refreshPropertiesData(); } catch (x) {} }, 900);
+    });
+  } catch (x) {}
+})();
 </script>
 
 <!-- ===================== PWA install UI + service worker ===================== -->

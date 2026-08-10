@@ -663,5 +663,26 @@ document.documentElement.setAttribute('data-theme',theme);
 document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
 render();
 restoreSidebar();
+
+/* Live sync: server relays Supabase row changes over SSE; refetch the portal's
+   live cards when a relevant table changes (baked cards are unaffected). */
+(function liveSync(){
+  if(typeof EventSource==='undefined')return;
+  let deb;
+  try{
+    const es=new EventSource('/api/stream');
+    es.addEventListener('db-change',function(e){
+      let d={};try{d=JSON.parse(e.data);}catch(x){}
+      const t=String(d.table||'').toLowerCase();
+      clearTimeout(deb);
+      deb=setTimeout(function(){
+        try{
+          if(/loan/.test(t)&&view==='loans'&&loansTab==='book'){loansCache=null;loadLoans(true);}
+          if(/(meta_ads|marketing)/.test(t)&&view==='ads'&&typeof loadAds==='function'){loadAds(true);}
+        }catch(x){}
+      },900);
+    });
+  }catch(x){}
+})();
 </script>
 </body></html>
