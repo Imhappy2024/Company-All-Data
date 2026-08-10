@@ -18,6 +18,9 @@ const LIST_ID_FALLBACK = process.env.CLICKUP_LIST_ID || '901415877955';
 
 // OAuth config
 const OAUTH_CLIENT_ID = process.env.CLICKUP_OAUTH_CLIENT_ID || '';
+// Pin the OAuth redirect instead of deriving it from proxy headers. Set this to
+// the EXACT value registered on the ClickUp app. Leave unset to keep deriving.
+const OAUTH_REDIRECT_URI = process.env.CLICKUP_OAUTH_REDIRECT_URI || '';
 const OAUTH_CLIENT_SECRET = process.env.CLICKUP_OAUTH_CLIENT_SECRET || '';
 const ALLOWED_USERS = (process.env.CLICKUP_ALLOWED_USERS || '')
   .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -613,6 +616,21 @@ function safeReturnPath(raw) {
   return s;
 }
 
+/* The single source of truth for redirect_uri. ClickUp validates it at the
+   authorize step, and it must match what is registered on the app character for
+   character - scheme, host, no trailing slash, /auth/callback spelled the same.
+
+   Derived from x-forwarded-proto/-host by default, which is right behind Railway
+   but is still request-derived and can drift: a custom domain vs the
+   *.up.railway.app one, or a proxy that rewrites Host, silently changes it and
+   ClickUp then refuses the request. Set CLICKUP_OAUTH_REDIRECT_URI to pin it.
+
+   Both /auth/debug and /auth/clickup go through here so they can never disagree
+   about what was actually sent. */
+function oauthRedirectUri(req) {
+  return OAUTH_REDIRECT_URI || `${getBaseUrl(req)}/auth/callback`;
+}
+
 function getBaseUrl(req) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -682,10 +700,15 @@ async function clickupWriteWithToken(token, method, endpoint, body) {
 // Debug: shows what redirect_uri the server is sending to ClickUp.
 // Open this in the browser to verify it matches what you registered in ClickUp.
 app.get('/auth/debug', (req, res) => {
-  const redirect = `${getBaseUrl(req)}/auth/callback`;
+  const redirect = oauthRedirectUri(req);
   res.json({
     oauth_client_id_set: !!OAUTH_CLIENT_ID,
     oauth_client_secret_set: !!OAUTH_CLIENT_SECRET,
+    /* Enough of the client id to tell two OAuth apps apart when comparing this
+       service against another deployment. The SECRET is never printed here -
+       this endpoint is unauthenticated. */
+    oauth_client_id_prefix: OAUTH_CLIENT_ID ? OAUTH_CLIENT_ID.slice(0, 10) : null,
+    oauth_redirect_pinned: !!OAUTH_REDIRECT_URI,
     allowed_users_count: ALLOWED_USERS.length,
     allowed_users_preview: ALLOWED_USERS.slice(0, 3),
     computed_redirect_uri: redirect,
@@ -704,7 +727,7 @@ app.get('/auth/clickup', (req, res) => {
   if (!OAUTH_CLIENT_ID) {
     return res.status(500).send('OAuth not configured. CLICKUP_OAUTH_CLIENT_ID missing.');
   }
-  const redirect = `${getBaseUrl(req)}/auth/callback`;
+  const redirect = oauthRedirectUri(req);
   /* Where to send the user afterwards rides in a short-lived cookie, NOT in a
      `state` query param.
 
