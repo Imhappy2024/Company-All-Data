@@ -288,10 +288,14 @@ const BRAND_SPACES = {
   folio:  ['90145986363'],       // Folio Excel
   liquid: [],                    // no space yet -> empty state
 };
-/* Personal spaces. Never shown anywhere in the dashboard, including Executive Board. */
-const EXCLUDED_SPACES = ['90144437822']; // Chris Mitch Jay
-/* Executive Board = every business space across all brands, personal spaces excluded. */
-const EXEC_SPACES = [...LW_SPACES, ...BRAND_SPACES.leadli, ...BRAND_SPACES.folio];
+/* Chris Mitch Jay (90144437822) is a personal space. Per request it IS shown on the
+   Executive Board, but NOT under any single brand — so it's added to EXEC_SPACES only and
+   kept out of LW_SPACES. EXCLUDED_SPACES remains for anything we ever need hidden
+   everywhere (empty for now). */
+const CHRIS_MITCH_JAY = '90144437822';
+const EXCLUDED_SPACES = [];
+/* Executive Board = every business space across all brands + the exec personal space. */
+const EXEC_SPACES = [...LW_SPACES, ...BRAND_SPACES.leadli, ...BRAND_SPACES.folio, CHRIS_MITCH_JAY];
 const brandSpaces = b => (b === 'all' ? EXEC_SPACES : (BRAND_SPACES[b] || []));
 const OPS_URL='/ops';
 
