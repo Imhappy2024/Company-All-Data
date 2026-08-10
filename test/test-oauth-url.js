@@ -95,6 +95,41 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     srv.kill();
   }
 
+  /* redirect_uri must match the ClickUp app character for character. Derived
+     from proxy headers it can drift - custom domain vs *.up.railway.app, or a
+     proxy that rewrites Host - and ClickUp then refuses the request. Pinning it
+     takes the headers out of the loop, and /auth/clickup and /auth/debug must
+     agree about the pinned value or debugging the next failure is guesswork. */
+  console.log('\nCLICKUP_OAUTH_REDIRECT_URI pins the redirect');
+  const PINNED = 'https://portal.leavenwealth.com/auth/callback';
+  const srv2 = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+    env: {
+      ...process.env, PORT: String(PORT + 1),
+      CLICKUP_OAUTH_CLIENT_ID: 'TESTCLIENTID', CLICKUP_OAUTH_CLIENT_SECRET: 'TESTSECRET',
+      CLICKUP_OAUTH_REDIRECT_URI: PINNED, DATA_SOURCE: '', SUPABASE_DB_URL: '',
+    },
+    stdio: 'ignore',
+  });
+  try {
+    const get2 = p => new Promise((res, rej) => {
+      /* A host that is deliberately NOT the pinned one: the pin must win. */
+      const r = http.get({ host: '127.0.0.1', port: PORT + 1, path: p, headers: { host: 'wrong.example.com', 'x-forwarded-proto': 'https', 'x-forwarded-host': 'wrong.example.com' } },
+        s => { let b = ''; s.on('data', d => b += d); s.on('end', () => res({ status: s.statusCode, headers: s.headers, body: b })); });
+      r.on('error', rej);
+    });
+    for (let i = 0; i < 50; i++) { try { await get2('/auth/debug'); break; } catch (e) { await wait(200); } }
+    const a = await get2('/auth/clickup');
+    check('authorize uses the pin, not the headers', new URL(a.headers.location).searchParams.get('redirect_uri'), PINNED);
+    const dbg = JSON.parse((await get2('/auth/debug')).body);
+    check('/auth/debug reports the same value', dbg.computed_redirect_uri, PINNED);
+    check('and says it is pinned', dbg.oauth_redirect_pinned, true);
+    check('client id prefix is shown', dbg.oauth_client_id_prefix, 'TESTCLIENT');
+    /* This endpoint is unauthenticated. */
+    check('the secret is never printed', JSON.stringify(dbg).includes('TESTSECRET'), false);
+  } finally {
+    srv2.kill();
+  }
+
   console.log(failures ? `\n${failures} FAILURE(S)` : '\nAll checks passed');
   process.exit(failures ? 1 : 0);
 })();
