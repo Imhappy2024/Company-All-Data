@@ -266,11 +266,11 @@ const BRANDS={
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
 const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
 /* brand -> ClickUp space ids.
-   LeavenWealth = every workspace space EXCEPT the two brand spaces (Leadli, Folio Excel)
-   and EXCEPT personal spaces named after people. Liquid Lending has no ClickUp space yet.
-   Verified against the live workspace 9014303262 on 2026-08-10. Update when a space is
-   added — and keep PERSONAL_SPACES accurate; it controls which personal spaces show on
-   Executive Board only (and stay out of the brand views). */
+   LeavenWealth = every workspace space EXCEPT the two brand spaces (Leadli, Folio Excel).
+   Includes the Chris Mitch Jay space (per request — it belongs to LeavenWealth), so it
+   shows under LeavenWealth and, because Executive Board is the whole workspace, there too.
+   Liquid Lending has no ClickUp space yet. Verified against the live workspace 9014303262
+   on 2026-08-10. Update when a space is added. */
 const LW_SPACES = [
   '90145330145', // Task Tracker Dashboard
   '90141115716', // Acquisitions
@@ -281,6 +281,7 @@ const LW_SPACES = [
   '90142520340', // SOPs & Templates
   '90142564321', // Pref Equity Brokers
   '90142742038', // Properties
+  '90144437822', // Chris Mitch Jay (per request: part of LeavenWealth)
 ];
 const BRAND_SPACES = {
   leavenwealth: LW_SPACES,
@@ -288,13 +289,9 @@ const BRAND_SPACES = {
   folio:  ['90145986363'],       // Folio Excel
   liquid: [],                    // no space yet -> empty state
 };
-/* Personal spaces. Excluded from the LeavenWealth brand view, but included on
-   Executive Board, which shows the whole workspace. Deliberate — do not "fix" this by
-   hiding them everywhere. (This corrects the brief, which said hide Chris Mitch Jay
-   everywhere; that decision was reversed — see CLAUDE.md.) */
-const PERSONAL_SPACES = ['90144437822']; // Chris Mitch Jay
-/* Executive Board = every business space across all brands + the personal spaces. */
-const EXEC_SPACES = [...LW_SPACES, ...BRAND_SPACES.leadli, ...BRAND_SPACES.folio, ...PERSONAL_SPACES];
+/* Executive Board = every business space across all brands (LeavenWealth already
+   includes the Chris Mitch Jay space). */
+const EXEC_SPACES = [...LW_SPACES, ...BRAND_SPACES.leadli, ...BRAND_SPACES.folio];
 const brandSpaces = b => (b === 'all' ? EXEC_SPACES : (BRAND_SPACES[b] || []));
 const OPS_URL='/ops';
 
