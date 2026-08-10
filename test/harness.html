@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>portal-tasks harness</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script>document.documentElement.setAttribute('data-theme','dark');</script>
+<link rel="stylesheet" href="/tokens.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font);background:var(--bg);color:var(--text);font-size:13.5px;padding:22px}
+  .wrap{max-width:1180px;margin:0 auto}
+  h1{font-size:15px;font-weight:650;margin-bottom:14px;color:var(--text)}
+</style>
+</head><body>
+<div class="wrap">
+  <h1 id="hdr">LeavenWealth · All Tasks (fixture harness)</h1>
+  <div id="tasksNative"></div>
+</div>
+
+<script>
+/* ---- Stub PortalAuth: always signed in, no network. -------------------- */
+window.PortalAuth = {
+  init(){ return Promise.resolve({id:1}); },
+  user(){ return {id:1, username:'Test User'}; },
+  isSignedIn(){ return true; },
+  isVerified(){ return true; },
+  headers(){ return {}; },
+  fetch(url, opts){
+    // The harness never hits the network. /api/tasks is served from the fixture;
+    // list statuses/members return a small canned set so the popovers render.
+    if (url.indexOf('/api/tasks') === 0)
+      return Promise.resolve({ok:true, json:()=>Promise.resolve(window.__FIXTURE)});
+    if (/\/statuses$/.test(url))
+      return Promise.resolve({ok:true, json:()=>Promise.resolve({statuses:[
+        {status:'to do',color:'#8089a0'},{status:'in progress',color:'#2a78d6'},
+        {status:'in review',color:'#eda100'},{status:'complete',color:'#0ca30c'}]})});
+    if (/\/members$/.test(url))
+      return Promise.resolve({ok:true, json:()=>Promise.resolve({members:[
+        {id:82341038,username:'Chris Pomerleau'},{id:88214150,username:'Brian Nelson'},
+        {id:82341045,username:'John Younes'},{id:82341041,username:'Mitchell Hagen'}]})});
+    if (/\/comments$/.test(url))
+      return Promise.resolve({ok:true, json:()=>Promise.resolve({comments:[
+        {user:{username:'Brian Nelson'}, comment_text:'Waiting on the lender.', date:String(Date.now()-86400000)}]})});
+    return Promise.resolve({ok:true, json:()=>Promise.resolve({})});
+  },
+  signInUrl(){ return '#'; },
+  signOut(){ return Promise.resolve(); },
+  gateHtml(){ return '<div class="pa-gate">gate</div>'; },
+  onChange(){ return function(){}; },
+};
+</script>
+<script src="/fixtures.js"></script>
+<script src="/portal-tasks.js"></script>
+<script>
+  window.__LW_SPACES = ['90141115902','90141115716','90144437822'];
+  PortalTasks._internals.setPayload(window.__FIXTURE);
+  PortalTasks.render('leavenwealth', 'tasksNative', {
+    spaces: window.__LW_SPACES, brandName: 'LeavenWealth',
+  });
+  window.__setTheme = function(t){ document.documentElement.setAttribute('data-theme', t); };
+</script>
+</body></html>

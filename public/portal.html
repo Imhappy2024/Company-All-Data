@@ -31,6 +31,8 @@ body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tex
 .bp-meta{text-align:left;flex:1;min-width:0}
 .bp-name{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
 .bp-sub{display:block;font-size:11px;color:var(--faint);line-height:1.25}
+/* Live-sync mark. Deliberately quiet: this fires whenever anyone edits anything. */
+.rt-stamp{font-size:11px;color:var(--faint);align-self:center;margin-right:6px;white-space:nowrap}
 .bp-caret{color:var(--faint);flex:none}
 .bp-menu{display:none;flex-direction:column;gap:1px;margin-top:6px}
 .bp-menu.open{display:flex}
@@ -210,6 +212,7 @@ tbody tr:hover{background:var(--panel-2)}
       <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
       <div class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="4.4"/><path d="M10.6 10.6 14 14"/></svg><span style="flex:1">Search or jump to&hellip;</span><span style="border:1px solid var(--border-2);border-radius:4px;padding:1px 5px;font-size:10.5px;color:var(--faint)">&#8984;K</span></div>
       <div class="tb-actions">
+        <span id="rtStamp" class="rt-stamp" hidden></span>
         <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.2v3h-3"/></svg></div>
         <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
         <div class="tb-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 3.8 1.2 3.8H3.3s1.2-.8 1.2-3.8"/><path d="M6.5 12.6a1.5 1.5 0 0 0 3 0"/></svg></div>
@@ -223,6 +226,12 @@ tbody tr:hover{background:var(--panel-2)}
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"></aside>
 
+<!-- Phase 4/5 modules. Plain tags, NOT defer: the inline script below runs
+     during parsing and calls render() immediately, so deferred scripts would
+     not have executed yet and PortalAuth/PortalTasks would be undefined. -->
+<script src="/portal-auth.js"></script>
+<script src="/portal-tasks.js"></script>
+<script src="/portal-realtime.js"></script>
 <script>
 /* Thin-line icon set (16x16, 1.4 stroke, round caps) to match the shared design. */
 const _IW='viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"';
@@ -487,17 +496,17 @@ const V={
     card('dollar','Recent transactions',TXNS.length,tbl([{t:'Date'},{t:'Description'},{t:'Amount',r:1}],TXNS.map(t=>`<tr><td>${t.d}</td><td>${esc(t.desc)}</td><td class="r" style="color:${t.dir==='in'?'var(--green)':'var(--rose)'}">${t.dir==='in'?'+':'-'}${money(t.amt)}</td></tr>`).join('')),true);},
   documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
-    /* Per-brand Tasks tab: Overview + Tasks reuse the ops dashboard views (live ClickUp),
-       scoped to this brand's ClickUp spaces so each business sees ONLY its own tasks.
-       LeavenWealth also keeps its live Property Tasks board. All three are keep-alive
-       embeds in #embedHost. */
+    /* Overview and Property Tasks are still /ops embeds (rendered in #embedHost).
+       "All Tasks" is native: portal-tasks.js paints into #tasksNative, called from
+       render() after the innerHTML assignment. */
     const tab=(brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;
-    const segdefs=[['overview','Overview'],['all','Tasks']];
+    const segdefs=[['overview','Overview'],['all','All Tasks']];
     if(brand==='leavenwealth') segdefs.push(['ptasks','Property Tasks']);
     const seg=`<div class="seg">${segdefs.map(([id,label])=>`<button class="segbtn ${tab===id?'on':''}" onclick="setTasksTab('${id}')">${label}</button>`).join('')}</div>`;
+    if(tab==='all')    return seg+`<div id="tasksNative"></div>`;
     if(tab==='ptasks') return seg;                     /* Property Tasks iframe in #embedHost */
-    if(brandSpaces(brand).length) return seg;          /* Overview/Tasks ops iframe in #embedHost */
-    return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its ${tab==='overview'?'overview and counters':'task board'} will appear here.</div></div>`;
+    if(brandSpaces(brand).length) return seg;          /* Overview iframe in #embedHost */
+    return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its overview and counters will appear here.</div></div>`;
   },
   alltasks(){
     return `<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;   /* ops iframe lives in #embedHost (keep-alive) */
@@ -642,7 +651,7 @@ function tasksSub(){return (brand!=='leavenwealth'&&tasksTab==='ptasks')?'overvi
 function isEmbedView(){
   if(view==='properties'||view==='alltasks') return true;
   if(view==='loans'&&loansTab==='views') return true;
-  if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if((s==='overview'||s==='all')&&brandSpaces(brand).length)return true;}
+  if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if(s==='overview'&&brandSpaces(brand).length)return true;}
   return false;
 }
 /* Persistent iframes (kept alive across navigation so switching views never reloads/refetches the ops). */
@@ -652,10 +661,9 @@ function embedInfo(){
   if(view==='tasks'){
     const s=tasksSub();
     if(s==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
-    if((s==='overview'||s==='all')&&brandSpaces(brand).length){
+    if(s==='overview'&&brandSpaces(brand).length){
       const sp=brandSpaces(brand).join(',');
-      const opsTab=s==='overview'?'overview':'alltasks';
-      return {key:`btasks-${s}-${brand}`,src:`${OPS_URL}#tab=${opsTab}&embed=1&spaces=${sp}${th}`,title:s==='overview'?'Tasks Overview':'Tasks'};
+      return {key:`btasks-overview-${brand}`,src:`${OPS_URL}#tab=overview&embed=1&spaces=${sp}${th}`,title:'Tasks Overview'};
     }
   }
   if(view==='loans'&&loansTab==='views') return {key:'loanviews',src:`${OPS_URL}#tab=loanviews&embed=1${th}`,title:'Loan Views'};
@@ -688,6 +696,12 @@ function render(){
   content.className='content'+(embed?' wide embed-lean':'');
   const pageH=embed?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div><button class="btn">${I.plus} New</button></div>`;
   content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
+  /* The native Tasks screen must be painted after innerHTML replaces the
+     container, not from inside the template string. brandSpaces and BRANDS are
+     script-scoped consts, so portal-tasks.js cannot read them - pass them in. */
+  if(view==='tasks' && tasksSub()==='all' && window.PortalTasks){
+    PortalTasks.render(brand,'tasksNative',{spaces:brandSpaces(brand),brandName:BRANDS[brand].name});
+  }
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }
 }
@@ -695,6 +709,26 @@ function setBrand(id){brand=id;const m=MENUS[id];const first=m.find(x=>x.id);vie
 function setView(id){view=id;if(id!=='tasks')tasksTab='overview';render();}
 document.documentElement.setAttribute('data-theme',theme);
 document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
+/* ClickUp sign-in state. init() reads localStorage synchronously so the first
+   paint is right, then verifies against /auth/me in the background.
+   portal-tasks.js subscribes to PortalAuth.onChange itself, so a correction
+   re-renders the Tasks view without portal.html doing anything. */
+if(window.PortalAuth) PortalAuth.init();
+
+/* Live sync. The server sends table names only; portal-realtime.js decides which
+   views are stale. Only the visible view refetches - the rest are marked dirty
+   and refetch when next opened. */
+if(window.PortalRealtime) PortalRealtime.start({
+  currentView: function(){ return view; },
+  rerender:    function(){ render(); },
+  indicator:   'rtStamp',
+  invalidate:  function(v){
+    if(v==='*' || v==='loans'){ loansCache=null; }
+    if(v==='*' || v==='ads'){ adsFetched=false; adsRows=null; adsBrandKey=null; }
+    if((v==='*' || v==='tasks') && window.PortalTasks){ PortalTasks.invalidate(); }
+  },
+});
+
 /* Workspace-switcher counts: fetch once on boot, re-render when they land. */
 fetch('/api/org/summary').then(r => r.ok ? r.json() : null).then(d => {
   if (d && !d.error) { orgSummary = d; render(); }

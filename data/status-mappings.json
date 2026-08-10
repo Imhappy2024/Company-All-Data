@@ -30,6 +30,8 @@
   "future": "Long Term",
   "deferred": "Long Term",
   "standing": "Long Term",
+  "not reporting": "Long Term",
+  "quarterly recurring": "Long Term",
   "in review": "In Review",
   "review": "In Review",
   "qa": "In Review",

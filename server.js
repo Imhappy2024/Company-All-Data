@@ -1,4 +1,5 @@
 const express = require('express');
+const realtime = require('./realtime'); // Supabase table events -> Server-Sent Events
 const fetch = require('node-fetch');
 const cors = require('cors');
 const path = require('path');
@@ -29,6 +30,10 @@ app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload t
 app.use(cors());
 app.use(express.json());
 // Portal shell is the front door; the ops dashboard lives at /ops
+// ---- Live sync: Supabase webhooks in, Server-Sent Events out ----
+// Mounted after express.json() above, which realtime.js relies on for req.body.
+realtime.mount(app);
+
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -589,6 +594,20 @@ function parseCookies(req) {
   return out;
 }
 
+// Where /auth/callback is allowed to send the user afterwards. Same-origin
+// absolute paths only. This is a security boundary, not a convenience: an
+// unvalidated value here is an open redirect. Do not relax it.
+function safeReturnPath(raw) {
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s || s.length > 512) return null;
+  if (s[0] !== '/') return null;                    // must be a path
+  if (s[1] === '/' || s[1] === '\\') return null;    // //evil.com and /\evil.com
+  if (s.includes(':')) return null;                 // no scheme, no javascript:
+  if (/[\r\n\t]/.test(s)) return null;              // no header injection
+  return s;
+}
+
 function getBaseUrl(req) {
   const proto = req.headers['x-forwarded-proto'] || req.protocol || 'https';
   const host = req.headers['x-forwarded-host'] || req.headers.host;
@@ -681,7 +700,10 @@ app.get('/auth/clickup', (req, res) => {
     return res.status(500).send('OAuth not configured. CLICKUP_OAUTH_CLIENT_ID missing.');
   }
   const redirect = `${getBaseUrl(req)}/auth/callback`;
-  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}`;
+  // Carry the caller's path through OAuth so the callback can return them to it.
+  // Validated on the way in AND on the way out; redirect_uri is unaffected.
+  const state = safeReturnPath(req.query.state) || '/';
+  const url = `https://app.clickup.com/api?client_id=${encodeURIComponent(OAUTH_CLIENT_ID)}&redirect_uri=${encodeURIComponent(redirect)}&state=${encodeURIComponent(state)}`;
   res.redirect(url);
 });
 
@@ -739,10 +761,12 @@ app.get('/auth/callback', async (req, res) => {
     const userJson = JSON.stringify({ id: user.id, username: user.username, email: user.email });
     const payload = Buffer.from(JSON.stringify({ token: accessToken, user: JSON.parse(userJson) })).toString('base64url');
     console.log(`OAuth success: ${user.username || user.email} (id ${user.id})`);
-    // Return to the ops app (`/ops`), which has the #auth fragment capture. The
-    // portal (`/`) doesn't handle the ClickUp token. When sign-in was launched in
-    // a popup, /ops self-closes it after storing the token (see captureAuthFromUrl).
-    res.redirect(`/ops#auth=${payload}`);
+    // Return the user to wherever they started. Both surfaces now capture the
+    // #auth fragment: /ops has always done it, and the portal does it via
+    // public/portal-auth.js. An unrecognised or missing state goes to '/',
+    // because the portal is the front door - not to /ops.
+    const dest = safeReturnPath(req.query.state) || '/';
+    res.redirect(`${dest}#auth=${payload}`);
   } catch (e) {
     console.error('OAuth callback error:', e);
     res.status(500).send('Auth failed: ' + e.message);
@@ -890,6 +914,9 @@ app.delete('/api/task/:id', async (req, res) => {
 
 // Get task comments (uses shared token; reads only)
 app.get('/api/task/:id/comments', async (req, res) => {
+  // Supabase-only tasks have no ClickUp comments; the id is a local "sb-…"
+  // placeholder, so calling ClickUp would 500. Return empty gracefully.
+  if (/^sb-/i.test(req.params.id)) return res.json({ comments: [] });
   try {
     const data = await clickup(`/task/${req.params.id}/comment`);
     res.json(data);
@@ -901,6 +928,7 @@ app.get('/api/task/:id/comments', async (req, res) => {
 
 // Post a new comment — uses authed user's token (ClickUp attributes comment to them)
 app.post('/api/task/:id/comment', async (req, res) => {
+  if (/^sb-/i.test(req.params.id)) return res.status(409).json({ error: 'This task has not synced to ClickUp yet - comments are available once it syncs.' });
   const auth = requireAuth(req, res); if (!auth) return;
   try {
     const body = {

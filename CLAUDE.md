@@ -24,14 +24,15 @@ several brands). Two front ends are merged into ONE Express service:
 **Portal ↔ ops (interim, during the unify-into-one-app migration):**
 - Portal **Properties** nav iframes `/ops#tab=properties&embed=1` (embed mode hides the ops
   header/tabs/filter bar). Property Tasks is intentionally **removed** from the Properties view.
-- Portal **Tasks** tab (per brand) is segmented **Overview | Tasks** (+ **Property Tasks** for
-  LeavenWealth only). Overview iframes `/ops#tab=overview&embed=1&spaces=<ids>` and Tasks iframes
-  `/ops#tab=alltasks&embed=1&spaces=<ids>` — the ops Overview/All-Tasks views scoped to the brand's
-  ClickUp spaces so each business sees ONLY its own tasks. `spaces=<id,id,…>` sets the ops
-  `filterState.space` on load (in-memory per iframe, never persisted). Brand→space map is
-  `BRAND_SPACES` in portal.html (Leadli=Leadli space; Folio=Folio Excel space; LeavenWealth=all
-  spaces except those two; Liquid=none yet → empty-state). Property Tasks still iframes
-  `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` hides the property sub-nav → board only).
+- Portal **Tasks** tab (per brand) is segmented **Overview | All Tasks** (+ **Property Tasks**
+  for LeavenWealth only). **All Tasks is NATIVE** — `public/portal-tasks.js` reads `/api/tasks`
+  and filters by space in the browser; it is no longer an iframe. See "Portal Tasks + live sync"
+  below. Overview still iframes `/ops#tab=overview&embed=1&spaces=<ids>`, and Property Tasks
+  still iframes `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` hides the property
+  sub-nav → board only). `spaces=<id,id,…>` sets the ops `filterState.space` on load (in-memory
+  per iframe, never persisted). Brand→space map is `LW_SPACES`/`BRAND_SPACES`/`EXEC_SPACES` in
+  portal.html (Leadli=Leadli space; Folio=Folio Excel space; LeavenWealth=the other 10 including
+  the Chris Mitch Jay space; Liquid=none yet → empty-state).
 - Portal **Loans** tab is segmented **Loan Book | Loan Views**: Loan Book reads `/api/loans`
   natively (Supabase); Loan Views iframes `/ops#tab=loanviews&embed=1` (CapEx Funding / Asset
   Fees / Escrows / TIF / Variable Rate / Maturities). Loan/debt views moved off Properties.
@@ -141,18 +142,114 @@ Added for this project:
 - Prefer real Supabase reads over baked demo data once auth exists; until then, baked demo
   data in portal.html mirrors the seeded rows.
 
+## Portal Tasks + live sync (added 2026-08-10)
+
+**Per-brand Tasks is native, not an iframe.** `public/portal-tasks.js` reads
+`GET /api/tasks` and filters to the brand's ClickUp spaces in the browser. Four
+counter cards (Total Open / Overdue / Due This Week / Completed); clicking one
+swaps the list below it in place. There is no space filter, because the brand is
+already the scope. `public/portal-auth.js` owns ClickUp sign-in state and gates
+**only** the Tasks screens, never the whole app.
+
+Still `/ops` iframes: Tasks > Overview, Property Tasks, Loans > Loan Views, and
+Executive Board > All Tasks. That last one *is* the ClickUp dashboard, which is
+what it is meant to show.
+
+### Counter semantics - do not let these drift apart
+One definition of done (`canonical_status === 'Completed'`) and one time boundary
+(start of today) across all four cards, so no two can disagree about the same
+task. A task due earlier **today** is Due This Week, never Overdue. `/ops` has an
+older inconsistency here (`isOverdue` uses a different done-test and an instant
+comparison) - do not copy it back.
+
+"Open" is `not Completed`, matching `/ops`. Two raw statuses in live use,
+`not reporting` and `quarterly recurring`, are now mapped to Long Term in
+`data/status-mappings.json`; before that they resolved to To Do via ClickUp's
+`status.type = open` and inflated every open figure. They still count as open. If
+that reads too high against real data, the single lever is `NOT_OPEN` at the top
+of `portal-tasks.js` - but adding `'Long Term'` there makes the portal and `/ops`
+disagree about the same task, so treat it as a decision, not a tweak.
+
+### ClickUp space map
+`LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
+space by explicit decision. `EXEC_SPACES` (12) is the whole workspace. Leadli and
+Folio Excel are excluded from the LeavenWealth brand view. This supersedes the
+original build brief, which said 11 spaces with the personal space hidden
+everywhere - that is out of date, do not revert to it.
+
+### Live sync
+Postgres trigger -> `POST /api/hooks/supabase` -> SSE on `/api/events` ->
+`public/portal-realtime.js` refreshes the affected view.
+
+The event carries **table names only**, never row data: RLS decides what a user
+may read and this channel does not know who is listening. The hub in `realtime.js`
+is in-memory and single-process - if this ever runs on more than one instance,
+only the instance receiving the webhook would broadcast, so move it to Postgres
+`LISTEN`/`NOTIFY` rather than trying to make the in-memory version work.
+
+`TABLE_VIEWS` in `portal-realtime.js` maps tables to views. Keep it in sync with
+the queries each view runs: a missing entry is a silently stale screen, a wrong
+one is a pointless refetch. On **any** reconnect every view is marked dirty,
+because the stream has no replay buffer and the client cannot know what it missed
+while disconnected.
+
+`POST /api/hooks/supabase` **fails closed**: 503 while `SUPABASE_WEBHOOK_SECRET`
+is unset, 401 on a bad secret, compared with a timing-safe hash. An earlier
+version of this layer compared with `!==` against an unset env var, which made
+`undefined !== undefined` false and accepted anything. Do not reintroduce that.
+
+`migrations/20260810_supabase_webhooks.sql` is written but **must be applied in
+order**: deploy the server with the secret set and confirm
+`GET /api/events/health` reports `secretConfigured: true` first, otherwise every
+trigger POSTs into a 404.
+
+### New routes and variables
+`/api/org/summary`, `/api/events`, `/api/events/health`, `/api/hooks/supabase`.
+New env var `SUPABASE_WEBHOOK_SECRET` (plus optional `SSE_*` tuning).
+
+`/auth/callback` now honours a `state` return path via `safeReturnPath()` in
+`server.js`, so signing in from the portal returns you to the portal instead of
+`/ops`. That function is a security boundary - an unvalidated value there is an
+open redirect. It does not affect the registered `redirect_uri`.
+
+### Embed theme - do not undo this
+Do **not** re-add an unguarded `html.embed-only body` palette to
+`public/index.html`. It ties on specificity with the dark tokens in `tokens.css`
+and loads later, so it wins and turns every embed white. The guard is
+`:not(.embed-dark)`.
+
+### Tests
+    npm install --no-save playwright express
+    node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
+    node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
+
+`test/expected.json` is written by hand from each fixture's stated intent, not
+derived from the code under test. Keep it that way, or the tests lose the ability
+to fail.
+
+## Still baked - the biggest remaining inaccuracy
+`V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:
+66 properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans. Three of
+those are wrong. The database has **75 loans totalling roughly $106.5M**, and
+occupancy is not derivable at all: `unit.occupancy` is free text and empty on all
+224 rows, with no lease or tenant table. Investors, Financials, Leads and
+Appointments are baked too. Replacing them with live reads (or honest empty
+states) is the next real piece of work.
+
 ## Current state (done)
 - Schema + brand layer + RLS + seed data all live in Supabase.
 - Ops dashboard is live (ClickUp+Supabase). Portal built with the 5-section layout.
 - Merged into one service; portal at `/`, ops at `/ops`; Properties card embeds ops.
-- Portal non-Properties cards use baked demo data (mirrors seed).
+- Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
+- Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
+- Portal Overview/Investors/Financials/Leads/Appointments cards are STILL baked demo data.
 
 ## Roadmap (typical next tasks — confirm scope before large changes)
 1. Add Supabase Auth (email magic-link or password) to the portal; gate `/` behind login.
 2. Add a thin server API (or use supabase-js in the browser with anon key + RLS) so the
    portal's Exec/Financials/Leads/Ads/Appointments/Loans cards read LIVE from Supabase.
-3. Wire Loans card to `/api/loans` (ops) or a Supabase read; Marketing/Ads to
-   `meta_ads_insight`; Property financial reports to `statement`+`property_financials`.
+3. Replace the baked Overview KPIs (see "Still baked" above) - this is the top item.
+   Property financial reports from `statement`+`property_financials`.
 4. Build the Investor portal and Client (upload) portal against real tables + Supabase Storage.
 5. Respect brand filter end-to-end (pass company_id into queries).
 
