@@ -183,8 +183,11 @@ app.get('/api/access/users', async (req, res) => {
        `!dashboard_permission_granted_by_fkey` is ALSO accepted and returns 200 -
        it would silently join on who granted the row rather than whose row it is,
        which is why this is spelled out rather than left to a hint that "works". */
+    /* dashboard_access=is.true is the whole point of this screen: a staff record
+       without dashboard access is not a dashboard user and belongs on Team
+       directory, not here. Today that is one row. */
     const rows = await sbRest(token,
-      '/staff?select=id,full_name,email,avatar_url,is_active,dashboard_access,dashboard_role,' +
+      '/staff?select=id,full_name,email,avatar_url,is_active,user_id,dashboard_access,dashboard_role,' +
       'dashboard_permission!dashboard_permission_staff_id_fkey(id,company_id,module,level)' +
       '&dashboard_access=is.true&order=full_name.asc');
     let users = (rows || []).map(r => ({
@@ -194,6 +197,11 @@ app.get('/api/access/users', async (req, res) => {
       avatar_url: r.avatar_url,
       is_active: r.is_active,
       role: r.dashboard_role,
+      /* Invited but not yet accepted. handle_new_user() fills user_id only when the
+         person accepts, so a null user_id with dashboard_access true is exactly
+         "the invitation has not been clicked". Free to compute, and it answers
+         "who is holding things up" without anyone having to ask. */
+      pending: !r.user_id,
       grants: (r.dashboard_permission || []).map(g => ({
         id: g.id, company_id: g.company_id, module: g.module, level: g.level,
       })),
@@ -203,6 +211,26 @@ app.get('/api/access/users', async (req, res) => {
         u.role === 'owner' || u.grants.some(g => g.company_id === company));
     }
     res.json({ users, scope: company || 'exec' });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+/* Staff who do NOT have dashboard access, for the add-person picker.
+
+   This is the route from "Mitch is already in staff" to "Mitch has a login". Without
+   it the only way to grant someone access is to retype their address, and staff has
+   a unique index on (tenant_id, lower(email)): a near-miss typo either creates a
+   second human record or trips the index and surfaces as a confusing error. Picking
+   an existing person removes the chance to mistype entirely. */
+app.get('/api/access/candidates', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  try {
+    const rows = await sbRest(token,
+      '/staff?select=id,full_name,email,avatar_url&dashboard_access=is.false&is_active=is.true' +
+      '&order=full_name.asc');
+    res.json({ candidates: rows || [] });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -232,6 +260,22 @@ app.patch('/api/access/user/:id', async (req, res) => {
         return res.status(400).json({ error: `Unknown role: ${b.role}` });
       }
       staffPatch.dashboard_role = b.role;
+    }
+
+    /* Revoke. The staff record is deliberately NOT deleted - the person stays in
+       staff, they simply stop being a dashboard user.
+
+       dashboard_role MUST go null in the SAME update: staff_dashboard_consistent
+       requires access and role to travel together, so clearing one without the
+       other is rejected by the constraint. Sending them separately would fail on
+       whichever went first. */
+    if (b.dashboard_access === false) {
+      staffPatch.dashboard_access = false;
+      staffPatch.dashboard_role = null;
+      /* Grant rows are left in place on purpose. dash_level_for() and
+         current_staff_id() both require dashboard_access, so the grants are inert
+         while access is off, and re-granting access restores what the person had
+         rather than silently starting them from nothing. */
     }
 
     /* Clearing Exec BEFORE a demotion to user, in the same request: the staff guard

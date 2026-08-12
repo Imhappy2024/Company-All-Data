@@ -42,16 +42,27 @@ const MODULES = [
 /* ---- staff, as GET /api/access/users returns them ------------------------- */
 const USERS = [
   { id: 's-owner', full_name: 'Chris Owner', email: 'owner@x.invalid', avatar_url: null,
-    is_active: true, role: 'owner', grants: [] },
+    is_active: true, role: 'owner', pending: false, grants: [] },
   { id: 's-admin', full_name: 'Ada Admin', email: 'admin@x.invalid', avatar_url: null,
-    is_active: true, role: 'admin',
+    is_active: true, role: 'admin', pending: false,
     grants: [{ id: 'g1', company_id: LW, module: '*', level: 'write' }] },
   { id: 's-user', full_name: 'Ute User', email: 'user@x.invalid', avatar_url: null,
-    is_active: true, role: 'user',
+    is_active: true, role: 'user', pending: false,
     grants: [{ id: 'g2', company_id: LW, module: 'properties', level: 'read' }] },
   { id: 's-leadli', full_name: 'Leo Leadli', email: 'leo@x.invalid', avatar_url: null,
-    is_active: true, role: 'user',
+    is_active: true, role: 'user', pending: false,
     grants: [{ id: 'g3', company_id: LEADLI, module: 'leads', level: 'write' }] },
+  /* Invited, link not yet clicked: dashboard_access true, user_id still null. */
+  { id: 's-pending', full_name: 'Pat Pending', email: 'pat@x.invalid', avatar_url: null,
+    is_active: true, role: 'user', pending: true,
+    grants: [{ id: 'g4', company_id: LW, module: 'overview', level: 'read' }] },
+];
+
+/* Staff WITHOUT dashboard access - the add-person picker's source. These must never
+   appear in the users list; that is the whole point of the change. */
+const CANDIDATES = [
+  { id: 'c-mitch', full_name: 'Mitch Existing', email: 'mitch@x.invalid', avatar_url: null },
+  { id: 'c-jane', full_name: 'Jane Nodash', email: 'jane@x.invalid', avatar_url: null },
 ];
 
 let lastPatch = null;
@@ -67,6 +78,7 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(obj));
   };
   if (p === '/api/access/modules') return json(200, { modules: MODULES });
+  if (p === '/api/access/candidates') return json(200, { candidates: CANDIDATES });
   if (p === '/api/access/users') {
     const company = u.searchParams.get('company');
     let users = USERS;
@@ -179,9 +191,13 @@ function stub(payload) {
     console.log('\nOne component, two scopes');
     ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
     await page.waitForSelector('.pu-row[data-id]', { timeout: 8000 });
-    check('Executive Board lists everyone',
+    check('Executive Board lists everyone with dashboard access',
       await page.$$eval('.pu-row[data-id]', r => r.map(x => x.getAttribute('data-id'))),
-      ['s-owner', 's-admin', 's-user', 's-leadli']);
+      ['s-owner', 's-admin', 's-user', 's-leadli', 's-pending']);
+    check('and NOT staff who have no dashboard access',
+      await page.evaluate(() => /Mitch Existing|Jane Nodash/.test(document.body.textContent)), false);
+    check('it says where those people live instead',
+      await page.$eval('.pu-head-s', e => /Team directory/.test(e.textContent)), true);
     check('with a Reaches column',
       await page.$eval('.pu-hrow', e => /Reaches/.test(e.textContent)), true);
     check('the owner is described as reaching everything',
@@ -192,6 +208,8 @@ function stub(payload) {
     check('inside a business, only people who reach it',
       await page.$$eval('.pu-row[data-id]', r => r.map(x => x.getAttribute('data-id'))),
       ['s-owner', 's-leadli']);
+    check('scope filtering still applies on top of the access filter',
+      await page.evaluate(() => /Pat Pending/.test(document.body.textContent)), false);
     check('and the column becomes what they hold HERE',
       await page.$eval('.pu-hrow', e => /Access here/.test(e.textContent)), true);
     await ctx.close();
@@ -318,6 +336,84 @@ function stub(payload) {
     check('and the tri-state offers None / Read / Read & Write',
       await page.$$eval('.pu-mod:first-child .pu-tri-b', b => b.map(x => x.textContent)),
       ['None', 'Read', 'Read & Write']);
+    await ctx.close();
+
+    /* ------------------------------------------------------ pending badge */
+    console.log('\nInvited-not-accepted is shown, because user_id is still null');
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('.pu-row[data-id="s-pending"]');
+    check('Pending badge on the invited person',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-pending', e => e.textContent), 'Pending');
+    check('and it explains itself on hover',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-pending', e => e.getAttribute('title')),
+      'Invited, but the invitation has not been accepted yet');
+    check('nobody who has accepted is marked pending',
+      await page.locator('.pu-row[data-id="s-user"] .pu-pending').count(), 0);
+
+    /* ------------------------------------------------------------- revoke */
+    console.log('\nRevoke removes access without deleting the staff record');
+    check('a Revoke control exists on other people',
+      await page.locator('.pu-row[data-id="s-user"] [data-act="revoke"]').count(), 1);
+    check('but never on your own row',
+      await page.locator('.pu-row[data-id="s-owner"] [data-act="revoke"]').count(), 0);
+    let confirmText = null;
+    page.once('dialog', d => { confirmText = d.message(); d.accept(); });
+    lastPatch = null;
+    await page.click('.pu-row[data-id="s-user"] [data-act="revoke"]');
+    await page.waitForTimeout(500);
+    check('it confirms first', /Remove dashboard access/.test(confirmText || ''), true);
+    check('and says the staff record survives',
+      /staff record is NOT deleted/i.test(confirmText || ''), true);
+    check('the request only turns access off',
+      lastPatch && lastPatch.body, { dashboard_access: false });
+    check('the role is NOT sent from the client - the server pairs it, per the constraint',
+      lastPatch && 'role' in lastPatch.body, false);
+    await ctx.close();
+
+    /* ------------------------------------------------- the add-person picker */
+    console.log('\nAdd person can pick an existing staff member');
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('[data-act="add"]');
+    await page.click('[data-act="add"]');
+    await page.waitForSelector('.pu-drawer');
+    await page.waitForSelector('.pu-pick', { timeout: 8000 });
+    check('candidates are staff WITHOUT dashboard access',
+      await page.$$eval('.pu-pick', b => b.map(x => x.getAttribute('data-id'))),
+      ['c-mitch', 'c-jane']);
+    check('nobody already holding access is offered',
+      await page.$$eval('.pu-pick', b => b.some(x => /Chris Owner|Ute User/.test(x.textContent))), false);
+
+    await page.fill('#puPick', 'mitch');
+    await page.waitForTimeout(200);
+    check('typing filters the list',
+      await page.$$eval('.pu-pick', b => b.map(x => x.getAttribute('data-id'))), ['c-mitch']);
+    await page.click('.pu-pick[data-id="c-mitch"]');
+    await page.waitForTimeout(200);
+    check('picking records the existing staff id, so no second record is created',
+      await page.evaluate(() => PortalUsers._internals.ui.draft.staff_id), 'c-mitch');
+    check('and says so in as many words',
+      await page.evaluate(() => /No second record is created/.test(document.body.textContent)), true);
+
+    console.log('\nFree text is still allowed for someone genuinely new');
+    await page.fill('#puPick', 'brand-new@example.invalid');
+    await page.waitForTimeout(250);
+    check('typing detaches the picked record',
+      await page.evaluate(() => PortalUsers._internals.ui.draft.staff_id), null);
+    check('and keeps the address as the intent',
+      await page.evaluate(() => PortalUsers._internals.ui.draft.email), 'brand-new@example.invalid');
+    /* The Send button only exists on step 3; steps 1 and 2 show Next. */
+    await page.click('[data-act="step"][data-step="3"]');
+    await page.waitForTimeout(200);
+    check('sending is disabled until the invite flow exists, with the reason',
+      await page.evaluate(() => {
+        var b = [...document.querySelectorAll('.pu-dr-foot button')].pop();
+        return [b.disabled, /service role/.test(b.getAttribute('title') || '')];
+      }), [true, true]);
+    check('but the role and access choices still work meanwhile',
+      await page.evaluate(() => {
+        setTimeout(function(){}, 0);
+        return document.querySelectorAll('.pu-scope input[data-act="scope"]').length > 0;
+      }), true);
     await ctx.close();
 
     console.log('\nRuntime errors');

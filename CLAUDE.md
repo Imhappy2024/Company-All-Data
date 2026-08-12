@@ -103,6 +103,60 @@ Added for this project:
   (maturities). All expose `property_name` + `management_company` (the PM filter). All six
   are surfaced in the ops **Loan Views** tab.
 
+## Dashboard access: staff, dashboard_module, dashboard_permission
+Applied 2026-08-12; the ten migrations are in `migrations/2026081219*.sql`.
+
+**`staff` IS the dashboard user.** There is no separate user table.
+`staff.dashboard_access` + `staff.dashboard_role` (owner | admin | user), paired by
+the `staff_dashboard_consistent` constraint so a half-configured row cannot exist.
+**`staff_company.role` is the job title** ("Director of Finance") — it is the company
+role and has nothing to do with dashboard access. Never read it for permissions.
+
+`dash_my_access()` is the frontend contract: one call at boot returning
+`{user, companies, access}` with access keyed by `nav_id`, absent meaning no access.
+**Never call `dash_level()` per module from the browser.**
+
+### The PostgREST embed must name the constraint
+`dashboard_permission` has **two** foreign keys to `staff` — `staff_id` (the subject)
+and `granted_by` (an audit column) — so an unqualified embed is ambiguous. Verified
+against the live API:
+
+| form | result |
+|---|---|
+| `dashboard_permission(...)` | **HTTP 300 `PGRST201`** |
+| `!dashboard_permission_staff_id_fkey` | 200 ✅ |
+| `!staff_id` (column form) | 200 |
+| `!dashboard_permission_granted_by_fkey` | **200 — and silently wrong** |
+
+The last row is the reason to spell out the constraint name. The wrong-direction hint
+is *accepted*: it joins on who granted the row rather than whose row it is, so it
+returns data and the data is wrong. A query that works and is wrong does more damage
+than a 300. If you ever embed `staff` **from** `dashboard_permission`, it is ambiguous
+the same way and `granted_by` is the one you would want there.
+
+### Users & Roles
+Shows only `dashboard_access = true`. A staff record without access is not a dashboard
+user and belongs on **Team directory**. Exec vs per-business scoping applies on top.
+
+- **`user_id IS NULL` means invited but not yet accepted** — `handle_new_user()` fills
+  `user_id` only on acceptance — and is rendered as a Pending badge.
+- **Revoke** sets `dashboard_access = false`; `dashboard_role` **must go NULL in the
+  same UPDATE** or `staff_dashboard_consistent` rejects it. The staff record is not
+  deleted, and grant rows are left in place — they are inert while access is off
+  (`dash_level_for` and `current_staff_id` both require it), so restoring access
+  restores what the person had.
+- **Adding someone** must be able to pick an existing staff member, not only type an
+  address. `staff` has a unique index on `(tenant_id, lower(email))`, so an address
+  matching an existing person must **UPDATE** that row, never insert a second one.
+
+**Users & Roles is role-gated, not permission-gated** — visible when `dash_role()` is
+owner or admin, so an admin cannot lock themselves out of the screen that fixes
+access. This is the **one exception** to "add a nav item, add its catalog row":
+`access` exists in `dashboard_module` only under Executive Board, so requiring the
+grant would hide the per-brand item from everyone including the owner. **Do not seed
+per-brand `access` rows** to make it symmetrical — a catalog row means grantable, and
+grantable means an owner could hand the screen to a plain user.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.

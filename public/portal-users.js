@@ -33,6 +33,9 @@
   ];
 
   var ui = {
+    adding: false,                         /* the drawer is Add rather than Edit */
+    candidates: null,                      /* staff WITHOUT dashboard access, lazily loaded */
+    pickQuery: '',
     brand: null, containerId: null, scope: null,
     me: null,                              /* dash_my_access().user */
     myAccess: null,                        /* dash_my_access().access */
@@ -166,13 +169,17 @@
     return '<div class="pu-wrap">' +
       (ui.msg ? '<div class="pu-msg' + (ui.msgBad ? ' bad' : '') + '">' + esc(ui.msg) + '</div>' : '') +
       '<div class="pu-head">' +
-        '<div class="pu-head-t">' + (ui.users || []).length + ' ' +
-          ((ui.users || []).length === 1 ? 'person' : 'people') + ' with dashboard access</div>' +
-        '<div class="pu-head-s">' +
-          (ui.scope === EXEC
-            ? 'Everyone with access, and the businesses each of them can reach.'
-            : 'Only people who can reach ' + esc(scopeName) + '.') +
+        '<div>' +
+          '<div class="pu-head-t">' + (ui.users || []).length + ' ' +
+            ((ui.users || []).length === 1 ? 'person' : 'people') + ' with dashboard access</div>' +
+          '<div class="pu-head-s">' +
+            (ui.scope === EXEC
+              ? 'Everyone with access, and the businesses each of them can reach.'
+              : 'Only people who can reach ' + esc(scopeName) + '.') +
+            ' Staff without dashboard access are not listed here &mdash; they are on Team directory.' +
+          '</div>' +
         '</div>' +
+        '<button class="pu-btn" data-act="add">Add person</button>' +
       '</div>' +
       table() +
       drawer();
@@ -228,7 +235,10 @@
           '<div class="pu-person">' +
             '<span class="pu-av">' + esc(initials(u)) + '</span>' +
             '<span><span class="pu-name">' + esc(u.full_name || '(no name)') +
-              (mine ? ' <span class="pu-you">you</span>' : '') + '</span>' +
+              (mine ? ' <span class="pu-you">you</span>' : '') +
+              /* user_id is still null: invited, link not yet clicked. */
+              (u.pending ? ' <span class="pu-pending" title="Invited, but the invitation has not been accepted yet">Pending</span>' : '') +
+              '</span>' +
             '<span class="pu-email">' + esc(u.email) + '</span></span>' +
           '</div>' +
           '<div><span class="pu-role r-' + esc(u.role) + '">' + esc(ROLE_LABEL[u.role] || u.role) + '</span></div>' +
@@ -237,7 +247,11 @@
             : esc(hereSummary(u))) + '</div>' +
           '<div class="pu-actions">' + (blocked
             ? '<span class="pu-blocked" title="Admins cannot edit their own access. An owner has to do it.">Not editable</span>'
-            : '<button class="pu-btn ghost" data-act="edit">Edit</button>') + '</div>' +
+            : '<button class="pu-btn ghost" data-act="edit">Edit</button>' +
+              /* Revoking your own access would lock you out of the screen that
+                 undoes it, so it is never offered on your own row. */
+              (mine ? '' : '<button class="pu-btn ghost danger" data-act="revoke">Revoke</button>')
+            ) + '</div>' +
         '</div>';
       }).join('') +
     '</div>';
@@ -277,8 +291,13 @@
           (ui.step > 1 ? '<button class="pu-btn ghost" data-act="back">Back</button>' : '<span></span>') +
           (ui.step < 3
             ? '<button class="pu-btn" data-act="next">Next</button>'
-            : '<button class="pu-btn" data-act="save"' + (ui.busy ? ' disabled' : '') + '>' +
-              (ui.busy ? 'Saving…' : 'Save changes') + '</button>') +
+            /* Adding is disabled until the invite endpoint exists: it needs the
+               service role to create the Auth user, which arrives in the invite
+               step. Disabled with the reason beats a button that always fails. */
+            : ui.adding
+              ? '<button class="pu-btn" disabled title="Sending invitations needs the service role, which arrives with the invite flow">Send invitation</button>'
+              : '<button class="pu-btn" data-act="save"' + (ui.busy ? ' disabled' : '') + '>' +
+                (ui.busy ? 'Saving…' : 'Save changes') + '</button>') +
         '</div>' +
       '</aside>';
   }
@@ -293,6 +312,7 @@
   }
 
   function stepDetails(u, d) {
+    if (ui.adding) return stepPick(d);
     return '<label class="pu-lab" for="puName">Full name</label>' +
       '<input class="pu-in" id="puName" value="' + esc(d.full_name) + '" data-field="full_name">' +
       '<label class="pu-lab" for="puEmail">Email</label>' +
@@ -302,6 +322,47 @@
         'separate, confirmed action rather than an inline edit. It is not wired up yet ' +
         '(it needs the server-side service role, which lands with the invite flow).' +
       '</div>';
+  }
+
+  /* Pick an existing staff member, or type a genuinely new address.
+
+     staff has a unique index on (tenant_id, lower(email)), so an address that
+     matches an existing person must UPDATE that row - setting dashboard_access and
+     dashboard_role - and never insert a second one. Picking from the list removes
+     the chance to mistype at all; the free-text field is for someone who is not in
+     staff yet. Either way the server decides update-vs-insert by email, so a typo
+     that happens to match still lands on the right person. */
+  function stepPick(d) {
+    var q = (ui.pickQuery || '').toLowerCase().trim();
+    var list = (ui.candidates || []).filter(function (c) {
+      if (!q) return true;
+      return ((c.full_name || '') + ' ' + (c.email || '')).toLowerCase().indexOf(q) >= 0;
+    }).slice(0, 8);
+
+    return '<label class="pu-lab" for="puPick">Who is this?</label>' +
+      '<input class="pu-in" id="puPick" data-field="pick" autocomplete="off"' +
+        ' placeholder="Search staff, or type a new email address"' +
+        ' value="' + esc(ui.pickQuery || '') + '">' +
+      (ui.candidates === null
+        ? '<div class="pu-note">Loading staff…</div>'
+        : list.length
+          ? '<div class="pu-picks">' + list.map(function (c) {
+              var on = d.staff_id === c.id;
+              return '<button class="pu-pick' + (on ? ' on' : '') + '" data-act="pick" data-id="' + esc(c.id) + '">' +
+                '<span class="pu-av">' + esc(initials(c)) + '</span>' +
+                '<span><span class="pu-name">' + esc(c.full_name || '(no name)') + '</span>' +
+                '<span class="pu-email">' + esc(c.email) + '</span></span></button>';
+            }).join('') + '</div>'
+          : '<div class="pu-note">No staff record matches. If ' +
+            (q ? '<b>' + esc(q) + '</b> is' : 'that is') +
+            ' a new person, their email address is enough - a staff record is created for them.</div>') +
+      (d.staff_id
+        ? '<div class="pu-note">Granting dashboard access to the existing staff record for <b>' +
+          esc(d.full_name || d.email) + '</b>. No second record is created.</div>'
+        : '') +
+      '<div class="pu-note pu-todo">Sending the invitation needs the server-side service ' +
+        'role, which arrives with the invite flow. Choosing the person, the role and the ' +
+        'access all work now and are kept when you come back to this.</div>';
   }
 
   function stepType(d) {
@@ -387,7 +448,58 @@
 
   /* ---- drafting --------------------------------------------------------- */
 
+  /* Add-person drawer. Same three steps, but step 1 is the picker. */
+  function openAdd() {
+    ui.adding = true;
+    ui.open = { id: null, full_name: '', email: '', role: 'user', grants: [] };
+    ui.draft = { role: 'user', full_name: '', email: '', staff_id: null, grants: {} };
+    ui.pickQuery = '';
+    ui.step = 1;
+    ui.msg = null;
+    paint();
+    if (ui.candidates === null) {
+      api('/api/access/candidates').then(function (r) {
+        ui.candidates = r.candidates || []; paint();
+      }).catch(function (e) { ui.candidates = []; ui.msg = e.message; ui.msgBad = true; paint(); });
+    }
+  }
+
+  function pickStaff(id) {
+    var c = (ui.candidates || []).filter(function (x) { return x.id === id; })[0];
+    if (!c) return;
+    /* Selecting toggles off, so a mis-click is recoverable without reopening. */
+    if (ui.draft.staff_id === id) { ui.draft.staff_id = null; return paint(); }
+    ui.draft.staff_id = c.id;
+    ui.draft.full_name = c.full_name || '';
+    ui.draft.email = c.email || '';
+    ui.pickQuery = c.full_name || c.email || '';
+    paint();
+  }
+
+  function revoke(u) {
+    if (!window.confirm(
+      'Remove dashboard access for ' + (u.full_name || u.email) + '?\n\n' +
+      'They will no longer be able to sign in, and they disappear from this list.\n\n' +
+      'Their staff record is NOT deleted - they stay in Team directory, and their ' +
+      'existing access can be restored later.')) return;
+    ui.busy = true; paint();
+    api('/api/access/user/' + encodeURIComponent(u.id), {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dashboard_access: false }),
+    }).then(function () {
+      ui.busy = false;
+      ui.msg = 'Dashboard access removed for ' + (u.full_name || u.email) + '. Their staff record is unchanged.';
+      ui.msgBad = false;
+      ui.candidates = null;              /* they are a candidate again now */
+      return load(true).then(paint);
+    }).catch(function (e) {
+      ui.busy = false; ui.msg = e.message; ui.msgBad = true; paint();
+    });
+  }
+
   function openFor(u) {
+    ui.adding = false;
     var grants = {};
     (u.grants || []).forEach(function (g) {
       var s = g.company_id || EXEC;
@@ -473,12 +585,20 @@
       var a = ev.target.closest && ev.target.closest('[data-act]');
       if (!a) return;
       var act = a.getAttribute('data-act');
-      if (act === 'edit') {
+      var rowOf = function () {
         var row = a.closest('.pu-row');
-        var u = (ui.users || []).filter(function (x) { return x.id === row.getAttribute('data-id'); })[0];
-        if (u) openFor(u);
+        return row && (ui.users || []).filter(function (x) { return x.id === row.getAttribute('data-id'); })[0];
+      };
+      if (act === 'edit') {
+        var u = rowOf(); if (u) openFor(u);
+      } else if (act === 'revoke') {
+        var ru = rowOf(); if (ru) revoke(ru);
+      } else if (act === 'add') {
+        openAdd();
+      } else if (act === 'pick') {
+        pickStaff(a.getAttribute('data-id'));
       } else if (act === 'close') {
-        ui.open = null; ui.draft = null; paint();
+        ui.open = null; ui.draft = null; ui.adding = false; paint();
       } else if (act === 'step') {
         ui.step = Number(a.getAttribute('data-step')) || 1; paint();
       } else if (act === 'next') {
@@ -501,8 +621,19 @@
       }
     });
     host.addEventListener('input', function (ev) {
-      if (ev.target.getAttribute && ev.target.getAttribute('data-field') === 'full_name') {
+      var f = ev.target.getAttribute && ev.target.getAttribute('data-field');
+      if (f === 'full_name') {
         ui.draft.full_name = ev.target.value;   /* no repaint: it would lose the caret */
+      } else if (f === 'pick') {
+        /* Typing detaches any picked record: what is in the box is the intent, and a
+           stale selection underneath it would be invisible and wrong. */
+        ui.pickQuery = ev.target.value;
+        ui.draft.staff_id = null;
+        ui.draft.email = ev.target.value.indexOf('@') > 0 ? ev.target.value.trim() : '';
+        var caret = ev.target.selectionStart;
+        paint();
+        var again = document.getElementById('puPick');
+        if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (e) {} }
       }
     });
     document.addEventListener('keydown', function (ev) {
@@ -519,8 +650,20 @@
       '.pu-skel{height:56px;border-radius:10px;background:var(--surface-2,var(--panel-2))}',
       '.pu-msg{padding:9px 12px;border-radius:8px;font-size:12.5px;background:var(--good-soft,rgba(12,163,12,.12));color:var(--good-ink,var(--text))}',
       '.pu-msg.bad{background:var(--crit-soft,rgba(208,59,59,.12));color:var(--crit-ink,var(--text));border:1px solid var(--crit,#d03b3b)}',
+      '.pu-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}',
       '.pu-head-t{font-size:14.5px;font-weight:650;color:var(--text)}',
-      '.pu-head-s{font-size:12.5px;color:var(--text2);margin-top:2px}',
+      '.pu-head-s{font-size:12.5px;color:var(--text2);margin-top:2px;max-width:620px;line-height:1.5}',
+      '.pu-pending{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;',
+        'padding:1px 6px;border-radius:999px;background:var(--warn-soft,rgba(224,138,11,.16));',
+        'color:var(--warn-ink,var(--text2));cursor:help}',
+      '.pu-btn.danger{color:var(--crit-ink,var(--text2));border-color:var(--border)}',
+      '.pu-btn.danger:hover{border-color:var(--crit,#d03b3b);color:var(--crit,#d03b3b)}',
+      '.pu-actions{display:flex;gap:6px;justify-content:flex-end}',
+      '.pu-picks{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}',
+      '.pu-pick{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:9px;',
+        'border:1px solid var(--border);background:none;cursor:pointer;text-align:left;font:inherit}',
+      '.pu-pick.on{border-color:var(--accent);background:var(--accent-soft,var(--surface-2))}',
+      '.pu-todo{border:1px dashed var(--border-strong,var(--border));background:none}',
       '.pu-table{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}',
       '.pu-row{display:grid;grid-template-columns:minmax(0,2fr) 130px minmax(0,2fr) 110px;',
         'align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border)}',
