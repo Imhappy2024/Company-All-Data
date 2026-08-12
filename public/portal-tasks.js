@@ -148,6 +148,7 @@
     spaces: [],
     containerId: null,
     card: 'open',
+    readOnly: false,     /* set per render from canWrite('tasks') in portal.html */
     q: '',
     assignee: {},   /* id -> true */
     status: {},     /* canonical bucket -> true */
@@ -275,6 +276,10 @@
     ui.containerId = containerId;
     ui.brandName = opts.brandName || brand;
     ui.spaces = opts.spaces || [];
+    /* Read-only: the caller holds this module at 'read', so the inline editors are
+       not rendered. The database refuses the write regardless - this is so there is
+       no control that always fails. Set from canWrite('tasks') in portal.html. */
+    ui.readOnly = !!opts.readOnly;
     if (brandChanged) { clearFilters(); ui.card = 'open'; }
 
     var el = container();
@@ -304,7 +309,9 @@
   function paint() {
     var el = container();
     if (!el) return;
-    if (!PortalAuth.isSignedIn()) { render(ui.brand, ui.containerId, { spaces: ui.spaces, brandName: ui.brandName }); return; }
+    /* readOnly has to be carried through: re-rendering without it would silently
+       hand the editors back to someone holding Tasks at 'read'. */
+    if (!PortalAuth.isSignedIn()) { render(ui.brand, ui.containerId, { spaces: ui.spaces, brandName: ui.brandName, readOnly: ui.readOnly }); return; }
 
     var base = scoped();
     var filtered = applyFilters(base);
@@ -456,12 +463,17 @@
         (depth ? '<span class="nt-sub" aria-hidden="true">↳</span>' : '') +
         '<button class="nt-name" data-act="open">' + esc(t.name || '(untitled)') + '</button>' +
       '</div>' +
-      '<div class="nt-c-status">' +
-        '<button class="badge ' + severityFor(bucket) + ' nt-editable" data-act="status" ' +
-        'title="' + esc((t.status && t.status.status) || bucket) + ' (click to change)">' + esc(bucket) + '</button>' +
+      '<div class="nt-c-status">' + (ui.readOnly
+        ? '<span class="badge ' + severityFor(bucket) + '" title="' + esc((t.status && t.status.status) || bucket) + '">' + esc(bucket) + '</span>'
+        : '<button class="badge ' + severityFor(bucket) + ' nt-editable" data-act="status" ' +
+          'title="' + esc((t.status && t.status.status) || bucket) + ' (click to change)">' + esc(bucket) + '</button>') +
       '</div>' +
-      '<div class="nt-c-assign"><button class="nt-plain nt-editable" data-act="assign">' + avatarsHtml(t) + '</button></div>' +
-      '<div class="nt-c-due"><button class="nt-plain nt-editable" data-act="due">' + fmtDue(t) + '</button></div>' +
+      '<div class="nt-c-assign">' + (ui.readOnly
+        ? avatarsHtml(t)
+        : '<button class="nt-plain nt-editable" data-act="assign">' + avatarsHtml(t) + '</button>') + '</div>' +
+      '<div class="nt-c-due">' + (ui.readOnly
+        ? fmtDue(t)
+        : '<button class="nt-plain nt-editable" data-act="due">' + fmtDue(t) + '</button>') + '</div>' +
       '<div class="nt-c-pri">' + (pri ? '<span class="nt-pri p-' + esc(pri) + '">' + esc(pri) + '</span>' : '<span class="nt-nil">—</span>') + '</div>' +
       '<div class="nt-c-list">' + esc((t.list && t.list.name) || '') + '</div>' +
       '<div class="nt-c-space">' + esc((t.space && t.space.name) || '') + '</div>' +
@@ -521,6 +533,9 @@
       var task = taskById(row.getAttribute('data-id'));
       if (!task) return;
       if (kind === 'open') openDrawer(task);
+      /* Defence in depth: the buttons are not rendered when read-only, but a stale
+         DOM node or a console call must not open an editor either. */
+      if (ui.readOnly) return;
       if (kind === 'status') openStatusPop(task, act);
       if (kind === 'assign') openAssignPop(task, act);
       if (kind === 'due') openDuePop(task, act);
@@ -951,7 +966,7 @@
   /* Signing out (or a 401 anywhere) must put the gate back immediately. */
   if (window.PortalAuth && PortalAuth.onChange) {
     PortalAuth.onChange(function () {
-      if (container()) render(ui.brand, ui.containerId, { spaces: ui.spaces, brandName: ui.brandName });
+      if (container()) render(ui.brand, ui.containerId, { spaces: ui.spaces, brandName: ui.brandName, readOnly: ui.readOnly });
     });
   }
 

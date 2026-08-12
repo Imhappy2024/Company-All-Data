@@ -106,18 +106,42 @@ function ptask(id, name, status, sync) {
      Supabase session layer has its own coverage in test-login.js. Stubbing at the
      network layer keeps the product code free of test backdoors.
 
-     The access payload is a realistic owner matrix so it stays valid once the
-     permission gate starts reading it. */
+     The payload must be an owner holding EVERY scope at write, using the REAL
+     company UUIDs from BRAND_COMPANY_ID. The permission gate refuses setBrand and
+     setView for anything absent from it, so a partial payload makes this test fail
+     as though navigation were broken - which is exactly what a placeholder company
+     id did. The nav id lists below mirror MENUS, i.e. the 49 dashboard_module rows. */
+  const FULL = (function () {
+    const w = ids => ids.reduce((o, k) => { o[k] = 'write'; return o; }, {});
+    return {
+      user: { id: 's-test', email: 'owner@example.invalid', full_name: 'Test Owner',
+              avatar_url: null, role: 'owner' },
+      companies: {
+        'c0000000-0000-4000-8000-000000000001': 'Leadli AI',
+        'c0000000-0000-4000-8000-000000000002': 'Folio Excel',
+        'c0000000-0000-4000-8000-000000000003': 'LeavenWealth',
+        'c0000000-0000-4000-8000-000000000004': 'Liquid Lending Solutions',
+      },
+      access: {
+        exec: w(['exec', 'orgdept', 'team', 'alltasks', 'financials', 'investors', 'integrations', 'access']),
+        'c0000000-0000-4000-8000-000000000003': w(['overview', 'properties', 'loans', 'investors',
+          'insurance', 'tasks', 'leads', 'team', 'departments', 'tools', 'financials', 'documents']),
+        'c0000000-0000-4000-8000-000000000001': w(['overview', 'leads', 'appointments', 'ads',
+          'tasks', 'team', 'departments', 'tools', 'financials', 'documents']),
+        'c0000000-0000-4000-8000-000000000002': w(['overview', 'subscribers', 'plans', 'reports',
+          'tasks', 'leads', 'team', 'departments', 'tools', 'documents']),
+        'c0000000-0000-4000-8000-000000000004': w(['overview', 'pipeline', 'borrowers', 'tasks',
+          'leads', 'team', 'tools', 'financials', 'documents']),
+      },
+    };
+  })();
+
   await page.route('**/portal-session.js', route => route.fulfill({
     status: 200, contentType: 'application/javascript',
     body: `window.PortalSession = {
       enforceRememberWindow: function(){ return Promise.resolve(false); },
       getSession: function(){ return Promise.resolve({ user: { id: 'test-user' } }); },
-      access: function(){ return Promise.resolve({
-        user: { id: 's-test', email: 'owner@example.invalid', full_name: 'Test Owner',
-                avatar_url: null, role: 'owner' },
-        companies: { 'c-1': 'LeavenWealth' },
-        access: { exec: { exec: 'write' }, 'c-1': { overview: 'write' } } }); },
+      access: function(){ return Promise.resolve(${JSON.stringify(FULL)}); },
       client: function(){ return Promise.resolve({ auth: {
         onAuthStateChange: function(){}, getSession: function(){ return Promise.resolve({ data: { session: null } }); } } }); },
       signOut: function(){ return Promise.resolve(); },

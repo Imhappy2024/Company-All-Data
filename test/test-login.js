@@ -163,7 +163,10 @@ async function waitUp(tries = 80) {
           sessionStorage.setItem('__gateProbe', JSON.stringify({
             visibility: getComputedStyle(document.body).visibility,
             gatePresent: !!document.getElementById('authGate'),
-            navItems: document.querySelectorAll('.nav-item').length,
+            /* The shell's DOM, not its nav: as of the permission gate the nav is
+               empty until dash_my_access() lands, so counting nav items here would
+               now be counting the gate working rather than the curtain working. */
+            appPresent: !!document.querySelector('.app'),
           }));
         } catch (e) { /* ignore */ }
       }, { once: true });
@@ -173,9 +176,9 @@ async function waitUp(tries = 80) {
     const probe = JSON.parse(await page.evaluate(() => sessionStorage.getItem('__gateProbe')) || 'null');
     check('gate style present at first paint', probe && probe.gatePresent, true);
     check('body hidden while the session is still unknown', probe && probe.visibility, 'hidden');
-    /* The shell really did build behind the curtain - so this proves the curtain is
-       what stopped it being seen, not that there was nothing to see. */
-    check('and the shell had in fact rendered behind it', probe && probe.navItems > 0, true);
+    /* The shell's DOM really was built behind the curtain, so this proves the
+       curtain is what stopped it being seen rather than there being nothing to see. */
+    check('and the shell DOM had in fact been built behind it', probe && probe.appPresent, true);
     await ctx.close();
 
     /* ------------------------------------------------------------- sign in */
