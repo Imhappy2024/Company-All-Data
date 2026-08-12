@@ -230,6 +230,76 @@ asserts it never appears in a response body.
    directly, so `authenticated` genuinely needs EXECUTE — but `anon` does not.
    `revoke … from public` then `grant … to authenticated`.
 
+## There were THREE role systems, not two (Phase 12c, 2026-08-13)
+`migrations/20260812_unify_access_helpers.sql`, applied in one transaction.
+
+- `app_user.role` — **the real one.** owner / admin / user.
+- `tenant_member.role` / `company_member.role` — retired. The tables still exist and
+  are empty; **12d drops them**, and that is still outstanding pending a browser
+  re-verification as the owner.
+- `profiles.role` — reached through `current_app_role()`, backing 8 policies on
+  `entity` and `profiles`. **Retired here; `current_app_role()` is dropped.** The
+  column survives and is now dead weight. **Do not write policies against it.**
+
+**`current_tenant_ids()`, `tenant_role()`, `current_company_ids()` and
+`company_role()` are THE SEAM.** They now read `app_user` / `app_permission`.
+214 policies call them and **not one policy was edited** — change these four
+functions, never the policies. Rewriting 214 expressions would also break the
+additive-and-reversible rule.
+
+**A `user` maps to `viewer`, deliberately.** The policies are tenant-grained:
+`tenant_role() IN ('admin','editor')` gates writes to *every* tenant-scoped table at
+once, so `editor` would give someone with write on Properties alone direct write
+access to `loan`, `investor` and the rest from the browser. So a `user` is read-only
+at the database and any write they are entitled to goes through an Express route
+that checks `my_level()` first. **Do not "fix" this by promoting `user` to `editor`.**
+
+### `entity` had no tenant predicate at all
+`entity` holds the 72 legal entities across the companies. Its policies gated only on
+`current_app_role()`, i.e. `profiles.role`, which is `NOT NULL DEFAULT 'viewer'` and
+gets set for every account that ever signs in — so **any authenticated user could
+read every `entity` row regardless of what they had been granted**. It was the only
+table in the schema whose policies ignored `tenant_id` entirely, which is the actual
+reason it needed fixing. Not exploitable while nobody had signed in; real from the
+first non-owner account, i.e. Phase 11.
+
+The mirror-image bug came with it: nothing ever wrote `'admin'` to `profiles.role`,
+so `entity` insert/update/delete were impossible for everyone, including the owner.
+
+The standard shape, used by the other 57 tables and now by `entity`:
+
+    select: tenant_id in (select current_tenant_ids())
+    write:  ... and tenant_role(tenant_id) = any (array['admin','editor'])
+    delete: ... and tenant_role(tenant_id) = 'admin'
+
+**If a table's policies do not reference `tenant_id`, that is a bug, not a shortcut.**
+Verified after: the owner sees 72 of 73 rows with a second tenant's row present, and
+a `user` can read but not insert.
+
+Sweep this with:
+
+    with t as (select c.relname tbl from pg_class c join pg_namespace n on n.oid=c.relnamespace
+                where n.nspname='public' and c.relkind='r' and c.relrowsecurity
+                  and exists (select 1 from information_schema.columns col
+                               where col.table_schema='public' and col.table_name=c.relname
+                                 and col.column_name='tenant_id')),
+         p as (select tablename tbl, string_agg(coalesce(qual,'')||' '||coalesce(with_check,''),' ') expr
+                 from pg_policies where schemaname='public' group by tablename)
+    select t.tbl from t left join p on p.tbl=t.tbl where p.expr is null or p.expr !~ 'tenant_id';
+
+**Known latent gap:** that sweep still returns `app_user`. Its policies gate on
+`app_my_role()` / `current_app_user_id()` and never mention its `tenant_id` column,
+so an owner or admin of one tenant could read and manage another tenant's `app_user`
+rows. Harmless today — the deployment is single-tenant (`72381c81-…`) — and left
+alone on purpose, because tenant-scoping the access layer is a Phase 10 decision, not
+a drive-by. Revisit it before this database is ever genuinely multi-tenant.
+
+`profiles_update` permits `id = auth.uid()` so a person can change their own
+`full_name` and `avatar_url`. `trg_profiles_guard` stops that becoming self-promotion
+via the dead `role` column — same two-layer split as 8f-1, policy decides whether,
+trigger decides which columns. Added beyond the brief on the reasoning that
+`profiles.role` looked inert once before and turned out to be load-bearing.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
