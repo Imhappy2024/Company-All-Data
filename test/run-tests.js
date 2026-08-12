@@ -34,7 +34,11 @@ function check(name, actual, want) {
 
 (async () => {
   await new Promise(r => server.listen(4173, r));
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+  /* Use whatever `playwright install chromium` provided, so this runs anywhere.
+     CHROME_PATH pins it for sandboxes that keep the browser at a fixed location.
+     A hardcoded Linux path here made the suite unrunnable off that sandbox. */
+  const browser = await chromium.launch(
+    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));

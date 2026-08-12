@@ -91,7 +91,9 @@ function ptask(id, name, status, sync) {
 
 (async () => {
   await new Promise(r => server.listen(PORT, r));
-  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
+  /* See run-tests.js: default to the installed browser, CHROME_PATH to pin it. */
+  const browser = await chromium.launch(
+    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   const boot = () => page.waitForFunction(() => typeof window.render === 'function');

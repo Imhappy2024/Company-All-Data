@@ -7,7 +7,8 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const BASE = process.env.SMOKE_BASE || 'http://localhost:3000';
-const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
+/* undefined = use the browser playwright installed; CHROME_PATH pins it. */
+const CHROME = process.env.CHROME_PATH || undefined;
 
 let failures = 0;
 function check(name, actual, want) {
