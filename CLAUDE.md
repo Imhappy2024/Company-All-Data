@@ -198,6 +198,17 @@ Pre-check the collision before calling `updateUser`.
 serving `undefined` and letting supabase-js fail unreadably somewhere else. Same
 fail-closed shape as the invite route and `POST /api/hooks/supabase`.
 
+`SUPABASE_ANON_KEY` now holds a modern **publishable** key (`sb_publishable_…`), not
+the legacy anon JWT (`eyJ…`). **The variable name stays as it is** — it is
+referenced in Railway, `.env.example` and `/api/portal-config`. Legacy anon and
+service_role are both signed by the project JWT secret and cannot be rotated
+independently; Supabase deprecates them end of 2026, so the answer is to migrate
+off them, not to plan a rotation. One behavioural difference: a publishable key must
+be sent in the `apikey` header, **not** `Authorization: Bearer`. supabase-js gets
+this right; a hand-rolled fetch against `/rest/v1` or `/auth/v1` would not. There
+are none in this repo — every `Authorization` header in `server.js` carries a
+ClickUp token.
+
 The anon key used to be hard-coded in `public/portal.html`. It is publishable and
 RLS is the boundary, so the browser holding it was never the problem — a key
 committed to the repo that cannot be rotated without a deploy was. `getSb()` is now
