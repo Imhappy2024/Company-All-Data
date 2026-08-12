@@ -35,6 +35,17 @@ const COOKIE_USER = 'du_user';
 const COOKIE_RETURN = 'du_return';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
 
+/* Supabase browser config, served by GET /api/portal-config and nothing else.
+   The anon key is publishable and RLS is the access boundary, so the browser
+   holding it is fine; hard-coding it in public/portal.html was not, because a key
+   committed to the repo cannot be rotated without a code change and a deploy.
+
+   SUPABASE_SERVICE_ROLE is deliberately NOT read here. It bypasses RLS entirely
+   and must never reach the browser, and keeping it out of this block is what makes
+   that obvious to the next reader. */
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+
 app.set('trust proxy', 1);
 app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload to ~500KB
 app.use(cors());
@@ -46,6 +57,33 @@ realtime.mount(app);
 
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+/* Registered here, well above the 404 fallback at the bottom of this file. Before
+   that fallback existed these paths fell through to app.get('*') and rendered the
+   ClickUp ops dashboard. */
+app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+
+/* Supabase browser config. The anon key is publishable - RLS is the access
+   boundary - so serving it to the client is fine. Hard-coding it in
+   public/portal.html was not: a key committed to the repo cannot be rotated
+   without a code change and a deploy.
+
+   Fails closed, NAMING the missing variables, rather than serving undefined and
+   leaving supabase-js to fail unreadably somewhere else entirely. Same shape as
+   POST /api/hooks/supabase. */
+app.get('/api/portal-config', (_req, res) => {
+  const missing = [];
+  if (!SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!SUPABASE_ANON_KEY) missing.push('SUPABASE_ANON_KEY');
+  if (missing.length) {
+    return res.status(503).json({
+      error: 'Supabase browser config is not set on this deployment. Missing: ' +
+             missing.join(', ') + '. Set them in Railway (or .env locally), then redeploy.',
+      missing,
+    });
+  }
+  res.json({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 let cachedTeamId = TEAM_ID_OVERRIDE;

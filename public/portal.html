@@ -9,6 +9,13 @@
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Default to dark, set before first paint so there's no light flash. -->
 <script>document.documentElement.setAttribute('data-theme','dark');</script>
+<!-- AUTH GATE, part 1 of 2. This hides the shell before the first paint, so a
+     signed-out visitor never sees a frame of dashboard content on the way to
+     /login. The rest of the page still builds behind it; portal-session.js
+     removes this style once a session is confirmed, or redirects instead.
+     Deleting this style tag without also removing the reveal in the boot script
+     leaves the app permanently invisible. -->
+<style id="authGate">body{visibility:hidden}</style>
 <!-- Shared design system (palette, geometry, dark theme) — same file /ops uses. -->
 <link rel="stylesheet" href="/tokens.css">
 <style>
@@ -236,6 +243,7 @@ tbody tr:hover{background:var(--panel-2)}
 <!-- Phase 4/5 modules. Plain tags, NOT defer: the inline script below runs
      during parsing and calls render() immediately, so deferred scripts would
      not have executed yet and PortalAuth/PortalTasks would be undefined. -->
+<script src="/portal-session.js"></script>
 <script src="/portal-auth.js"></script>
 <script src="/portal-tasks.js"></script>
 <script src="/portal-realtime.js"></script>
@@ -408,10 +416,21 @@ let orgSummary=null;   // /api/org/summary result; drives the workspace-switcher
 /* Executive Board -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
-/* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
-const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
-const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
-function getSb(){if(window.__sb)return window.__sb;if(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY){try{window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return window.__sb;}catch(e){}}return null;}
+/* ---- Supabase browser client ----
+   The url and anon key come from /api/portal-config, not from a literal in this
+   file. The key is publishable and RLS is the boundary, so the browser holding it
+   was never the problem - a key committed to the repo that cannot be rotated
+   without a deploy was.
+
+   portal-session.js owns the client so that the session, the storage adapter and
+   the remember-device window are decided in exactly one place. getSb() is async
+   now; its only caller (loadAds) already awaited a possibly-null client. */
+function getSb(){
+  if(window.__sb) return Promise.resolve(window.__sb);
+  if(!window.PortalSession) return Promise.resolve(null);
+  return PortalSession.client().then(function(c){ window.__sb=c; return c; })
+                      .catch(function(){ return null; });
+}
 
 /* ---- org / dept ---- */
 const DEPTMEM=[
@@ -586,7 +605,7 @@ function adsScopedRows(){
 async function loadAds(force){
   const el=document.getElementById('adsBody'); if(!el) return;
   if(adsFetched && adsBrandKey===brand && !force){ el.innerHTML=renderAdsBody(); return; }  // cached
-  const sb=getSb(); let session=null;
+  const sb=await getSb(); let session=null;   /* async now: config comes from /api/portal-config */
   if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
   if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
   el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
@@ -846,6 +865,83 @@ readState();   /* before the first render, so a reload paints the right screen o
    never fires hashchange, so this cannot loop. */
 window.addEventListener('hashchange',function(){readState();render();});
 render();
+
+/* ===========================================================================
+   AUTH GATE, part 2 of 2. The style tag in <head> hides the body; this decides
+   whether to reveal it or leave for /login.
+
+   The shell above has already rendered behind the curtain. That is deliberate:
+   building first and revealing second means no layout jump, and a signed-out
+   visitor still never sees a frame of it because visibility:hidden applies from
+   before the first paint.
+
+   `access` is dash_my_access(), fetched ONCE and held. Step 3 gates the switcher
+   and the nav off it.
+   =========================================================================== */
+let dashAccess=null;                       /* the held dash_my_access() payload */
+function reveal(){ const g=document.getElementById('authGate'); if(g) g.remove(); }
+function toLogin(){ location.replace('/login'); }
+
+/* A plain page rather than the shell. Someone with a valid Supabase session but no
+   staff row, or dashboard_access = false, has authenticated but has been granted
+   nothing - rendering the empty shell would look broken. Step 3 replaces this with
+   the full "no access" treatment and the filtered switcher. */
+function showNoAccess(msg){
+  document.querySelector('.app').innerHTML =
+    `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;padding:32px">
+       <div style="max-width:420px;text-align:center">
+         <div style="font-size:15px;font-weight:650;margin-bottom:8px">No access yet</div>
+         <div style="font-size:13px;color:var(--text2);line-height:1.6">${esc(msg)}</div>
+         <button class="btn" style="margin-top:18px" onclick="portalSignOut()">Sign out</button>
+       </div>
+     </div>`;
+  reveal();
+}
+
+/* One teardown, used by the menu, by an expired remember-window and by a
+   SIGNED_OUT event, so the three cannot drift. PortalSession.signOut() clears the
+   remember stamp first, then Supabase, then the ClickUp token. */
+function portalSignOut(){
+  if(!window.PortalSession) return toLogin();
+  PortalSession.signOut().then(toLogin, toLogin);
+}
+
+if(window.PortalSession){
+  /* enforceRememberWindow FIRST: past the 30-day stamp the session is torn down
+     before we even look at it, because Supabase would otherwise refresh forever. */
+  PortalSession.enforceRememberWindow()
+    .then(function(expired){ if(expired) { toLogin(); return null; } return PortalSession.getSession(); })
+    .then(function(session){
+      if(!session){ toLogin(); return null; }
+      return PortalSession.access().catch(function(err){
+        showNoAccess('Your access could not be loaded: '+(err&&err.message||err)+
+                     ' If this persists, contact an administrator.');
+        return undefined;
+      });
+    })
+    .then(function(a){
+      if(a===undefined||a===null) return;          /* already redirected or handled */
+      dashAccess=a;
+      if(!a.user){
+        showNoAccess('Your account can sign in, but no dashboard access has been granted to it yet. '+
+                     'Contact an administrator to be given access.');
+        return;
+      }
+      reveal();
+    })
+    .catch(function(){ toLogin(); });
+
+  /* Involuntary sign-out - a revoked session, a refresh that fails - runs the same
+     teardown as the menu rather than leaving a dead shell on screen. */
+  PortalSession.client().then(function(c){
+    c.auth.onAuthStateChange(function(event){
+      if(event==='SIGNED_OUT') portalSignOut();
+    });
+  }).catch(function(){});
+}else{
+  /* portal-session.js failed to load. Fail closed: this is the gate. */
+  toLogin();
+}
 restoreSidebar();
 </script>
 </body></html>

@@ -96,6 +96,36 @@ function ptask(id, name, status, sync) {
     process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
+
+  /* portal.html is gated on a Supabase session as of the login step: with no
+     session it redirects to /login, so this harness - which serves static files
+     and answers every /api/* with 503 - would never reach window.render.
+
+     Replace portal-session.js with a stub that reports a signed-in owner. This
+     test is about navigation, the ClickUp gate and the Property Tasks board; the
+     Supabase session layer has its own coverage in test-login.js. Stubbing at the
+     network layer keeps the product code free of test backdoors.
+
+     The access payload is a realistic owner matrix so it stays valid once the
+     permission gate starts reading it. */
+  await page.route('**/portal-session.js', route => route.fulfill({
+    status: 200, contentType: 'application/javascript',
+    body: `window.PortalSession = {
+      enforceRememberWindow: function(){ return Promise.resolve(false); },
+      getSession: function(){ return Promise.resolve({ user: { id: 'test-user' } }); },
+      access: function(){ return Promise.resolve({
+        user: { id: 's-test', email: 'owner@example.invalid', full_name: 'Test Owner',
+                avatar_url: null, role: 'owner' },
+        companies: { 'c-1': 'LeavenWealth' },
+        access: { exec: { exec: 'write' }, 'c-1': { overview: 'write' } } }); },
+      client: function(){ return Promise.resolve({ auth: {
+        onAuthStateChange: function(){}, getSession: function(){ return Promise.resolve({ data: { session: null } }); } } }); },
+      signOut: function(){ return Promise.resolve(); },
+      isRemembered: function(){ return false; },
+      config: function(){ return Promise.resolve({ url: 'http://stub', anonKey: 'stub' }); },
+    };`,
+  }));
+
   const boot = () => page.waitForFunction(() => typeof window.render === 'function');
 
   // ---------------------------------------------------------------- gating

@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Sign in · LeavenWealth Group</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Dark before first paint, same as the portal, so there is no light flash. -->
+<script>document.documentElement.setAttribute('data-theme','dark');</script>
+<!-- Every colour below is a token from the shared design system. -->
+<link rel="stylesheet" href="/tokens.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+       font-family:Inter,system-ui,sans-serif;font-size:13.5px;line-height:1.45;
+       background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+  .card{width:100%;max-width:400px;background:var(--surface);border:1px solid var(--border);
+        border-radius:var(--radius,12px);box-shadow:var(--shadow-lg,0 24px 70px -12px rgba(0,0,0,.5));
+        padding:28px 26px}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+  .brand-mark{width:34px;height:34px;border-radius:8px;background:#fff;display:flex;
+              align-items:center;justify-content:center;flex:none;overflow:hidden}
+  .brand-mark img{width:100%;height:100%;object-fit:contain}
+  .brand-t{font-size:14.5px;font-weight:650;letter-spacing:.2px}
+  .brand-s{font-size:11.5px;color:var(--text3)}
+  h1{font-size:19px;font-weight:600;margin-bottom:4px}
+  .sub{font-size:12.5px;color:var(--text2);margin-bottom:20px}
+  label{display:block;font-size:11.5px;font-weight:600;letter-spacing:.03em;
+        text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+  .field{margin-bottom:14px}
+  input[type=email],input[type=password]{width:100%;height:38px;padding:0 11px;
+        border-radius:8px;border:1px solid var(--border);background:var(--bg);
+        color:var(--text);font:inherit;font-size:13.5px}
+  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft,rgba(79,107,237,.18))}
+  .row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:16px 0 18px}
+  .remember{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text2);cursor:pointer}
+  .remember input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}
+  .link{background:none;border:none;padding:0;font:inherit;font-size:12.5px;
+        color:var(--accent);cursor:pointer;text-decoration:none}
+  .link:hover{text-decoration:underline}
+  button.primary{width:100%;height:40px;border:none;border-radius:8px;background:var(--accent);
+        color:#fff;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+  button.primary:hover{filter:brightness(1.06)}
+  button.primary:disabled{opacity:.6;cursor:progress}
+  .msg{margin-bottom:16px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.5}
+  .msg.bad{background:var(--crit-soft,rgba(208,59,59,.12));color:var(--crit-ink,#ff8888);
+           border:1px solid var(--crit,#d03b3b)}
+  .msg.ok{background:var(--good-soft,rgba(12,163,12,.12));color:var(--good-ink,#66d166);
+          border:1px solid var(--good,#0ca30c)}
+  .msg[hidden]{display:none}
+  .back{margin-top:16px;text-align:center}
+  .foot{margin-top:18px;font-size:11.5px;color:var(--text3);text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <span class="brand-mark"><img src="/icons/leavenwealth-mark.svg" alt=""
+      onerror="this.parentNode.textContent='LW';this.parentNode.style.background='var(--accent)';this.parentNode.style.color='#fff';this.parentNode.style.fontWeight='700'"></span>
+    <div><div class="brand-t">LeavenWealth Group</div><div class="brand-s">Company dashboard</div></div>
+  </div>
+
+  <!-- SIGN IN -->
+  <div id="signinPane">
+    <h1>Sign in</h1>
+    <div class="sub">Use the email address your account was created with.</div>
+    <div class="msg bad" id="signinMsg" hidden></div>
+    <form id="signinForm" novalidate>
+      <div class="field">
+        <label for="email">Email</label>
+        <input id="email" type="email" autocomplete="username" required autofocus>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input id="password" type="password" autocomplete="current-password" required>
+      </div>
+      <div class="row">
+        <label class="remember" for="remember">
+          <input id="remember" type="checkbox"> Remember this device for 30 days
+        </label>
+        <button type="button" class="link" id="toForgot">Forgot password?</button>
+      </div>
+      <button class="primary" id="signinBtn" type="submit">Sign in</button>
+    </form>
+  </div>
+
+  <!-- FORGOT PASSWORD -->
+  <div id="forgotPane" hidden>
+    <h1>Reset your password</h1>
+    <div class="sub">We will email you a link to choose a new password.</div>
+    <div class="msg" id="forgotMsg" hidden></div>
+    <form id="forgotForm" novalidate>
+      <div class="field">
+        <label for="femail">Email</label>
+        <input id="femail" type="email" autocomplete="username" required>
+      </div>
+      <button class="primary" id="forgotBtn" type="submit">Send reset link</button>
+    </form>
+    <div class="back"><button type="button" class="link" id="toSignin">Back to sign in</button></div>
+  </div>
+
+  <div class="foot" id="foot"></div>
+</div>
+
+<script src="/portal-session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+
+  function show(el, text, kind) {
+    el.textContent = text;
+    el.className = 'msg ' + (kind || 'bad');
+    el.hidden = false;
+  }
+  function hide(el) { el.hidden = true; }
+
+  /* Config problems are a deployment fault, not a user error, so say so plainly
+     rather than letting the first sign-in fail with something unreadable. */
+  PortalSession.config().catch(function (e) {
+    var names = (e.missing && e.missing.length) ? ' Missing: ' + e.missing.join(', ') + '.' : '';
+    show($('signinMsg'), 'Sign-in is not configured on this deployment.' + names +
+      ' An administrator needs to set it in the hosting environment.', 'bad');
+    $('signinBtn').disabled = true;
+  });
+
+  /* Boot: enforce the 30-day window BEFORE looking for a session, then send anyone
+     who is already signed in on to the dashboard rather than making them sign in
+     again. */
+  PortalSession.enforceRememberWindow().then(function (expired) {
+    if (expired) {
+      show($('signinMsg'),
+        'You were signed out because this device was remembered for 30 days and that has now passed.', 'bad');
+      return null;
+    }
+    return PortalSession.getSession();
+  }).then(function (session) {
+    if (session) window.location.replace('/');
+  });
+
+  /* ---- panes ---- */
+  $('toForgot').onclick = function () {
+    $('signinPane').hidden = true; $('forgotPane').hidden = false;
+    $('femail').value = $('email').value;
+    $('femail').focus();
+  };
+  $('toSignin').onclick = function () {
+    $('forgotPane').hidden = true; $('signinPane').hidden = false;
+    hide($('forgotMsg'));
+    $('email').focus();
+  };
+
+  /* ---- sign in ---- */
+  $('signinForm').onsubmit = function (ev) {
+    ev.preventDefault();
+    hide($('signinMsg'));
+    var email = $('email').value.trim();
+    var password = $('password').value;
+    if (!email || !password) {
+      show($('signinMsg'), 'Enter your email address and password.');
+      return;
+    }
+    $('signinBtn').disabled = true;
+    $('signinBtn').textContent = 'Signing in…';
+    PortalSession.signIn(email, password, $('remember').checked)
+      .then(function () { window.location.replace('/'); })
+      .catch(function (err) {
+        var m = String((err && err.message) || 'Sign-in failed.');
+        /* Supabase says "Invalid login credentials" for both a wrong password and an
+           unknown address, which is the correct behaviour - it does not confirm
+           whether an account exists. Keep that property in the wording. */
+        if (/invalid login credentials/i.test(m)) m = 'That email and password do not match an account.';
+        else if (/email not confirmed/i.test(m)) m = 'This account has not been confirmed yet. Ask an administrator to re-send the invitation.';
+        show($('signinMsg'), m);
+        $('signinBtn').disabled = false;
+        $('signinBtn').textContent = 'Sign in';
+        $('password').value = '';
+        $('password').focus();
+      });
+  };
+
+  /* ---- forgot password ---- */
+  $('forgotForm').onsubmit = function (ev) {
+    ev.preventDefault();
+    hide($('forgotMsg'));
+    var email = $('femail').value.trim();
+    if (!email) { show($('forgotMsg'), 'Enter your email address.'); return; }
+    $('forgotBtn').disabled = true;
+    $('forgotBtn').textContent = 'Sending…';
+    /* The SAME confirmation either way, whether or not the address is registered.
+       Telling an anonymous visitor which emails exist is account enumeration. */
+    var sameAnswer = function () {
+      show($('forgotMsg'),
+        'If an account exists for ' + email + ', a reset link is on its way. ' +
+        'Check your inbox, and your spam folder.', 'ok');
+      $('forgotBtn').disabled = false;
+      $('forgotBtn').textContent = 'Send reset link';
+    };
+    PortalSession.sendReset(email, '/invite?mode=reset').then(sameAnswer, sameAnswer);
+  };
+})();
+</script>
+</body></html>
