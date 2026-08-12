@@ -38,6 +38,11 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
    point it at a local fake; production must never set it. Auth endpoints keep the
    literal host - a redirected OAuth flow would be a security problem, not a test aid. */
 const CLICKUP_API_BASE = process.env.CLICKUP_API_BASE || 'https://api.clickup.com/api/v2';
+/* Supabase browser config, served to the client by GET /api/portal-config.
+   SUPABASE_SERVICE_ROLE is deliberately NOT read here - it must never reach the
+   browser, and keeping it out of this block keeps that obvious. */
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 
 app.set('trust proxy', 1);
 app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload to ~500KB
@@ -50,6 +55,29 @@ realtime.mount(app);
 
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+
+/* Supabase browser config. The anon key is publishable - RLS is the access
+   boundary - so serving it to the client is fine. Hard-coding it in
+   public/portal.html was not: a key committed to the repo cannot be rotated
+   without a code change and a deploy.
+
+   Fails closed, naming the missing variables, rather than serving undefined and
+   leaving supabase-js to fail with something unreadable. Same shape as the invite
+   route and POST /api/hooks/supabase. */
+app.get('/api/portal-config', (_req, res) => {
+  const missing = [];
+  if (!SUPABASE_URL) missing.push('SUPABASE_URL');
+  if (!SUPABASE_ANON_KEY) missing.push('SUPABASE_ANON_KEY');
+  if (missing.length) {
+    return res.status(503).json({
+      error: 'Supabase browser config is not set on this deployment. Missing: ' +
+             missing.join(', ') + '. Set them in Railway (or .env locally), then redeploy.',
+      missing,
+    });
+  }
+  res.json({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 let cachedTeamId = TEAM_ID_OVERRIDE;

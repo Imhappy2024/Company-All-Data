@@ -166,6 +166,46 @@ Current grants on the access layer, and why:
 - `current_app_user_id`, `app_level_rank` — left PUBLIC on purpose. No arguments
   and returns null without a session; and a pure text-to-int mapper. Neither leaks.
 
+### Profile self-service and the email mirror (Phase 8f-1, 2026-08-13)
+`migrations/20260812_profile_self_service.sql`. Applied and verified; the rest of 8f
+(avatar menu, profile drawer, logout teardown) is **not built yet** — it needs the
+8a–8e login shell.
+
+**`app_user.email` mirrors `auth.users.email`. Never write it directly.** The rule
+lives in `app_user_guard()`: once `auth_user_id` is set, the only address you may
+write is the one Auth has already confirmed. `trg_app_sync_auth_email` (AFTER UPDATE
+OF email on `auth.users`) pushes a confirmed change onto `app_user`. So an email
+change is: `supabase.auth.updateUser({email})` → user confirms → the trigger updates
+`app_user`. No app code runs in the last step. Writing `app_user.email` directly
+would leave the person signing in with the old address and break
+`handle_new_user()`'s email match.
+
+**Self-service is split across two layers deliberately.** The `app_user_upd_self`
+policy decides *whether* you may update your own row; `app_user_guard()` decides
+*which columns*. RLS cannot compare OLD to NEW in one expression, so column scoping
+cannot move into a `WITH CHECK` — don't try. The guard's self-branch returns before
+the management checks, so a plain `user` isn't rejected by them, and it rejects any
+change to `role`, `is_active`, `tenant_id`, `auth_user_id`, `staff_id` or
+`invited_by`, which is what stops it becoming self-promotion.
+
+`app_user` has UNIQUE `(tenant_id, email)`, so a colliding address makes the mirror
+UPDATE raise at **confirmation** time — long after the form said "check your email".
+Pre-check the collision before calling `updateUser`.
+
+### /api/portal-config and the anon key
+`SUPABASE_URL` + `SUPABASE_ANON_KEY` are served to the browser by
+`GET /api/portal-config`, which **503s naming whichever is missing** rather than
+serving `undefined` and letting supabase-js fail unreadably somewhere else. Same
+fail-closed shape as the invite route and `POST /api/hooks/supabase`.
+
+The anon key used to be hard-coded in `public/portal.html`. It is publishable and
+RLS is the boundary, so the browser holding it was never the problem — a key
+committed to the repo that cannot be rotated without a deploy was. `getSb()` is now
+async because of the config fetch; its one caller (`loadAds`) already awaited and
+already treats a null client as "use baked data". `SUPABASE_SERVICE_ROLE` is
+deliberately not read anywhere near this route, and `test/test-portal-config.js`
+asserts it never appears in a response body.
+
 **Two constraints for later phases, decided 2026-08-11:**
 1. **Phase 9 — never call `canWrite()` with a null company.** The admin branch of
    `app_level_for()` ignores `p_module` for the Exec scope, so
@@ -549,6 +589,7 @@ and loads later, so it wins and turns every embed white. The guard is
     node test/test-portal-nav.js # brand/view routing, reload survival, PT board columns
     node test/test-tasks-api.js  # fetch strategy, slim/spaces shaping, crawl fallback
     node test/test-task-cache-persist.js   # cold start served from the snapshot
+    node test/test-portal-config.js        # fail-closed config, no service-role leak
 
 `test-tasks-api.js` runs the real `server.js` as a child process against a fake
 ClickUp via `CLICKUP_API_BASE`. Its worker-pool assertion counts how many list
