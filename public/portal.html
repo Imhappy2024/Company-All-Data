@@ -408,30 +408,10 @@ let orgSummary=null;   // /api/org/summary result; drives the workspace-switcher
 /* Executive Board -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
 const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
 
-/* ---- Supabase browser client ----
-   Config comes from /api/portal-config, not from a literal in this file. The anon
-   key is publishable and RLS is the access boundary, so the browser holding it is
-   fine - but a key committed to the repo cannot be rotated without a code change
-   and a deploy, which is why it moved to env.
-   getSb() is async because of that fetch. Its one caller (loadAds) already awaits
-   and already treats a null client as "fall back to baked data". */
-let SUPABASE_URL='', SUPABASE_ANON_KEY='', sbConfig=null;
-function loadSbConfig(){
-  if(sbConfig) return sbConfig;
-  sbConfig=fetch('/api/portal-config')
-    .then(r=>r.ok?r.json():r.json().catch(()=>({})).then(e=>Promise.reject(new Error(e.error||('HTTP '+r.status)))))
-    .then(c=>{SUPABASE_URL=c.url||'';SUPABASE_ANON_KEY=c.anonKey||'';return true;})
-    .catch(e=>{console.warn('Supabase browser config unavailable:',e.message);return false;});
-  return sbConfig;
-}
-async function getSb(){
-  if(window.__sb)return window.__sb;
-  await loadSbConfig();
-  if(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY){
-    try{window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return window.__sb;}catch(e){}
-  }
-  return null;
-}
+/* ---- Supabase browser client (anon key is publishable/safe; RLS enforces access) ---- */
+const SUPABASE_URL='https://lhdpzalqrwepfjoicdiz.supabase.co';
+const SUPABASE_ANON_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxoZHB6YWxxcndlcGZqb2ljZGl6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI1ODA4NzksImV4cCI6MjA5ODE1Njg3OX0.dfOhVkZZR1rwi7tSUgpXe9ef6GUBO1no0RVfBgwg1jo';
+function getSb(){if(window.__sb)return window.__sb;if(window.supabase&&SUPABASE_URL&&SUPABASE_ANON_KEY){try{window.__sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);return window.__sb;}catch(e){}}return null;}
 
 /* ---- org / dept ---- */
 const DEPTMEM=[
@@ -606,7 +586,7 @@ function adsScopedRows(){
 async function loadAds(force){
   const el=document.getElementById('adsBody'); if(!el) return;
   if(adsFetched && adsBrandKey===brand && !force){ el.innerHTML=renderAdsBody(); return; }  // cached
-  const sb=await getSb(); let session=null;
+  const sb=getSb(); let session=null;
   if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
   if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
   el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
@@ -822,10 +802,6 @@ function render(){
      script-scoped consts, so portal-tasks.js cannot read them - pass them in. */
   if(view==='tasks' && tasksSub()==='all' && window.PortalTasks){
     PortalTasks.render(brand,'tasksNative',{spaces:brandSpaces(brand),brandName:BRANDS[brand].name});
-  } else if(window.PortalTasks && PortalTasks.close){
-    /* Its task modal and popovers live on <body> so a repaint cannot destroy
-       them mid-edit; the flip side is that leaving Tasks must dismiss them. */
-    PortalTasks.close();
   }
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }

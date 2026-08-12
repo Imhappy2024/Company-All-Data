@@ -34,15 +34,6 @@ const COOKIE_USER = 'du_user';
    /auth/clickup. Short-lived: it is only needed for the hop to ClickUp and back. */
 const COOKIE_RETURN = 'du_return';
 const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
-/* Base URL for the ClickUp REST API. Overridable ONLY so the task-fetch tests can
-   point it at a local fake; production must never set it. Auth endpoints keep the
-   literal host - a redirected OAuth flow would be a security problem, not a test aid. */
-const CLICKUP_API_BASE = process.env.CLICKUP_API_BASE || 'https://api.clickup.com/api/v2';
-/* Supabase browser config, served to the client by GET /api/portal-config.
-   SUPABASE_SERVICE_ROLE is deliberately NOT read here - it must never reach the
-   browser, and keeping it out of this block keeps that obvious. */
-const SUPABASE_URL = process.env.SUPABASE_URL || '';
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 
 app.set('trust proxy', 1);
 app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload to ~500KB
@@ -55,29 +46,6 @@ realtime.mount(app);
 
 app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
 app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
-
-/* Supabase browser config. The anon key is publishable - RLS is the access
-   boundary - so serving it to the client is fine. Hard-coding it in
-   public/portal.html was not: a key committed to the repo cannot be rotated
-   without a code change and a deploy.
-
-   Fails closed, naming the missing variables, rather than serving undefined and
-   leaving supabase-js to fail with something unreadable. Same shape as the invite
-   route and POST /api/hooks/supabase. */
-app.get('/api/portal-config', (_req, res) => {
-  const missing = [];
-  if (!SUPABASE_URL) missing.push('SUPABASE_URL');
-  if (!SUPABASE_ANON_KEY) missing.push('SUPABASE_ANON_KEY');
-  if (missing.length) {
-    return res.status(503).json({
-      error: 'Supabase browser config is not set on this deployment. Missing: ' +
-             missing.join(', ') + '. Set them in Railway (or .env locally), then redeploy.',
-      missing,
-    });
-  }
-  res.json({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
-});
-
 app.use(express.static(path.join(__dirname, 'public')));
 
 let cachedTeamId = TEAM_ID_OVERRIDE;
@@ -90,7 +58,7 @@ let cachedTasksAt = 0;
 
 async function clickup(endpoint, attempt = 0) {
   if (!CLICKUP_TOKEN) throw new Error('CLICKUP_API_TOKEN env variable not set');
-  const res = await fetch(`${CLICKUP_API_BASE}${endpoint}`, {
+  const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
     headers: { Authorization: CLICKUP_TOKEN, 'Content-Type': 'application/json' }
   });
   if (!res.ok) {
@@ -111,7 +79,7 @@ async function clickup(endpoint, attempt = 0) {
 
 async function clickupWrite(method, endpoint, body) {
   if (!CLICKUP_TOKEN) throw new Error('CLICKUP_API_TOKEN env variable not set');
-  const res = await fetch(`${CLICKUP_API_BASE}${endpoint}`, {
+  const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
     method,
     headers: { Authorization: CLICKUP_TOKEN, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -314,51 +282,6 @@ async function getTeams() {
   return cachedTeams;
 }
 
-/* ---------------------------------------------------------------------------
-   Response shaping for /api/tasks.
-
-   The full payload is ~5MB of JSON because it carries whole ClickUp task
-   objects. The portal's Tasks screen renders exactly the 11 fields below, but
-   /ops needs far more of them - description, text_content, custom_fields,
-   canonical_fields, tags, date_created/updated/closed/done, archived,
-   orderindex. So the trim is OPT-IN per consumer (`?slim=1`) rather than applied
-   to the cache. Audit BOTH consumers before touching this list; dropping a field
-   /ops reads is a silent blank column, not an error.
-   --------------------------------------------------------------------------- */
-function slimTask(t) {
-  return {
-    id: t.id,
-    name: t.name,
-    status: t.status ? { status: t.status.status } : null,
-    canonical_status: t.canonical_status,
-    assignees: (t.assignees || []).map(a => ({
-      id: a.id, username: a.username, email: a.email, initials: a.initials,
-    })),
-    due_date: t.due_date,
-    priority: t.priority ? { id: t.priority.id, priority: t.priority.priority } : null,
-    parent: t.parent,
-    url: t.url,
-    list: t.list ? { id: t.list.id, name: t.list.name } : null,
-    space: t.space ? { id: t.space.id, name: t.space.name } : null,
-  };
-}
-
-function parseSpaceFilter(raw) {
-  if (!raw) return null;
-  const ids = String(raw).split(',').map(s => s.trim()).filter(Boolean);
-  return ids.length ? new Set(ids) : null;
-}
-
-/* Filter then trim: the trim only pays for what survives the space filter.
-   Unscoped + unslimmed returns the cached array untouched, so /ops sees exactly
-   the payload it always has. */
-function projectTasks(payload, { slim, spaceIds }) {
-  let tasks = payload.tasks || [];
-  if (spaceIds) tasks = tasks.filter(t => t.space && spaceIds.has(String(t.space.id)));
-  if (slim) tasks = tasks.map(slimTask);
-  return tasks;
-}
-
 async function fetchAllListTasks(listId, { archivedOnly = false } = {}) {
   let page = 0;
   let allTasks = [];
@@ -446,117 +369,56 @@ async function discoverLists(teamId) {
   return lists;
 }
 
-/* Resolve space / folder / list NAMES onto a task from the discovered list
-   metadata. The per-list crawl knew the names because it fetched per list; the
-   filtered-team endpoint returns ids only for the space, so both paths funnel
-   through here and produce the same shape. The portal and /ops both display
-   space.name and list.name - without this they render blank. */
-function withListNames(t, meta) {
-  if (!meta) return t;
-  return {
-    ...t,
-    space: { id: meta.space.id, name: meta.space.name },
-    folder: meta.folder ? { id: meta.folder.id, name: meta.folder.name } : (t.folder || null),
-    list: t.list && t.list.name ? t.list : { id: meta.id, name: meta.name },
-  };
-}
+async function fetchAllWorkspaceTasks(teamId) {
+  const lists = await discoverLists(teamId);
+  console.log(`Discovered ${lists.length} lists across workspace`);
 
-/* One paginated walk of the whole workspace instead of one paginated fetch per
-   list: ~50 requests for 5k tasks rather than 200-300, which also keeps the
-   refresh under ClickUp's 100-req/min limit instead of relying on 429 backoff.
-
-   The flags are chosen to match what the per-list crawl returned:
-     subtasks=true       the crawl passed it, and the portal nests subtasks
-     include_closed=true Completed tasks feed the Completed counter
-   Archived tasks are NOT returned here - they are still fetched per list for
-   ARCHIVED_FETCH_LIST_IDS, exactly as before. */
-async function fetchWorkspaceTasksViaTeam(teamId, listMetaById) {
-  const all = [];
-  let page = 0;
-  while (true) {
-    const data = await clickup(
-      `/team/${teamId}/task?page=${page}&subtasks=true&include_closed=true&order_by=updated`
-    );
-    const batch = data.tasks || [];
-    all.push(...batch);
-    /* Two stop signals: ClickUp sets last_page on some responses, and a short
-       page always means the end. Belt and braces, because silently stopping
-       early here would lose tasks with no error. */
-    if (data.last_page || batch.length < 100) break;
-    page++;
-    if (page > 200) { console.warn('Team task walk hit the 200-page guard - tasks may be missing'); break; }
-  }
-  console.log(`Team fetch: ${all.length} tasks over ${page + 1} page(s)`);
-  return all.map(enrichTask).map(t => withListNames(t, t.list && listMetaById.get(String(t.list.id))));
-}
-
-/* The original strategy: one paginated fetch per list. Kept as the fallback,
-   because it is the one that has actually run against this workspace. */
-async function crawlListTasks(lists) {
-  /* A real worker pool, not lockstep batches. The previous version awaited
-     Promise.all on each slice of 5, so the slowest list in every group gated the
-     next group; runConcurrent (already used for the space walk) keeps all 5
-     workers busy. */
+  // Fetch tasks per list (parallel, but cap concurrency to be polite to API)
   const CONCURRENCY = 5;
-  const results = await runConcurrent(lists, CONCURRENCY, async (list) => {
-    try {
-      const tasks = await fetchAllListTasks(list.id);
-      return tasks.map(t => withListNames(t, list));
-    } catch (e) {
-      console.warn(`List ${list.name} (${list.id}) failed:`, e.message);
-      return [];
-    }
-  });
-  return results.map(r => (Array.isArray(r) ? r : [])).flat();
-}
+  const allBatches = [];
+  for (let i = 0; i < lists.length; i += CONCURRENCY) {
+    const slice = lists.slice(i, i + CONCURRENCY);
+    const batches = await Promise.all(slice.map(async list => {
+      try {
+        const tasks = await fetchAllListTasks(list.id);
+        return tasks.map(t => ({
+          ...t,
+          // Enrich with NAME, not just id
+          space: { id: list.space.id, name: list.space.name },
+          folder: list.folder ? { id: list.folder.id, name: list.folder.name } : (t.folder || null),
+          list: t.list || { id: list.id, name: list.name },
+        }));
+      } catch (e) {
+        console.warn(`List ${list.name} (${list.id}) failed:`, e.message);
+        return [];
+      }
+    }));
+    allBatches.push(...batches);
+  }
 
-// Archived tasks for designated lists (the Wins source) — neither bulk path returns these.
-async function fetchArchivedExtras(lists) {
-  const out = [];
+  // Additionally fetch ARCHIVED tasks for designated lists (the Wins source).
   for (const listId of ARCHIVED_FETCH_LIST_IDS) {
     const meta = lists.find(l => String(l.id) === String(listId));
     if (!meta) continue;
     try {
       const archived = await fetchAllListTasks(meta.id, { archivedOnly: true });
-      const enriched = archived.map(t => withListNames(t, meta));
-      out.push(...enriched);
-      console.log(`Archived fetch for ${meta.name}: +${enriched.length} tasks`);
+      const enrichedArchived = archived.map(t => ({
+        ...t,
+        space: { id: meta.space.id, name: meta.space.name },
+        folder: meta.folder ? { id: meta.folder.id, name: meta.folder.name } : (t.folder || null),
+        list: t.list || { id: meta.id, name: meta.name },
+      }));
+      allBatches.push(enrichedArchived);
+      console.log(`Archived fetch for ${meta.name}: +${enrichedArchived.length} tasks`);
     } catch (e) {
       console.warn(`Archived fetch failed for ${listId}:`, e.message);
     }
   }
-  return out;
-}
 
-/* Discover once, then fetch by the cheap route with the proven route as backup.
-   The returned `mode` lands in the /api/tasks payload and /api/health, so which
-   path ran is observable rather than guesswork - a silent downgrade to the crawl
-   would just look like "slow again". */
-async function fetchAllWorkspaceTasks(teamId) {
-  const lists = await discoverLists(teamId);
-  console.log(`Discovered ${lists.length} lists across workspace`);
-  const listMetaById = new Map(lists.map(l => [String(l.id), l]));
-
-  let tasks = [];
-  let mode = 'team';
-  try {
-    tasks = await fetchWorkspaceTasksViaTeam(teamId, listMetaById);
-  } catch (e) {
-    console.warn('Team task walk failed, falling back to the per-list crawl:', e.message);
-  }
-  /* Zero tasks while lists exist means the team endpoint gave us nothing usable
-     (permissions, an API change, a filter that excluded everything). Falling back
-     costs a slow refresh; trusting it would empty every dashboard. */
-  if (!tasks.length && lists.length) {
-    if (mode === 'team') console.warn(`Team walk returned 0 tasks across ${lists.length} lists - falling back to the per-list crawl`);
-    tasks = await crawlListTasks(lists);
-    mode = 'crawl';
-  }
-
-  const all = tasks.concat(await fetchArchivedExtras(lists));
+  const all = allBatches.flat();
   // Dedupe by task id, then enrich with canonical fields/status
   const deduped = [...new Map(all.map(t => [t.id, t])).values()];
-  return { tasks: deduped, mode };
+  return deduped;
 }
 
 function extractMembersFromTeams(teams, teamId) {
@@ -576,59 +438,6 @@ let refreshInProgress = false;
 let inProgressPromise = null;
 let lastRefreshError = null;
 
-/* ---------------------------------------------------------------------------
-   Persisted cache.
-
-   The in-memory cache dies with the process, and on Railway every deploy or
-   restart is a new process - so the first person to open Tasks after a deploy
-   used to wait out a full cold workspace walk. Snapshotting to Postgres survives
-   that; a local file would not, because the container filesystem goes with the
-   deploy.
-
-   Entirely best-effort. Requires migrations/20260811_task_cache.sql to have been
-   applied AND DATA_SOURCE=supabase; if the table is missing or Supabase is off,
-   this logs once and the server behaves exactly as it did before.
-   --------------------------------------------------------------------------- */
-let persistWarned = false;
-function persistUnavailable(e) {
-  if (!persistWarned) {
-    persistWarned = true;
-    console.warn('Task cache persistence unavailable (cold starts will be slow):', e.message);
-  }
-}
-
-async function persistTasksCache(payload) {
-  if (!db.enabled) return;
-  try {
-    await db.q(
-      `insert into clickup_task_cache (id, payload, fetched_at)
-       values (1, $1::jsonb, now())
-       on conflict (id) do update set payload = excluded.payload, fetched_at = excluded.fetched_at`,
-      [JSON.stringify(payload)]
-    );
-    console.log(`Task cache persisted (${payload.count} tasks)`);
-  } catch (e) { persistUnavailable(e); }
-}
-
-/* Seed the in-memory cache from the last snapshot so the very first request after
-   a restart is served instantly. cachedTasksAt is set from the snapshot's real
-   age, not now(), so a stale snapshot still triggers the background refresh it
-   should - serving it as though it were fresh would hide staleness for 10 min. */
-async function restoreTasksCache() {
-  if (!db.enabled || cachedTasksPayload) return false;
-  try {
-    const { rows } = await db.q('select payload, fetched_at from clickup_task_cache where id = 1');
-    if (!rows.length || !rows[0].payload) return false;
-    const payload = rows[0].payload;
-    if (!payload.tasks || !payload.tasks.length) return false;
-    cachedTasksPayload = payload;
-    cachedTasksAt = new Date(rows[0].fetched_at).getTime() || 0;
-    const ageMin = Math.round((Date.now() - cachedTasksAt) / 60000);
-    console.log(`Restored ${payload.count} tasks from the persisted cache (${ageMin} min old)`);
-    return true;
-  } catch (e) { persistUnavailable(e); return false; }
-}
-
 // Single source of truth for refreshing the task cache. If a refresh is already
 // running, all callers share the same in-flight promise — no duplicate workspace
 // walks even if scheduled + manual + post-write all fire concurrently.
@@ -646,10 +455,8 @@ async function refreshTasksCache() {
       let tasks = [];
       let mode = 'workspace';
       try {
-        const out = await fetchAllWorkspaceTasks(teamId);
-        tasks = out.tasks;
-        mode = out.mode;               // 'team' (cheap path) or 'crawl' (fallback)
-        console.log(`Workspace fetch (${mode}): ${tasks.length} tasks`);
+        tasks = await fetchAllWorkspaceTasks(teamId);
+        console.log(`Workspace fetch: ${tasks.length} tasks`);
       } catch (e) {
         console.warn('Workspace walk failed, falling back to single list:', e.message);
         mode = 'list';
@@ -672,9 +479,6 @@ async function refreshTasksCache() {
       cachedTasksAt = Date.now();
       lastRefreshError = null;
       console.log(`Refresh complete: ${tasks.length} tasks`);
-      /* Not awaited: the snapshot is for the NEXT process, so nobody waiting on
-         this refresh should pay for a 5MB write. */
-      persistTasksCache(cachedTasksPayload);
       return cachedTasksPayload;
     } catch (e) {
       lastRefreshError = e.message;
@@ -736,57 +540,37 @@ function scheduleDailyRefresh() {
   }, ms);
 }
 
-/* ?slim=1        trim each task to the 11 fields the portal renders (see slimTask)
-   ?spaces=a,b    return only tasks in those ClickUp spaces
-   ?force=1       bypass the cache and refetch synchronously
-
-   Both shaping params default off, so /ops keeps receiving byte-for-byte what it
-   always did. The portal asks for slim + its own brand's spaces, which is what
-   turns a ~5MB whole-workspace response into a small one. */
 app.get('/api/tasks', async (req, res) => {
   const force = req.query.force === '1';
-  const slim = req.query.slim === '1';
-  const spaceIds = parseSpaceFilter(req.query.spaces);
   const cacheAge = Date.now() - cachedTasksAt;
   const cacheStale = cacheAge > TASKS_CACHE_TTL_MS;
-
-  const shape = (payload, extra) => {
-    const tasks = projectTasks(payload, { slim, spaceIds });
-    return {
-      ...payload,
-      tasks,
-      count: tasks.length,          // unscoped+unslimmed this equals the old value
-      total_count: (payload.tasks || []).length,
-      slim,
-      scoped: !!spaceIds,
-      ...extra,
-    };
-  };
 
   // Stale-while-revalidate: if we have any cache, return it immediately.
   // Refresh in the background if it's stale or the user forced.
   if (cachedTasksPayload && !force) {
     if (cacheStale) triggerBackgroundRefresh();
-    return res.json(shape(cachedTasksPayload, {
+    return res.json({
+      ...cachedTasksPayload,
       from_cache: true,
       cache_age_ms: cacheAge,
       refreshing: cacheStale,
-    }));
+    });
   }
 
   // No cache OR force=1: do the full fetch synchronously.
   try {
     const payload = await refreshTasksCache();
-    res.json(shape(payload, { from_cache: false }));
+    res.json({ ...payload, from_cache: false });
   } catch (err) {
     console.error('Sync fetch failed:', err.message);
     // If we have ANY cached payload, return it as a fallback even if forced
     if (cachedTasksPayload) {
-      return res.json(shape(cachedTasksPayload, {
+      return res.json({
+        ...cachedTasksPayload,
         from_cache: true,
         cache_age_ms: cacheAge,
         error: err.message,
-      }));
+      });
     }
     res.status(500).json({ error: err.message });
   }
@@ -904,7 +688,7 @@ function requireAuth(req, res) {
 }
 
 async function clickupWriteWithToken(token, method, endpoint, body) {
-  const res = await fetch(`${CLICKUP_API_BASE}${endpoint}`, {
+  const res = await fetch(`https://api.clickup.com/api/v2${endpoint}`, {
     method,
     headers: { Authorization: token, 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
@@ -1881,17 +1665,11 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Dashboard running on port ${PORT}`);
   if (!CLICKUP_TOKEN) console.warn('WARNING: CLICKUP_API_TOKEN is not set.');
   if (CLICKUP_TOKEN) {
-    /* Restore the last snapshot FIRST, then pre-warm. The restore is fast, so
-       anyone who opens Tasks in the seconds after a deploy is served the snapshot
-       instead of waiting out a cold workspace walk; the walk then replaces it in
-       the background. Ordered with .then so the restore is not racing the walk
-       for cachedTasksPayload. */
-    restoreTasksCache()
-      .catch(() => false)
-      .then(() => {
-        console.log('Pre-warming task cache...');
-        triggerBackgroundRefresh();
-      });
+    // Pre-warm cache so the first user request is instant, not a cold workspace walk
+    setTimeout(() => {
+      console.log('Pre-warming task cache...');
+      triggerBackgroundRefresh();
+    }, 1000);
     // 8 AM + 12 PM CT auto-refresh — runs even when no users have the dashboard open,
     // so newly created spaces / lists / tasks are picked up reliably twice a day.
     scheduleDailyRefresh();

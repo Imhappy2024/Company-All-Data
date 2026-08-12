@@ -400,21 +400,11 @@
     align-items: center;
     gap: 10px;
     font-size: 13px;
-    /* visibility is delayed on hide so the slide-out is still seen, then
-       hard-hides. translateY(120%) alone left the top ~15px of the bar peeking
-       above the bottom edge whenever nothing was selected. */
-    transition: transform 0.2s ease, visibility 0s linear 0.2s;
-    visibility: hidden;
-    pointer-events: none;
+    transition: transform 0.2s ease;
     max-width: calc(100vw - 32px);
     flex-wrap: wrap;
   }
-  .bulk-bar.visible {
-    transform: translateX(-50%) translateY(0);
-    visibility: visible;
-    pointer-events: auto;
-    transition: transform 0.2s ease, visibility 0s linear 0s;
-  }
+  .bulk-bar.visible { transform: translateX(-50%) translateY(0); }
   .bulk-bar-count { font-weight: 600; color: var(--text); white-space: nowrap; }
   .bulk-bar button {
     padding: 7px 14px;
@@ -1220,28 +1210,7 @@
     transition: opacity 0.15s, background 0.15s, color 0.15s;
     pointer-events: none;
   }
-  /* Interactive only while the card is hovered, which is also the only time it is
-     visible. It used to be pointer-events:none throughout because the whole card
-     was the single click target; now the card body switches the panel below and
-     this chip is what still opens the drilldown, so it has to accept the click. */
-  .metric-card:hover .metric-view-btn { opacity: 1; pointer-events: auto; cursor: pointer; }
-  /* ---- SELECTED COUNTER (Needs Review / For Approval / L10) ----
-     These counters are the switcher for the single panel below them, so exactly
-     one is always selected and has to look it. The ring uses each card's own
-     accent so the selection reads as "this colour's list is showing". */
-  .metric-card.active { box-shadow: inset 0 0 0 2px var(--border2), var(--shadow-md); }
-  .metric-card.red.active    { box-shadow: inset 0 0 0 2px var(--red),    var(--shadow-md); }
-  .metric-card.yellow.active { box-shadow: inset 0 0 0 2px var(--yellow), var(--shadow-md); }
-  .metric-card.green.active  { box-shadow: inset 0 0 0 2px var(--green),  var(--shadow-md); }
-  .metric-card.blue.active   { box-shadow: inset 0 0 0 2px var(--accent), var(--shadow-md); }
-  /* The panel keeps the selected counter's tint, so the pair reads as one unit. */
-  .panel-card > .card-header { background: var(--surface2); border-bottom-color: var(--border); }
-  .panel-card.tint-red    > .card-header { background: #fbeee2; border-bottom-color: #f0d6c0; }
-  .panel-card.tint-yellow > .card-header { background: #fbf3e0; border-bottom-color: #efe0bb; }
-  .panel-card.tint-green  > .card-header { background: #e7f6ec; border-bottom-color: #c5e6d0; }
-  .panel-card.tint-blue   > .card-header { background: #e2efef; border-bottom-color: #c0dedd; }
-  body.dark-mode .panel-card > .card-header,
-  html[data-theme="dark"] .panel-card > .card-header { background: var(--surface2); border-bottom-color: var(--border); }
+  .metric-card:hover .metric-view-btn { opacity: 1; }
   .metric-card.red:hover .metric-view-btn    { background: var(--red);    color: #fff; border-color: var(--red); }
   .metric-card.yellow:hover .metric-view-btn { background: var(--yellow); color: #fff; border-color: var(--yellow); }
   .metric-card.green:hover .metric-view-btn  { background: var(--green);  color: #fff; border-color: var(--green); }
@@ -2480,17 +2449,25 @@
 <!-- ============ TO DISCUSS VIEW ============ -->
 <div class="view" id="view-todiscuss">
   <div class="main">
-    <!-- Row 1 counters are the switcher for the single panel below. The "View"
-         chip still opens the drilldown modal, hence stopPropagation. -->
     <div class="grid-3">
-      <div class="metric-card yellow" id="td-card-nodue"      onclick="setPanelCard('td','nodue')">     <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('td-nodue')">View</span><div class="metric-label">No Due Date</div>      <div class="metric-value" id="td-kpi-nodue">-</div>      <div class="metric-sub">missing schedule</div></div>
-      <div class="metric-card blue"   id="td-card-unassigned" onclick="setPanelCard('td','unassigned')"><span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('td-unassigned')">View</span><div class="metric-label">Unassigned</div>       <div class="metric-value" id="td-kpi-unassigned">-</div> <div class="metric-sub">missing owner</div></div>
-      <div class="metric-card red"    id="td-card-pastdue"    onclick="setPanelCard('td','pastdue')">   <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('td-pastdue')">View</span><div class="metric-label">Past Due</div>         <div class="metric-value" id="td-kpi-pastdue">-</div>    <div class="metric-sub">overdue, not done</div></div>
+      <div class="metric-card yellow" onclick="openDrilldown('td-nodue')">     <span class="metric-view-btn">View</span><div class="metric-label">No Due Date</div>      <div class="metric-value" id="td-kpi-nodue">-</div>      <div class="metric-sub">missing schedule</div></div>
+      <div class="metric-card blue"   onclick="openDrilldown('td-unassigned')"><span class="metric-view-btn">View</span><div class="metric-label">Unassigned</div>       <div class="metric-value" id="td-kpi-unassigned">-</div> <div class="metric-sub">missing owner</div></div>
+      <div class="metric-card red"    onclick="openDrilldown('td-pastdue')">   <span class="metric-view-btn">View</span><div class="metric-label">Past Due</div>         <div class="metric-value" id="td-kpi-pastdue">-</div>    <div class="metric-sub">overdue, not done</div></div>
     </div>
 
-    <div class="card panel-card" id="td-panel">
-      <div class="card-header"><div class="card-head-text"><span class="card-title" id="td-panel-title">-</span><span class="card-desc" id="td-panel-desc"></span></div><span class="card-count" id="td-panel-count">0</span></div>
-      <div class="card-body card-scroll" id="td-panel-list"></div>
+    <div class="grid-3">
+      <div class="card tint-yellow">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Missing Due Date</span><span class="card-desc">Tasks with no due date set</span></div><span class="card-count" id="td-nodue-count">0</span></div>
+        <div class="card-body card-scroll" id="td-nodue-list"></div>
+      </div>
+      <div class="card tint-blue">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Unassigned</span><span class="card-desc">Tasks with no owner</span></div><span class="card-count" id="td-unassigned-count">0</span></div>
+        <div class="card-body card-scroll" id="td-unassigned-list"></div>
+      </div>
+      <div class="card tint-red">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Past Due</span><span class="card-desc">Overdue and not done</span></div><span class="card-count" id="td-pastdue-count">0</span></div>
+        <div class="card-body card-scroll" id="td-pastdue-list"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2499,14 +2476,24 @@
 <div class="view" id="view-forreview">
   <div class="main">
     <div class="grid-3">
-      <div class="metric-card green"  id="fr-card-review"   onclick="setPanelCard('fr','review')">  <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('fr-review')">View</span><div class="metric-label">Ready for Approval</div> <div class="metric-value" id="fr-kpi-review">-</div>  <div class="metric-sub">status = In Review</div></div>
-      <div class="metric-card yellow" id="fr-card-longterm" onclick="setPanelCard('fr','longterm')"><span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('fr-longterm')">View</span><div class="metric-label">Long Term Due</div>    <div class="metric-value" id="fr-kpi-longterm">-</div><div class="metric-sub">long term &amp; due today</div></div>
-      <div class="metric-card red"    id="fr-card-blocked"  onclick="setPanelCard('fr','blocked')"> <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('fr-blocked')">View</span><div class="metric-label">Blocked</div>          <div class="metric-value" id="fr-kpi-blocked">-</div> <div class="metric-sub">stuck on dependency</div></div>
+      <div class="metric-card green" onclick="openDrilldown('fr-review')">   <span class="metric-view-btn">View</span><div class="metric-label">Ready for Approval</div> <div class="metric-value" id="fr-kpi-review">-</div>  <div class="metric-sub">status = In Review</div></div>
+      <div class="metric-card yellow" onclick="openDrilldown('fr-longterm')"> <span class="metric-view-btn">View</span><div class="metric-label">Long Term Due</div>    <div class="metric-value" id="fr-kpi-longterm">-</div><div class="metric-sub">long term &amp; due today</div></div>
+      <div class="metric-card red"    onclick="openDrilldown('fr-blocked')">  <span class="metric-view-btn">View</span><div class="metric-label">Blocked</div>          <div class="metric-value" id="fr-kpi-blocked">-</div> <div class="metric-sub">stuck on dependency</div></div>
     </div>
 
-    <div class="card panel-card" id="fr-panel">
-      <div class="card-header"><div class="card-head-text"><span class="card-title" id="fr-panel-title">-</span><span class="card-desc" id="fr-panel-desc"></span></div><span class="card-count" id="fr-panel-count">0</span></div>
-      <div class="card-body card-scroll" id="fr-panel-list"></div>
+    <div class="grid-3">
+      <div class="card tint-green">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Ready for Approval</span><span class="card-desc">In review, awaiting sign-off</span></div><span class="card-count" id="fr-review-count">0</span></div>
+        <div class="card-body card-scroll" id="fr-review-list"></div>
+      </div>
+      <div class="card tint-yellow">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Long Term Due</span><span class="card-desc">Long-term items due today</span></div><span class="card-count" id="fr-longterm-count">0</span></div>
+        <div class="card-body card-scroll" id="fr-longterm-list"></div>
+      </div>
+      <div class="card tint-red">
+        <div class="card-header"><div class="card-head-text"><span class="card-title">Blocked</span><span class="card-desc">Stuck on a dependency</span></div><span class="card-count" id="fr-blocked-count">0</span></div>
+        <div class="card-body card-scroll" id="fr-blocked-list"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -2515,44 +2502,60 @@
 <div class="view" id="view-l10">
   <div class="main">
     <div class="grid-5">
-      <div class="metric-card yellow" id="l10-card-nodue" onclick="setPanelCard('l10','nodue')">
-        <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('l10-nodue')">View</span>
+      <div class="metric-card yellow" onclick="openDrilldown('l10-nodue')">
+        <span class="metric-view-btn">View</span>
         <div class="metric-label">No Due Date</div>
         <div class="metric-value" id="l10-kpi-nodue">-</div>
         <div class="metric-sub">missing schedule</div>
       </div>
-      <div class="metric-card blue" id="l10-card-unassigned" onclick="setPanelCard('l10','unassigned')">
-        <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('l10-unassigned')">View</span>
+      <div class="metric-card blue" onclick="openDrilldown('l10-unassigned')">
+        <span class="metric-view-btn">View</span>
         <div class="metric-label">Unassigned</div>
         <div class="metric-value" id="l10-kpi-unassigned">-</div>
         <div class="metric-sub">no owner</div>
       </div>
-      <div class="metric-card red" id="l10-card-pastdue" onclick="setPanelCard('l10','pastdue')">
-        <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('l10-pastdue')">View</span>
+      <div class="metric-card red" onclick="openDrilldown('l10-pastdue')">
+        <span class="metric-view-btn">View</span>
         <div class="metric-label">Past Due</div>
         <div class="metric-value" id="l10-kpi-pastdue">-</div>
         <div class="metric-sub">overdue, not done</div>
       </div>
-      <div class="metric-card yellow" id="l10-card-dueweek" onclick="setPanelCard('l10','dueweek')">
-        <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('l10-dueweek')">View</span>
+      <div class="metric-card yellow" onclick="openDrilldown('l10-dueweek')">
+        <span class="metric-view-btn">View</span>
         <div class="metric-label">Due This Week</div>
         <div class="metric-value" id="l10-kpi-dueweek">-</div>
         <div class="metric-sub">next 7 days</div>
       </div>
-      <div class="metric-card green l10-wins-card" id="l10-card-wins" onclick="setPanelCard('l10','wins')">
-        <span class="metric-view-btn" onclick="event.stopPropagation();openDrilldown('l10-wins')">View</span>
+      <div class="metric-card green l10-wins-card" onclick="openDrilldown('l10-wins')">
+        <span class="metric-view-btn">View</span>
         <div class="metric-label">Wins</div>
         <div class="metric-value" id="l10-kpi-wins">-</div>
         <div class="metric-sub">appears in: wins</div>
       </div>
     </div>
 
-    <div class="card panel-card" id="l10-panel">
-      <div class="card-header">
-        <div class="card-head-text"><span class="card-title" id="l10-panel-title">-</span><span class="card-desc" id="l10-panel-desc"></span></div>
-        <span class="card-count" id="l10-panel-count">0</span>
+    <div class="grid-3">
+      <div class="card tint-blue">
+        <div class="card-header">
+          <div class="card-head-text"><span class="card-title">Rocks</span><span class="card-desc">Quarterly priorities</span></div>
+          <span class="card-count" id="l10-rocks-count">0</span>
+        </div>
+        <div class="card-body card-scroll" id="l10-rocks-list"></div>
       </div>
-      <div class="card-body card-scroll" id="l10-panel-list"></div>
+      <div class="card tint-yellow">
+        <div class="card-header">
+          <div class="card-head-text"><span class="card-title">Issues to Discuss (IDS)</span><span class="card-desc">Identify, discuss, solve</span></div>
+          <span class="card-count" id="l10-ids-count">0</span>
+        </div>
+        <div class="card-body card-scroll" id="l10-ids-list"></div>
+      </div>
+      <div class="card tint-teal">
+        <div class="card-header">
+          <div class="card-head-text"><span class="card-title">Sprint</span><span class="card-desc">This week's focus</span></div>
+          <span class="card-count" id="l10-sprint-count">0</span>
+        </div>
+        <div class="card-body card-scroll" id="l10-sprint-list"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -6368,102 +6371,45 @@ function matchesAppearsByIdOrLabel(t, optionId, ...labelVariants) {
   return labelVariants.some(l => labels.includes(l.toLowerCase().trim()));
 }
 
-/* ===========================================================================
-   Counter-driven single panel (Needs Review / For Approval / L10)
-
-   Row 1 counters ARE the switcher: exactly one is selected, and row 2 is a single
-   panel showing that set. Previously row 2 was three columns side by side, which
-   duplicated what the counters already said on the two review tabs and, on L10,
-   showed a different cut (Rocks / IDS / Sprint) than the counters above it.
-
-   `tint` is the panel header colour and matches the selected counter's colour, so
-   the two rows read as one unit. `grouped` picks the L10 renderer, which groups by
-   raw status; the review tabs stay on the flat list they already used. The group
-   headers are non-clickable here (category = null) because a counter set is not
-   one of the Rocks / IDS / Sprint categories the drilldown understands.
-   =========================================================================== */
-const PANEL_VIEWS = {
-  td:  { cards: ['nodue', 'unassigned', 'pastdue'], grouped: false, render: () => renderToDiscuss() },
-  fr:  { cards: ['review', 'longterm', 'blocked'], grouped: false, render: () => renderForReview() },
-  l10: { cards: ['nodue', 'unassigned', 'pastdue', 'dueweek', 'wins'], grouped: true, render: () => renderL10() },
-};
-const panelCard = { td: 'nodue', fr: 'review', l10: 'nodue' };
-
-function setPanelCard(view, key) {
-  if (!PANEL_VIEWS[view] || !PANEL_VIEWS[view].cards.includes(key)) return;
-  panelCard[view] = key;
-  PANEL_VIEWS[view].render();
-}
-
-/* sets: { key: { title, desc, tint, tasks } } for every counter in the view. */
-function paintCounterPanel(view, sets) {
-  const cfg = PANEL_VIEWS[view];
-  if (!cfg) return;
-  /* Always exactly one selection, even if a stored key ever went missing. */
-  let key = panelCard[view];
-  if (!sets[key]) key = cfg.cards.find(k => sets[k]) || cfg.cards[0];
-  panelCard[view] = key;
-
-  cfg.cards.forEach(k => {
-    const card = document.getElementById(`${view}-card-${k}`);
-    if (card) card.classList.toggle('active', k === key);
-    const kpi = document.getElementById(`${view}-kpi-${k}`);
-    if (kpi && sets[k]) kpi.textContent = sets[k].tasks.length;
-  });
-
-  const set = sets[key];
-  if (!set) return;
-  const panel = document.getElementById(`${view}-panel`);
-  if (panel) panel.className = 'card panel-card tint-' + (set.tint || 'blue');
-  const put = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  put(`${view}-panel-title`, set.title);
-  put(`${view}-panel-desc`, set.desc);
-  put(`${view}-panel-count`, set.tasks.length);
-
-  if (cfg.grouped) {
-    renderGroupedTaskList(`${view}-panel-list`, set.tasks, null, { byRawStatus: true, hideCompletedSubs: true });
-  } else {
-    renderTaskList(`${view}-panel-list`, set.tasks);
-  }
-}
-
 function renderL10() {
   const masterTasks = filteredTasks.filter(isMasterListTask);
   // Hide completed so the meeting view stays clean
   const openMaster = masterTasks.filter(t => !isCompletedStatus(t));
 
+  // ----- KPI counters -----
   const today = startOfTodayMs();
   const weekAhead = Date.now() + 7 * 86400000;
-
-  paintCounterPanel('l10', {
-    nodue: {
-      title: 'No Due Date', desc: 'Master-list items with no due date set', tint: 'yellow',
-      tasks: openMaster.filter(t => !t.due_date),
-    },
-    unassigned: {
-      title: 'Unassigned', desc: 'Master-list items with no owner', tint: 'blue',
-      tasks: openMaster.filter(t => !t.assignees?.length),
-    },
-    pastdue: {
-      title: 'Past Due', desc: 'Overdue and not done', tint: 'red',
-      tasks: openMaster.filter(t => {
-        const due = parseInt(t.due_date || 0);
-        return due && due < today;
-      }),
-    },
-    dueweek: {
-      title: 'Due This Week', desc: 'Due in the next 7 days', tint: 'yellow',
-      tasks: openMaster.filter(t => {
-        const due = parseInt(t.due_date || 0);
-        return due && due >= Date.now() && due <= weekAhead;
-      }),
-    },
-    // Wins: completed / done / archived tasks from the dedicated WINS_LIST_ID list
-    wins: {
-      title: 'Wins', desc: 'Appears in: wins', tint: 'green',
-      tasks: filteredTasks.filter(isWinTask),
-    },
+  const noDue       = openMaster.filter(t => !t.due_date);
+  const unassigned  = openMaster.filter(t => !t.assignees?.length);
+  const pastDue     = openMaster.filter(t => {
+    const due = parseInt(t.due_date || 0);
+    return due && due < today;
   });
+  const dueWeek = openMaster.filter(t => {
+    const due = parseInt(t.due_date || 0);
+    return due && due >= Date.now() && due <= weekAhead;
+  });
+  // Wins: completed / done / archived tasks from the dedicated WINS_LIST_ID list
+  const wins = filteredTasks.filter(isWinTask);
+
+  document.getElementById('l10-kpi-nodue').textContent      = noDue.length;
+  document.getElementById('l10-kpi-unassigned').textContent = unassigned.length;
+  document.getElementById('l10-kpi-pastdue').textContent    = pastDue.length;
+  document.getElementById('l10-kpi-dueweek').textContent    = dueWeek.length;
+  document.getElementById('l10-kpi-wins').textContent       = wins.length;
+
+  // ----- Cards -----
+  const rocks   = openMaster.filter(t => matchesAppearsByIdOrLabel(t, APPEARS_IN_OPTION_IDS.rock,   'Rock',   'Rocks'));
+  const ids     = openMaster.filter(t => matchesAppearsByIdOrLabel(t, APPEARS_IN_OPTION_IDS.ids,    'IDS',    'Issues to Discuss'));
+  const sprints = openMaster.filter(t => matchesAppearsByIdOrLabel(t, APPEARS_IN_OPTION_IDS.sprint, 'Sprint', 'Sprints'));
+
+  document.getElementById('l10-rocks-count').textContent  = rocks.length;
+  document.getElementById('l10-ids-count').textContent    = ids.length;
+  document.getElementById('l10-sprint-count').textContent = sprints.length;
+
+  renderGroupedTaskList('l10-rocks-list',  rocks,   'Rocks',  { byRawStatus: true, hideCompletedSubs: true });
+  renderGroupedTaskList('l10-ids-list',    ids,     'IDS',    { byRawStatus: true, hideCompletedSubs: true });
+  renderGroupedTaskList('l10-sprint-list', sprints, 'Sprint', { byRawStatus: true, hideCompletedSubs: true });
 }
 
 // ===================== OVERVIEW TAB =====================
@@ -6874,10 +6820,6 @@ document.addEventListener('click', (e) => {
   if (!header) return;
   const card = header.parentElement;
   if (!card || !card.classList.contains('card')) return;
-  /* The counter-driven panel is the content of its view, not one of several
-     cards to accordion between - collapsing it would leave the screen empty
-     below the counters. */
-  if (card.classList.contains('panel-card')) return;
   const view = card.closest('#view-todiscuss, #view-forreview, #view-l10, #view-properties');
   if (!view) return;
   if (!window.matchMedia('(max-width: 640px)').matches) return; // desktop: not collapsible
@@ -6894,7 +6836,7 @@ function applyDefaultCollapse() {
   const mode = window.matchMedia('(max-width: 640px)').matches ? 'mobile' : 'desktop';
   if (mode === ovCollapseMode) return;
   ovCollapseMode = mode;
-  document.querySelectorAll('#view-todiscuss .card:not(.panel-card), #view-forreview .card:not(.panel-card), #view-l10 .card:not(.panel-card)')
+  document.querySelectorAll('#view-todiscuss .card, #view-forreview .card, #view-l10 .card')
     .forEach(c => c.classList.toggle('collapsed', mode === 'mobile'));
 }
 applyDefaultCollapse();
@@ -7212,44 +7154,45 @@ function renderToDiscuss() {
   const today = startOfTodayMs();
   const tasks = filteredTasks.filter(t => !isCompletedStatus(t));
 
-  paintCounterPanel('td', {
-    nodue: {
-      title: 'Missing Due Date', desc: 'Tasks with no due date set', tint: 'yellow',
-      tasks: tasks.filter(t => !t.due_date),
-    },
-    unassigned: {
-      title: 'Unassigned', desc: 'Tasks with no owner', tint: 'blue',
-      tasks: tasks.filter(t => !t.assignees?.length),
-    },
-    pastdue: {
-      title: 'Past Due', desc: 'Overdue and not done', tint: 'red',
-      tasks: tasks.filter(t => {
-        const due = parseInt(t.due_date || 0);
-        return due && due < today;
-      }),
-    },
+  const noDue       = tasks.filter(t => !t.due_date);
+  const noAssignee  = tasks.filter(t => !t.assignees?.length);
+  const pastDue     = tasks.filter(t => {
+    const due = parseInt(t.due_date || 0);
+    return due && due < today;
   });
+
+  document.getElementById('td-kpi-nodue').textContent      = noDue.length;
+  document.getElementById('td-kpi-unassigned').textContent = noAssignee.length;
+  document.getElementById('td-kpi-pastdue').textContent    = pastDue.length;
+
+  document.getElementById('td-nodue-count').textContent      = noDue.length;
+  document.getElementById('td-unassigned-count').textContent = noAssignee.length;
+  document.getElementById('td-pastdue-count').textContent    = pastDue.length;
+
+  renderTaskList('td-nodue-list',      noDue);
+  renderTaskList('td-unassigned-list', noAssignee);
+  renderTaskList('td-pastdue-list',    pastDue);
 }
 
 // --- FOR REVIEW ---
 function renderForReview() {
   const today = startOfTodayMs();
   const endOfToday = today + 86400000 - 1;
+  const review   = filteredTasks.filter(isReviewStatus);
+  const longTerm = filteredTasks.filter(t => isLongTermStatus(t) && t.due_date && parseInt(t.due_date) <= endOfToday);
+  const blocked  = filteredTasks.filter(isBlockedStatus);
 
-  paintCounterPanel('fr', {
-    review: {
-      title: 'Ready for Approval', desc: 'In review, awaiting sign-off', tint: 'green',
-      tasks: filteredTasks.filter(isReviewStatus),
-    },
-    longterm: {
-      title: 'Long Term Due', desc: 'Long-term items due today', tint: 'yellow',
-      tasks: filteredTasks.filter(t => isLongTermStatus(t) && t.due_date && parseInt(t.due_date) <= endOfToday),
-    },
-    blocked: {
-      title: 'Blocked', desc: 'Stuck on a dependency', tint: 'red',
-      tasks: filteredTasks.filter(isBlockedStatus),
-    },
-  });
+  document.getElementById('fr-kpi-review').textContent   = review.length;
+  document.getElementById('fr-kpi-longterm').textContent = longTerm.length;
+  document.getElementById('fr-kpi-blocked').textContent  = blocked.length;
+
+  document.getElementById('fr-review-count').textContent   = review.length;
+  document.getElementById('fr-longterm-count').textContent = longTerm.length;
+  document.getElementById('fr-blocked-count').textContent  = blocked.length;
+
+  renderTaskList('fr-review-list',   review);
+  renderTaskList('fr-longterm-list', longTerm);
+  renderTaskList('fr-blocked-list',  blocked);
 }
 
 // ===================== DRILLDOWN MODAL =====================

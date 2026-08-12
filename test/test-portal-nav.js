@@ -91,10 +91,7 @@ function ptask(id, name, status, sync) {
 
 (async () => {
   await new Promise(r => server.listen(PORT, r));
-  /* Use whatever `playwright install chromium` put in place; CHROME_PATH pins it
-     for sandboxes. A hardcoded Linux path here made this unrunnable on Windows. */
-  const browser = await chromium.launch(
-    process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : {});
+  const browser = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium-1194/chrome-linux/chrome' });
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   const boot = () => page.waitForFunction(() => typeof window.render === 'function');

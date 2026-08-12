@@ -7,9 +7,7 @@ const path = require('path');
 const { chromium } = require('playwright');
 
 const BASE = process.env.SMOKE_BASE || 'http://localhost:3000';
-/* Undefined means "use the browser playwright installed", which is what any
-   normal machine wants; CHROME_PATH pins it for sandboxes. */
-const CHROME = process.env.CHROME_PATH || undefined;
+const CHROME = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
 let failures = 0;
 function check(name, actual, want) {
