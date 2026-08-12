@@ -244,6 +244,7 @@ tbody tr:hover{background:var(--panel-2)}
      during parsing and calls render() immediately, so deferred scripts would
      not have executed yet and PortalAuth/PortalTasks would be undefined. -->
 <script src="/portal-session.js"></script>
+<script src="/portal-users.js"></script>
 <script src="/portal-auth.js"></script>
 <script src="/portal-tasks.js"></script>
 <script src="/portal-realtime.js"></script>
@@ -343,6 +344,26 @@ function allowedBrands(){
    caller. */
 function canWrite(navId){ return navLevel(brand,navId)==='write'; }
 function canRead(navId){ return navLevel(brand,navId)!==null; }
+
+/* Users & Roles is ROLE-gated, not permission-gated: shown when dash_role() is
+   owner or admin. An admin must not be able to lose the screen that fixes access,
+   which is what requiring a module grant for it would allow.
+
+   THIS IS THE ONE EXCEPTION to "add a nav item, add its catalog row", and it is
+   forced rather than preferred. `access` exists in dashboard_module only under
+   Executive Board; no company has an access row. Requiring the grant would make the
+   per-brand item invisible to everyone INCLUDING the owner, because there would be
+   nothing to resolve against.
+
+   Do NOT seed per-brand access rows to make it symmetrical: a catalog row means
+   grantable, and grantable means an owner could hand Users & Roles to a plain user,
+   which is exactly what requirement 3 forbids. The exec row stays where it is -
+   inert, nothing reads it, but it keeps the exec catalog matching MENUS 8-for-8 so a
+   future nav diff comes back clean. */
+function canSeeAccess(){
+  const r=dashAccess&&dashAccess.user&&dashAccess.user.role;
+  return r==='owner'||r==='admin';
+}
 /* brand -> ClickUp space ids.
    LeavenWealth = every workspace space EXCEPT the two brand spaces (Leadli, Folio Excel).
    Includes the Chris Mitch Jay space (per request — it belongs to LeavenWealth), so it
@@ -383,12 +404,16 @@ const CORE=[
   {id:'financials',ic:'dollar',label:'Financials'},
   {id:'documents',ic:'file',label:'Documents'},
 ];
+/* Users & Roles in EVERY workspace, under an Admin heading. Executive Board already
+   carried `access`; the four businesses get it here. It is role-gated, so the whole
+   Admin section disappears for a plain user - see canSeeAccess / itemVisible. */
+const ADMIN_SECTION=[{lbl:'Admin'},{id:'access',ic:'lock',label:'Users & Roles'}];
 const MENUS={
-  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{id:'investors',ic:'hand',label:'Investors'},{lbl:'Admin'},{id:'integrations',ic:'plug',label:'Integrations'},{id:'access',ic:'lock',label:'Access & Roles'}],
-  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties',badge:'66'},{id:'loans',ic:'bank',label:'Loans',badge:'83'},{id:'investors',ic:'hand',label:'Investors',badge:'5'},{id:'insurance',ic:'shield',label:'Insurance / Risk'},{lbl:'Workspace'},...CORE],
-  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'}],
-  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{id:'investors',ic:'hand',label:'Investors'},{lbl:'Admin'},{id:'integrations',ic:'plug',label:'Integrations'},{id:'access',ic:'lock',label:'Users & Roles'}],
+  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties',badge:'66'},{id:'loans',ic:'bank',label:'Loans',badge:'83'},{id:'investors',ic:'hand',label:'Investors',badge:'5'},{id:'insurance',ic:'shield',label:'Insurance / Risk'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
+  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
 };
 
 /* ---- data (mirrors seeded Supabase) ---- */
@@ -606,7 +631,9 @@ const V={
     return seg;   /* ops iframe lives in #embedHost (keep-alive) */
   },
   integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
-  access(){return `<div class="placeholder">${I.lock}<div>Access & roles &mdash; manage who sees which brand (<b>tenant_member</b> + <b>company_member</b>)</div></div>`;},
+  /* Users & Roles. portal-users.js paints into this container from render(), after
+     innerHTML has replaced it - same arrangement as the native Tasks screen. */
+  access(){return `<div id="usersNative"></div>`;},
 };
 
 /* ---- Loans (live from Supabase via /api/loans) ---- */
@@ -774,6 +801,9 @@ function buildBrandMenu(){
 /* MENUS filtered by the access payload for the CURRENT brand's scope.
    Section labels (items with .lbl and no .id) are dropped when nothing survives
    beneath them - a heading with an empty body reads as a bug, not as a permission. */
+/* `access` is the ONE id exempt from the permission check - see canSeeAccess for
+   why it has to be, and why the missing per-brand catalog rows must not be added. */
+function itemVisible(b,id){ return id==='access' ? canSeeAccess() : !!navLevel(b,id); }
 function visibleMenu(b){
   const items=MENUS[b]||[];
   const out=[];
@@ -784,12 +814,12 @@ function visibleMenu(b){
          here and there is visible. */
       let any=false;
       for(let j=i+1;j<items.length&&!items[j].lbl;j++){
-        if(navLevel(b,items[j].id)){ any=true; break; }
+        if(itemVisible(b,items[j].id)){ any=true; break; }
       }
       if(any) out.push(it);
       continue;
     }
-    if(navLevel(b,it.id)) out.push(it);
+    if(itemVisible(b,it.id)) out.push(it);
   }
   return out;
 }
@@ -908,7 +938,7 @@ function readState(){
   const b=p.get('brand');
   if(b&&BRANDS[b]&&MENUS[b]&&scopeAccess(b))brand=b;
   const v=p.get('view');
-  if(v&&(MENUS[brand]||[]).some(x=>x.id===v)&&navLevel(brand,v))view=v;
+  if(v&&(MENUS[brand]||[]).some(x=>x.id===v)&&itemVisible(brand,v))view=v;
   else{const first=firstAllowedView(brand);view=first||'overview';}
   const s=p.get('sub');
   if(s&&SUBOK[view]&&SUBOK[view].indexOf(s)!==-1){
@@ -949,6 +979,17 @@ function render(){
     PortalTasks.render(brand,'tasksNative',{spaces:brandSpaces(brand),brandName:BRANDS[brand].name,
                                             readOnly:!canWrite('tasks')});
   }
+  /* Users & Roles, same arrangement. `scope` is what makes one component serve both
+     views: 'exec' lists everyone with the businesses they reach, a company id lists
+     only people who can reach that business. */
+  if(view==='access' && window.PortalUsers && canSeeAccess()){
+    PortalUsers.render(brand,'usersNative',{
+      scope:accessScope(brand),
+      me:dashAccess&&dashAccess.user,
+      access:dashAccess&&dashAccess.access,
+      companies:(dashAccess&&dashAccess.companies)||{},
+    });
+  }
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }
 }
@@ -963,7 +1004,7 @@ function setBrand(id){
   render();
 }
 function setView(id){
-  if(!navLevel(brand,id)) return;
+  if(!itemVisible(brand,id)) return;   /* itemVisible, not navLevel: `access` is role-gated */
   view=id;
   if(id!=='tasks')tasksTab='overview';
   render();

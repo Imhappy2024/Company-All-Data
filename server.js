@@ -84,6 +84,207 @@ app.get('/api/portal-config', (_req, res) => {
   res.json({ url: SUPABASE_URL, anonKey: SUPABASE_ANON_KEY });
 });
 
+/* ===========================================================================
+   Users & Roles API.
+
+   Every one of these carries the SIGNED-IN USER'S JWT through to PostgREST, so
+   RLS and the dashboard_permission / staff_dashboard triggers do the enforcing.
+   The service role is NOT used here - it bypasses RLS entirely, and the only thing
+   that legitimately needs it is the invite (Step 5) and an auth email change.
+
+   That means the guardrails cannot be bypassed by calling these routes directly:
+   over-granting, self-editing as an admin, granting Owner, and Exec-for-a-user are
+   all refused by the database. The UI's job is only to not OFFER them. When the
+   database does refuse, its message is passed back verbatim - those messages are
+   written for the person reading them.
+   =========================================================================== */
+function supabaseUserToken(req) {
+  const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+  return m ? m[1].trim() : null;
+}
+
+/* One place that knows how to talk to PostgREST as the caller.
+   Both headers are required: `apikey` identifies the project (and a modern
+   publishable key is ONLY accepted there, never as a bearer), while Authorization
+   carries the end user's token, which is what RLS reads. */
+async function sbRest(token, pathAndQuery, init = {}) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1${pathAndQuery}`, {
+    ...init,
+    headers: {
+      apikey: SUPABASE_ANON_KEY,
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      ...(init.headers || {}),
+    },
+  });
+  const text = await res.text();
+  let body = null;
+  try { body = text ? JSON.parse(text) : null; } catch (e) { body = { message: text }; }
+  if (!res.ok) {
+    /* Postgres RAISE messages arrive as body.message. Keep them intact: "You cannot
+       grant more access than you have" is the whole point of the guard. */
+    const err = new Error((body && (body.message || body.error || body.hint)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    err.details = body;
+    throw err;
+  }
+  return body;
+}
+
+/* 503 rather than a confusing failure deeper in, matching /api/portal-config. */
+function requireSupabaseConfig(res) {
+  if (SUPABASE_URL && SUPABASE_ANON_KEY) return true;
+  res.status(503).json({ error: 'Supabase is not configured on this deployment (SUPABASE_URL / SUPABASE_ANON_KEY).' });
+  return false;
+}
+function requireUserToken(req, res) {
+  const t = supabaseUserToken(req);
+  if (t) return t;
+  res.status(401).json({ error: 'Not signed in.' });
+  return null;
+}
+
+/* The grantable module catalog. Read from the database, never hard-coded in the
+   UI: a constant would drift the first time a module is added. */
+app.get('/api/access/modules', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  try {
+    const rows = await sbRest(token,
+      '/dashboard_module?select=id,company_id,module_key,nav_id,label,sort&order=sort.asc,label.asc');
+    res.json({ modules: rows || [] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+/* Staff with dashboard access, plus their grants.
+
+   Scope filter: ?company=<uuid> narrows to people who can reach that business,
+   which is what the in-business view shows. No parameter is the Executive Board
+   view: everyone, with the businesses each reaches.
+
+   The filter is applied here rather than in PostgREST because "can reach company X"
+   is three different shapes - an owner needs no rows at all, an admin holds one
+   module='*' row, a user holds per-module rows - and expressing that as a query
+   parameter would be less clear than a predicate. RLS has already limited the rows
+   to this tenant before we get here. */
+app.get('/api/access/users', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  const company = (req.query.company || '').trim() || null;
+  try {
+    const rows = await sbRest(token,
+      '/staff?select=id,full_name,email,avatar_url,is_active,dashboard_access,dashboard_role,' +
+      'dashboard_permission(id,company_id,module,level)' +
+      '&dashboard_access=is.true&order=full_name.asc');
+    let users = (rows || []).map(r => ({
+      id: r.id,
+      full_name: r.full_name,
+      email: r.email,
+      avatar_url: r.avatar_url,
+      is_active: r.is_active,
+      role: r.dashboard_role,
+      grants: (r.dashboard_permission || []).map(g => ({
+        id: g.id, company_id: g.company_id, module: g.module, level: g.level,
+      })),
+    }));
+    if (company) {
+      users = users.filter(u =>
+        u.role === 'owner' || u.grants.some(g => g.company_id === company));
+    }
+    res.json({ users, scope: company || 'exec' });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+/* Role, name, and the grant set. Email is separate - see below.
+
+   Grants arrive as the DESIRED full set for the scopes being edited, and are
+   diffed against what exists: added, changed level, removed. Sending a whole set
+   rather than individual operations keeps the drawer's Save honest - what you see
+   is what is stored. */
+app.patch('/api/access/user/:id', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  const staffId = req.params.id;
+  const b = req.body || {};
+  try {
+    /* 1. Role and name. One PATCH, so the staff guard sees them together. */
+    const staffPatch = {};
+    if (typeof b.full_name === 'string') {
+      const n = b.full_name.trim();
+      if (!n) return res.status(400).json({ error: 'A name cannot be empty.' });
+      staffPatch.full_name = n;
+    }
+    if (typeof b.role === 'string') {
+      if (!['owner', 'admin', 'user'].includes(b.role)) {
+        return res.status(400).json({ error: `Unknown role: ${b.role}` });
+      }
+      staffPatch.dashboard_role = b.role;
+    }
+
+    /* Clearing Exec BEFORE a demotion to user, in the same request: the staff guard
+       refuses to demote anyone still holding Exec grants, so doing it the other way
+       round fails with a message about a state the person has already asked to
+       leave. The UI clears the selection too; this makes the order correct even if
+       the request arrives from elsewhere. */
+    if (Array.isArray(b.grants) && staffPatch.dashboard_role === 'user') {
+      const existing = await sbRest(token,
+        `/dashboard_permission?select=id,company_id&staff_id=eq.${encodeURIComponent(staffId)}&company_id=is.null`);
+      for (const row of existing || []) {
+        await sbRest(token, `/dashboard_permission?id=eq.${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+      }
+    }
+
+    if (Object.keys(staffPatch).length) {
+      await sbRest(token, `/staff?id=eq.${encodeURIComponent(staffId)}`, {
+        method: 'PATCH',
+        headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify(staffPatch),
+      });
+    }
+
+    /* 2. Grants, diffed. */
+    if (Array.isArray(b.grants)) {
+      const want = b.grants
+        .filter(g => g && g.module && (g.level === 'read' || g.level === 'write'))
+        .map(g => ({ company_id: g.company_id || null, module: String(g.module), level: g.level }));
+      const key = g => `${g.company_id || 'exec'}::${g.module}`;
+      const wantByKey = new Map(want.map(g => [key(g), g]));
+
+      const have = await sbRest(token,
+        `/dashboard_permission?select=id,company_id,module,level&staff_id=eq.${encodeURIComponent(staffId)}`) || [];
+      const haveByKey = new Map(have.map(g => [key(g), g]));
+
+      for (const [k, g] of haveByKey) {
+        if (!wantByKey.has(k)) {
+          await sbRest(token, `/dashboard_permission?id=eq.${encodeURIComponent(g.id)}`, { method: 'DELETE' });
+        } else if (wantByKey.get(k).level !== g.level) {
+          await sbRest(token, `/dashboard_permission?id=eq.${encodeURIComponent(g.id)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ level: wantByKey.get(k).level }),
+          });
+        }
+      }
+      const toAdd = [...wantByKey.entries()].filter(([k]) => !haveByKey.has(k))
+        .map(([, g]) => ({ staff_id: staffId, company_id: g.company_id, module: g.module, level: g.level }));
+      if (toAdd.length) {
+        /* tenant_id is derived by trigger, so it is deliberately not sent. */
+        await sbRest(token, '/dashboard_permission', {
+          method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(toAdd),
+        });
+      }
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    /* Verbatim. The database's refusals are the useful part. */
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 let cachedTeamId = TEAM_ID_OVERRIDE;
