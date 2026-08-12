@@ -64,7 +64,43 @@ body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tex
 .nav-item.active{background:var(--surface-3);color:var(--text);font-weight:600}
 .nav-item .badge{margin-left:auto;font-size:11px;font-weight:500;background:none;color:var(--faint);padding:0;border-radius:0;font-variant-numeric:tabular-nums}
 .nav-item.active .badge{background:none;color:var(--dim)}
-.side-foot{border-top:1px solid var(--border);padding:8px 10px;display:flex;align-items:center;gap:10px}
+.side-foot{border-top:1px solid var(--border);padding:8px 10px;position:relative}
+/* The one identity control. A button because its menu contains Log out. */
+.idchip{width:100%;display:flex;align-items:center;gap:10px;padding:4px;border:none;border-radius:9px;
+  background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
+.idchip:hover{background:var(--surface-2,var(--panel-2))}
+.idchip-t{flex:1;min-width:0}
+.idchip-n{display:block;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.idchip-r{display:block;font-size:11px;color:var(--text3,var(--faint))}
+.idmenu{position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);z-index:60;padding:5px;
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  box-shadow:var(--shadow-lg,0 18px 50px -12px rgba(0,0,0,.5))}
+.idmenu[hidden]{display:none}
+.idmenu-h{padding:8px 9px 9px;border-bottom:1px solid var(--border);margin-bottom:5px}
+.idmenu-n{font-size:13px;font-weight:650;overflow-wrap:anywhere}
+.idmenu-e{font-size:11.5px;color:var(--text3,var(--faint));overflow-wrap:anywhere}
+.idmenu-r{font-size:11.5px;color:var(--text2);margin-top:3px}
+.idmenu-i{display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;border:none;border-radius:7px;
+  background:none;color:var(--text);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+.idmenu-i:hover,.idmenu-i:focus{background:var(--surface-2,var(--panel-2));outline:none}
+.idmenu-i.danger{color:var(--crit-ink,var(--red,#d03b3b))}
+/* Profile panel */
+.pf-head{display:flex;align-items:flex-start;gap:10px;padding:20px 22px 14px;border-bottom:1px solid var(--border)}
+.pf-t{font-size:16px;font-weight:650}
+.pf-s{font-size:12px;color:var(--text3);margin-top:2px}
+.pf-x{margin-left:auto;background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:2px 6px}
+.pf-body{padding:16px 22px 26px}
+.pf-row{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
+.pf-k{width:70px;flex:none;color:var(--text3)}
+.pf-v{color:var(--text);overflow-wrap:anywhere}
+.pf-note{margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--surface-2,var(--panel-2));
+  font-size:12px;color:var(--text2);line-height:1.55}
+.pf-sec{margin:20px 0 8px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
+.pf-full{font-size:13px;color:var(--text2)}
+.pf-scope{margin-bottom:12px}
+.pf-scope-n{font-size:12.5px;font-weight:650;margin-bottom:3px}
+.pf-scope ul{margin:0 0 0 16px;padding:0}
+.pf-scope li{font-size:12.5px;color:var(--text2);margin:2px 0}
 .avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:none}
 .avatar.mono{display:grid;place-items:center;background:var(--accent);color:#fff;font-weight:700;font-size:11px}
 
@@ -214,9 +250,19 @@ tbody tr:hover{background:var(--panel-2)}
       <div class="bp-menu" id="bpMenu"></div>
     </div>
     <nav class="nav" id="nav"></nav>
-    <div class="side-foot">
-      <div class="avatar mono">CP</div>
-      <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">Chris Pomerleau</div><div style="font-size:11px;color:var(--faint)">Owner &middot; Admin</div></div>
+    <!-- The identity control. This REPLACED a static "Chris Pomerleau / Owner ·
+         Admin" chip; there must only ever be one of these, so do not add another
+         elsewhere. Painted by renderIdentity() from the dash_my_access() payload.
+         A <button>, not a hover target: it opens a menu containing Log out, and
+         hover menus fire by accident. -->
+    <div class="side-foot" id="sideFoot">
+      <button class="idchip" id="idChip" aria-haspopup="menu" aria-expanded="false"
+              onclick="toggleIdMenu(event)" title="Account">
+        <span class="avatar mono" id="idAvatar">&nbsp;</span>
+        <span class="idchip-t"><span class="idchip-n" id="idName">&nbsp;</span>
+        <span class="idchip-r" id="idRole">&nbsp;</span></span>
+      </button>
+      <div class="idmenu" id="idMenu" role="menu" hidden></div>
     </div>
   </aside>
 
@@ -239,6 +285,10 @@ tbody tr:hover{background:var(--panel-2)}
 
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"></aside>
+
+<!-- Profile settings. Read-only by decision; see paintProfile(). -->
+<div class="scrim" id="profileScrim" onclick="closeProfile()"></div>
+<aside class="drawer" id="profileDrawer" role="dialog" aria-modal="true"></aside>
 
 <!-- Phase 4/5 modules. Plain tags, NOT defer: the inline script below runs
      during parsing and calls render() immediately, so deferred scripts would
@@ -273,6 +323,10 @@ const I={
   org:_svg('<rect x="6" y="1.8" width="4" height="3.1" rx=".6"/><rect x="1.8" y="11.1" width="4" height="3.1" rx=".6"/><rect x="10.2" y="11.1" width="4" height="3.1" rx=".6"/><path d="M8 4.9v2.9M3.8 11.1V9.3h8.4v1.8M8 9.3V7.8"/>'),
   plug:_svg('<path d="M5.8 2v3M10.2 2v3M4.4 5h7.2v2a3.6 3.6 0 0 1-7.2 0z"/><path d="M8 10.6V14"/>'),
   lock:_svg('<rect x="2.8" y="7" width="10.4" height="6.6" rx="1.3"/><path d="M5.1 7V5.1a2.9 2.9 0 0 1 5.8 0V7"/>'),
+  /* One person, and a door-with-arrow. `users` (a group) and `lock` (a padlock)
+     were the nearest existing shapes and both say the wrong thing here. */
+  user:_svg('<circle cx="8" cy="5.5" r="2.6"/><path d="M3 13.5c0-2.5 2.2-4.4 5-4.4s5 1.9 5 4.4"/>'),
+  logout:_svg('<path d="M9.5 3.2H12a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H9.5"/><path d="M6.6 10.6 4 8l2.6-2.6M4 8h6.2"/>'),
   mail:_svg('<rect x="2" y="3.6" width="12" height="8.8" rx="1.3"/><path d="M2.5 4.6 8 8.5l5.5-3.9"/>'),
   phone:_svg('<path d="M3.2 3.4c0 5.4 4 9.4 9.4 9.4l1.2-1.8-2.5-1.2-1.1 1.1c-1.8-.9-3.2-2.3-4.1-4.1l1.1-1.1L6 3.2z"/>'),
   plus:_svg('<path d="M8 3.2v9.6M3.2 8h9.6"/>','1.6'),
@@ -950,6 +1004,9 @@ function readState(){
 }
 function render(){
   writeState();
+  /* Route change closes the account menu: leaving it open over a screen the user has
+     navigated away from is disorienting, and it contains a destructive action. */
+  closeIdMenu(false);
   applyAccent();buildBrandMenu();buildNav();
   const b=BRANDS[brand];
   /* outerHTML, so the mark can switch between an <img> and an initials chip as
@@ -1060,6 +1117,135 @@ render();
    `access` is dash_my_access(), fetched ONCE and held. Step 3 gates the switcher
    and the nav off it.
    =========================================================================== */
+/* ===========================================================================
+   Identity: the sidebar chip, its menu, and the read-only profile panel.
+
+   Everything here reads the dash_my_access() payload already held in dashAccess -
+   no extra round trip. The module LABELS come from GET /api/access/modules, so the
+   panel reads "Properties: Read & Write" rather than "properties: write"; the
+   labels are fetched once, only when the panel is first opened.
+   =========================================================================== */
+const ROLE_WORD={owner:'Owner',admin:'Administrator',user:'User'};
+let moduleLabels=null;      /* "<scope>::<nav_id>" -> label */
+
+function idInitials(u){
+  const n=(u&&u.full_name||'').trim();
+  if(n){const p=n.split(/\s+/);return ((p[0]||'')[0]||'')+(p.length>1?(p[p.length-1][0]||''):'');}
+  return ((u&&u.email||'?')[0]||'?').toUpperCase();
+}
+
+function renderIdentity(){
+  const u=dashAccess&&dashAccess.user; if(!u) return;
+  document.getElementById('idAvatar').textContent=idInitials(u).toUpperCase();
+  document.getElementById('idName').textContent=u.full_name||u.email;
+  document.getElementById('idRole').textContent=ROLE_WORD[u.role]||u.role||'';
+}
+
+function closeIdMenu(returnFocus){
+  const m=document.getElementById('idMenu'); if(!m||m.hidden) return;
+  m.hidden=true;
+  document.getElementById('idChip').setAttribute('aria-expanded','false');
+  /* Focus goes back to the control that opened it, or keyboard users are dropped
+     at the top of the document. */
+  if(returnFocus) document.getElementById('idChip').focus();
+}
+
+function toggleIdMenu(ev){
+  if(ev) ev.stopPropagation();
+  const m=document.getElementById('idMenu');
+  if(!m.hidden) return closeIdMenu(true);
+  const u=(dashAccess&&dashAccess.user)||{};
+  m.innerHTML=
+    `<div class="idmenu-h">
+       <div class="idmenu-n">${esc(u.full_name||'')}</div>
+       <div class="idmenu-e">${esc(u.email||'')}</div>
+       <div class="idmenu-r">Role: ${esc(ROLE_WORD[u.role]||u.role||'')}</div>
+     </div>
+     <button class="idmenu-i" role="menuitem" onclick="openProfile()">${I.user||I.users}<span>Profile settings</span></button>
+     <button class="idmenu-i danger" role="menuitem" onclick="portalSignOut()">${I.logout||I.lock}<span>Log out</span></button>`;
+  m.hidden=false;
+  document.getElementById('idChip').setAttribute('aria-expanded','true');
+  const first=m.querySelector('.idmenu-i'); if(first) first.focus();
+}
+
+/* Outside click and Escape. Bound once, at parse time, rather than per open. */
+document.addEventListener('click',function(ev){
+  const m=document.getElementById('idMenu');
+  if(!m||m.hidden) return;
+  if(ev.target.closest&&(ev.target.closest('#idMenu')||ev.target.closest('#idChip'))) return;
+  closeIdMenu(false);
+});
+document.addEventListener('keydown',function(ev){
+  if(ev.key!=='Escape') return;
+  const m=document.getElementById('idMenu');
+  if(m&&!m.hidden) closeIdMenu(true);
+});
+
+/* PROFILE PANEL - read-only by decision. Name, email and role are changed on Users
+   & Roles by an administrator, not here, so this states that rather than offering
+   inputs that do nothing. */
+function openProfile(){
+  closeIdMenu(false);
+  if(!moduleLabels){
+    moduleLabels={};   /* set before the fetch so a second click cannot double-fire */
+    PortalSession.client().then(c=>c.auth.getSession()).then(r=>{
+      const t=r&&r.data&&r.data.session&&r.data.session.access_token;
+      return fetch('/api/access/modules',{headers:{Authorization:'Bearer '+t}});
+    }).then(r=>r.ok?r.json():{modules:[]}).then(d=>{
+      (d.modules||[]).forEach(m=>{moduleLabels[(m.company_id||'exec')+'::'+m.nav_id]=m.label;});
+      /* Repaint only if it is still open - the labels can land after a close. */
+      if(document.getElementById('profileDrawer').classList.contains('open')) paintProfile();
+    }).catch(()=>{});
+  }
+  /* .open, not the hidden attribute: .scrim and .drawer animate on that class, and
+     display:none would kill the transition. */
+  document.getElementById('profileScrim').classList.add('open');
+  document.getElementById('profileDrawer').classList.add('open');
+  paintProfile();
+}
+function closeProfile(){
+  document.getElementById('profileScrim').classList.remove('open');
+  document.getElementById('profileDrawer').classList.remove('open');
+  document.getElementById('idChip').focus();
+}
+function levelWord(l){ return l==='write'?'Read & Write':'Read'; }
+
+function paintProfile(){
+  const u=(dashAccess&&dashAccess.user)||{};
+  const acc=(dashAccess&&dashAccess.access)||{};
+  const companies=(dashAccess&&dashAccess.companies)||{};
+  let accessHtml;
+  if(u.role==='owner'){
+    /* 49 rows that always say the same thing tell nobody anything. */
+    accessHtml='<div class="pf-full">Full access to all workspaces.</div>';
+  }else{
+    const scopes=Object.keys(acc);
+    accessHtml=scopes.length?scopes.map(s=>{
+      const name=s==='exec'?'Executive Board':(companies[s]||'A business');
+      const mods=acc[s]||{};
+      const rows=Object.keys(mods).map(nav=>{
+        const label=(moduleLabels&&moduleLabels[s+'::'+nav])||nav;
+        return `<li>${esc(label)}: ${esc(levelWord(mods[nav]))}</li>`;
+      }).join('');
+      return `<div class="pf-scope"><div class="pf-scope-n">${esc(name)}</div><ul>${rows}</ul></div>`;
+    }).join(''):'<div class="pf-full">No access has been granted yet.</div>';
+  }
+  document.getElementById('profileDrawer').innerHTML=
+    `<div class="pf-head">
+       <div><div class="pf-t">Profile settings</div><div class="pf-s">Your account and what it can reach</div></div>
+       <button class="pf-x" onclick="closeProfile()" aria-label="Close">&#10005;</button>
+     </div>
+     <div class="pf-body">
+       <div class="pf-row"><span class="pf-k">Name</span><span class="pf-v">${esc(u.full_name||'—')}</span></div>
+       <div class="pf-row"><span class="pf-k">Email</span><span class="pf-v">${esc(u.email||'—')}</span></div>
+       <div class="pf-row"><span class="pf-k">Role</span><span class="pf-v">${esc(ROLE_WORD[u.role]||u.role||'—')}</span></div>
+       <div class="pf-note">These are managed for you. To change your name, email or
+         role, contact an administrator &mdash; they can update them on Users &amp; Roles.</div>
+       <div class="pf-sec">Your access</div>
+       ${accessHtml}
+     </div>`;
+}
+
 function reveal(){ const g=document.getElementById('authGate'); if(g) g.remove(); }
 function toLogin(){ location.replace('/login'); }
 
@@ -1126,6 +1312,7 @@ if(window.PortalSession){
          honoured when it is allowed and dropped when it is not. readState() ran
          before the payload landed, when every permission check was a no-op. */
       readState();
+      renderIdentity();     /* the sidebar chip, from the same payload */
       render();
       reveal();
     })
