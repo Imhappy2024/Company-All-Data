@@ -151,10 +151,33 @@ that does not exist yet.
 Hardening note that cost time: `revoke execute … from anon` does **not** make a
 function private. Postgres grants EXECUTE to `PUBLIC` on every new function and
 anon inherits it, so `app_my_access()` stayed callable via `/rest/v1/rpc/` after
-the anon revoke reported success. Revoke from `PUBLIC`. `authenticated` must keep
-`app_my_role()` and `current_app_user_id()`, because the `app_user` /
-`app_permission` policies call them directly and policy expressions run as the
-querying role.
+the anon revoke reported success. **Revoke from `PUBLIC`, then grant back the roles
+that need it.** `authenticated` must keep `app_my_role()` and
+`current_app_user_id()`, because the `app_user` / `app_permission` policies call
+them directly and policy expressions run as the querying role.
+
+Current grants on the access layer, and why:
+- `app_my_access`, `my_level`, `app_my_role` — `authenticated` only. The browser
+  calls `app_my_access()` at boot; the other two are called by policies.
+- `app_level_for` — **postgres/service_role only**, revoked from `authenticated`
+  too. It is an internal resolver reached through `my_level()`, which is SECURITY
+  DEFINER, so nothing user-facing needs it. Leaving it exposed let a signed-in user
+  resolve someone else's level by guessing an `app_user` id.
+- `current_app_user_id`, `app_level_rank` — left PUBLIC on purpose. No arguments
+  and returns null without a session; and a pure text-to-int mapper. Neither leaks.
+
+**Two constraints for later phases, decided 2026-08-11:**
+1. **Phase 9 — never call `canWrite()` with a null company.** The admin branch of
+   `app_level_for()` ignores `p_module` for the Exec scope, so
+   `my_level(null, '<anything>')` returns `write` for any admin holding Exec,
+   including module keys that are not in the catalog at all. Harmless today only
+   because `app_my_access()` iterates real `app_module` rows. A generic "am I
+   allowed" check against a null company would silently answer yes.
+2. **Phase 12 — apply the PUBLIC-revoke shape to the four helpers being rewritten**
+   (`current_tenant_ids`, `tenant_role`, `current_company_ids`, `company_role`).
+   They are in the same PUBLIC-executable set. The 214 RLS policies call them
+   directly, so `authenticated` genuinely needs EXECUTE — but `anon` does not.
+   `revoke … from public` then `grant … to authenticated`.
 
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;

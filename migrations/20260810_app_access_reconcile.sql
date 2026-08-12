@@ -324,13 +324,19 @@ grant execute on function public.app_my_access() to authenticated;
 --    where n.nspname='public'
 --      and proname in ('app_my_access','my_level','app_my_role','app_level_for');
 --
--- STILL anon-callable and deliberately left alone: current_app_user_id() and
--- app_level_rank(). Both pre-existing, both named by neither this phase nor 7f,
--- and neither leaks anything - without a session the first returns null and the
--- second is a pure integer mapping. app_level_for() remains callable by
--- `authenticated`, which lets a signed-in user read another user's level if they
--- can guess an app_user id. Worth revisiting in Phase 10, when it is clear
--- whether anything in the browser needs it; it is not needed there today.
+-- app_level_for() is revoked from EVERY caller, not just anon. It is an internal
+-- resolver, no RLS policy references it, and its only callers (my_level,
+-- app_permission_guard) are SECURITY DEFINER, so their inner calls run as postgres
+-- and are unaffected. Leaving it callable by `authenticated` would have let a
+-- signed-in user resolve another user's level by guessing an app_user id, since the
+-- function is SECURITY DEFINER and bypasses app_permission's RLS.
+revoke execute on function public.app_level_for(uuid, uuid, text)
+  from public, anon, authenticated;
+
+-- STILL PUBLIC-executable and deliberately left that way: current_app_user_id()
+-- and app_level_rank(). The first takes no arguments and returns null when
+-- auth.uid() is null; the second is a pure text-to-int mapper. Neither leaks, and
+-- churning on them costs more than it buys.
 
 -- ===========================================================================
 -- Fallback for 7d, ONLY if a Supabase Auth user for this address already exists
