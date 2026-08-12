@@ -1657,8 +1657,53 @@ app.post('/api/properties/building', async (req, res) => {
   }
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+/* ---------------------------------------------------------------------------
+   Unmatched paths.
+
+   This used to be `app.get('*')` -> sendFile(public/index.html), so /login,
+   /invite and every typo rendered the ClickUp ops dashboard. That is why a route
+   that did not exist still looked like a working page, and why a missing route
+   was impossible to tell apart from a broken one.
+
+   Everything real is registered before this point: the explicit routes (/, /ops,
+   /login, /invite), express.static for public/, and every /api/* handler.
+
+   Checked before changing it, because a 404 here could break the ClickUp sign-in
+   return: /auth/callback redirects to `dest + '#auth=' + payload`, and
+   safeReturnPath() accepts any same-origin path. But `dest` originates in
+   defaultReturnPath() in public/portal-auth.js, which returns
+   location.pathname (+ ?v=) of a page that was actually served - so it is always
+   an explicit route or a static file, and never lands here. The only paths that
+   change behaviour are ones that were being served the wrong page anyway.
+   --------------------------------------------------------------------------- */
+
+/* API 404s must stay JSON. Callers do res.json() on these, and an HTML body turns
+   a plain 404 into an unrelated-looking JSON parse error in the browser. */
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `No such API route: ${req.method} /api${req.path}` });
+});
+
+app.use((req, res) => {
+  res.status(404).type('html').send(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Not found</title>
+<link rel="stylesheet" href="/tokens.css">
+<style>
+  body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
+       background:var(--bg,#0f1115);color:var(--text,#e7ecf3);
+       font-family:var(--font,system-ui,sans-serif);text-align:center;padding:24px}
+  .c{max-width:440px}
+  h1{margin:0 0 8px;font-size:44px;font-weight:300;letter-spacing:-1px;color:var(--text,#e7ecf3)}
+  p{margin:0 0 20px;font-size:14px;line-height:1.6;color:var(--text2,#9aa6b6)}
+  a{display:inline-block;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:600;
+    text-decoration:none;background:var(--accent,#4f6bed);color:#fff}
+</style></head>
+<body><div class="c">
+  <h1>404</h1>
+  <p>There is nothing at <code>${req.path.replace(/[<>&"]/g, '')}</code>.</p>
+  <a href="/">Back to the dashboard</a>
+</div></body></html>`);
 });
 
 app.listen(PORT, '0.0.0.0', () => {
