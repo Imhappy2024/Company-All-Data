@@ -174,9 +174,18 @@ app.get('/api/access/users', async (req, res) => {
   const token = requireUserToken(req, res); if (!token) return;
   const company = (req.query.company || '').trim() || null;
   try {
+    /* The embed MUST name the constraint. dashboard_permission has two foreign keys
+       to staff - staff_id (the subject) and granted_by (an audit column) - so an
+       unqualified `dashboard_permission(...)` is ambiguous and PostgREST refuses it
+       with HTTP 300 PGRST201 rather than guessing.
+       `!staff_id` (the column form) also works on current PostgREST, but the
+       constraint name is the version-stable spelling. Note that
+       `!dashboard_permission_granted_by_fkey` is ALSO accepted and returns 200 -
+       it would silently join on who granted the row rather than whose row it is,
+       which is why this is spelled out rather than left to a hint that "works". */
     const rows = await sbRest(token,
       '/staff?select=id,full_name,email,avatar_url,is_active,dashboard_access,dashboard_role,' +
-      'dashboard_permission(id,company_id,module,level)' +
+      'dashboard_permission!dashboard_permission_staff_id_fkey(id,company_id,module,level)' +
       '&dashboard_access=is.true&order=full_name.asc');
     let users = (rows || []).map(r => ({
       id: r.id,

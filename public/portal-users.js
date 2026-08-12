@@ -322,7 +322,10 @@
     (d.role === 'user'
       ? '<div class="pu-note">Executive Board is not available to a User. Any Executive ' +
         'Board access is cleared when the role is set to User.</div>'
-      : '');
+      : '<div class="pu-note">An Administrator holds whole businesses, so the ' +
+        'per-module choices are replaced by a single tick per business. Switching ' +
+        'back to User before saving restores them &mdash; nothing is written until ' +
+        'you press Save.</div>');
   }
 
   function stepAccess(d) {
