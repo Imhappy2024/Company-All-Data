@@ -80,10 +80,20 @@ body{font-family:Inter,system-ui,sans-serif;background:var(--bg);color:var(--tex
 .idmenu-n{font-size:13px;font-weight:650;overflow-wrap:anywhere}
 .idmenu-e{font-size:11.5px;color:var(--text3,var(--faint));overflow-wrap:anywhere}
 .idmenu-r{font-size:11.5px;color:var(--text2);margin-top:3px}
-.idmenu-i{display:flex;align-items:center;gap:9px;width:100%;padding:7px 9px;border:none;border-radius:7px;
-  background:none;color:var(--text);font:inherit;font-size:12.5px;text-align:left;cursor:pointer}
+/* An _svg() icon carries a viewBox and no intrinsic size, so without this rule it
+   renders at the SVG default (300x150) and each menu row becomes a tall block with a
+   wrapped label. Every other icon context declares its own size - .nav-item svg,
+   .tb-btn svg, .btn svg - and this menu was the only one inheriting nothing.
+   Same metrics as .nav-item, so the menu reads as a continuation of the sidebar. */
+.idmenu svg{width:16px;height:16px;flex:none;opacity:.8}
+.idmenu-i{display:flex;align-items:center;gap:9px;width:100%;min-height:32px;padding:0 9px;
+  border:none;border-radius:7px;background:none;color:var(--text);font:inherit;font-size:12.5px;
+  line-height:1.2;text-align:left;white-space:nowrap;cursor:pointer}
+.idmenu-i span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
 .idmenu-i:hover,.idmenu-i:focus{background:var(--surface-2,var(--panel-2));outline:none}
+/* Destructive, so it keeps the red. */
 .idmenu-i.danger{color:var(--crit-ink,var(--red,#d03b3b))}
+.idmenu-i.danger svg{opacity:1}
 /* Profile panel */
 .pf-head{display:flex;align-items:flex-start;gap:10px;padding:20px 22px 14px;border-bottom:1px solid var(--border)}
 .pf-t{font-size:16px;font-weight:650}
@@ -1023,8 +1033,15 @@ function render(){
   content.className='content'+(embed?' wide embed-lean':'');
   /* Read-only means read-only: no New button where the level is 'read'. The
      database refuses the write anyway, but a button that always fails is worse
-     than no button. canWrite() resolves inside the current brand's scope. */
-  const newBtn=canWrite(view)?`<button class="btn">${I.plus} New</button>`:'';
+     than no button. canWrite() resolves inside the current brand's scope.
+
+     Users & Roles names its action instead: "New" on an access screen is ambiguous -
+     new what - and this is the only thing it creates. It is the single control for
+     it; portal-users.js deliberately does not render its own, or there would be two
+     buttons doing the same job. Shown on the same role gate as the screen itself. */
+  const newBtn = view==='access'
+    ? (canSeeAccess()?`<button class="btn" onclick="PortalUsers.openAdd()">${I.plus} Invite user</button>`:'')
+    : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
   const pageH=embed?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
   content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
   /* The native Tasks screen must be painted after innerHTML replaces the

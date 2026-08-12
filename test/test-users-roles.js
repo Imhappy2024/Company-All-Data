@@ -386,11 +386,18 @@ function stub(payload) {
     await ctx.close();
 
     /* ------------------------------------------------- the add-person picker */
-    console.log('\nAdd person can pick an existing staff member');
+    console.log('\nInvite user can pick an existing staff member');
     ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
-    await page.waitForSelector('[data-act="add"]');
-    await page.click('[data-act="add"]');
+    /* The page header owns this action. "New" on an access screen is ambiguous, and
+       there is exactly one control for it - portal-users.js renders none of its own. */
+    await page.waitForSelector('.page-h .btn');
+    check('the action is named, not "New"',
+      (await page.textContent('.page-h .btn')).trim(), 'Invite user');
+    check('and there is only one of it', await page.locator('.page-h .btn').count(), 1);
+    await page.click('.page-h .btn');
     await page.waitForSelector('.pu-drawer');
+    check('the drawer header matches the button',
+      (await page.textContent('.pu-dr-t')).trim(), 'Invite user');
     await page.waitForSelector('.pu-pick', { timeout: 8000 });
     check('candidates are staff WITHOUT dashboard access',
       await page.$$eval('.pu-pick', b => b.map(x => x.getAttribute('data-id'))),
@@ -449,7 +456,7 @@ function stub(payload) {
       /Pending until they open the link/.test(await page.textContent('.pu-msg')), true);
 
     console.log('\nNothing chosen means nothing to send');
-    await page.click('[data-act="add"]');
+    await page.click('.page-h .btn');
     await page.waitForSelector('.pu-drawer');
     await page.click('[data-act="step"][data-step="3"]');
     await page.waitForTimeout(200);

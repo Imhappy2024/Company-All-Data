@@ -179,7 +179,8 @@
             ' Staff without dashboard access are not listed here &mdash; they are on Team directory.' +
           '</div>' +
         '</div>' +
-        '<button class="pu-btn" data-act="add">Add person</button>' +
+      /* No button here: the page header owns "Invite user", so rendering one would
+         put two identical controls on the same screen. */
       '</div>' +
       table() +
       drawer();
@@ -279,8 +280,12 @@
     return '<div class="pu-scrim" data-act="close"></div>' +
       '<aside class="pu-drawer" role="dialog" aria-modal="true">' +
         '<div class="pu-dr-head">' +
-          '<div><div class="pu-dr-t">' + esc(u.full_name || u.email) + '</div>' +
-          '<div class="pu-dr-s">' + esc(u.email) + '</div></div>' +
+          /* Adding has no person yet, so the header names the action rather than
+             rendering an empty title. Matches the button that opened it. */
+          '<div><div class="pu-dr-t">' + (ui.adding ? 'Invite user' : esc(u.full_name || u.email)) + '</div>' +
+          '<div class="pu-dr-s">' +
+            (ui.adding ? 'They receive an email invitation and choose their own password.'
+                       : esc(u.email)) + '</div></div>' +
           '<button class="pu-icon" data-act="close" aria-label="Close">&#10005;</button>' +
         '</div>' +
         steps() +
@@ -824,6 +829,7 @@
 
   window.PortalUsers = {
     render: render,
+    openAdd: openAdd,        /* the page header's "Invite user" button calls this */
     invalidate: function () { ui.users = null; },
     _internals: { ui: ui, reachOf: reachOf, hereSummary: hereSummary, myCap: myCap },
   };

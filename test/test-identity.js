@@ -132,6 +132,36 @@ function stub(payload) {
     check('and the two actions', await page.$$eval('#idMenu .idmenu-i', b => b.map(x => x.textContent.trim())),
       ['Profile settings', 'Log out']);
 
+    console.log('\nIt is the right SIZE, not just the right structure');
+    /* An _svg() icon has a viewBox and no intrinsic size, so a container that
+       declares none renders it at the SVG default and every row becomes a tall
+       block with a wrapped label. Every check above passed on exactly that, which
+       is why these exist: structure and behaviour are not appearance. */
+    const iconBox = await page.$$eval('#idMenu .idmenu-i svg',
+      e => e.map(x => [Math.round(x.getBoundingClientRect().width),
+                       Math.round(x.getBoundingClientRect().height)]));
+    check('icons are 16x16, like every other icon context', iconBox, [[16, 16], [16, 16]]);
+    const rows = await page.$$eval('#idMenu .idmenu-i',
+      e => e.map(x => Math.round(x.getBoundingClientRect().height)));
+    check('each action is a single row, not a block', rows.every(h => h <= 40), true);
+    check('and Log out does not wrap',
+      await page.$$eval('#idMenu .idmenu-i span',
+        e => e.map(x => Math.round(x.getBoundingClientRect().height)).every(h => h <= 22)), true);
+    check('the menu itself stays compact',
+      await page.$eval('#idMenu', e => e.getBoundingClientRect().height < 220), true);
+    check('Log out keeps its destructive colour',
+      await page.$eval('#idMenu .idmenu-i.danger', e => getComputedStyle(e).color !==
+        getComputedStyle(document.querySelector('#idMenu .idmenu-i:not(.danger)')).color), true);
+
+    /* A picture of the one component just built. The assertions above would have
+       caught this particular fault, but a screenshot catches the next one. */
+    await page.screenshot({ path: path.join(__dirname, 'shot-account-menu.png'),
+                            clip: await page.$eval('#sideFoot', e => {
+                              const r = e.getBoundingClientRect();
+                              return { x: 0, y: Math.max(0, r.top - 190), width: 300, height: r.height + 200 };
+                            }) });
+    console.log('        wrote shot-account-menu.png');
+
     console.log('\nIt closes the three ways it must');
     await page.click('#content');
     check('outside click', await page.$eval('#idMenu', e => e.hidden), true);

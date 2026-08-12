@@ -60,15 +60,22 @@ app.use(express.json());
 // Mounted after express.json() above, which realtime.js relies on for req.body.
 realtime.mount(app);
 
-app.get('/', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'portal.html')));
-app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+/* The four HTML entry points are served by sendFile, which does NOT go through
+   express.static's setHeaders below - so they need the same treatment here or the
+   shell could be cached while its scripts revalidate, which is the worst mix. */
+function sendPage(res, file) {
+  res.setHeader('Cache-Control', 'no-cache');
+  res.sendFile(path.join(__dirname, 'public', file));
+}
+app.get('/', (_req, res) => sendPage(res, 'portal.html'));
+app.get('/ops', (_req, res) => sendPage(res, 'index.html'));
 /* Registered here, well above the 404 fallback at the bottom of this file. Before
    that fallback existed these paths fell through to app.get('*') and rendered the
    ClickUp ops dashboard. */
-app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+app.get('/login', (_req, res) => sendPage(res, 'login.html'));
 /* Where invite and password-reset links land. Both end in "choose a password", so
    they are one page; ?mode=reset only changes the wording. */
-app.get('/invite', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'invite.html')));
+app.get('/invite', (_req, res) => sendPage(res, 'invite.html'));
 
 /* Supabase browser config. The anon key is publishable - RLS is the access
    boundary - so serving it to the client is fine. Hard-coding it in
@@ -634,7 +641,31 @@ app.patch('/api/access/user/:id', async (req, res) => {
   }
 });
 
-app.use(express.static(path.join(__dirname, 'public')));
+/* ---------------------------------------------------------------------------
+   Static assets, and why the cache headers are explicit.
+
+   Nothing here is fingerprinted: it is portal-users.js, not
+   portal-users.a1b2c3.js. So any cache lifetime longer than "revalidate" means a
+   browser can keep serving code from before a deploy - and a bug that was fixed
+   three commits ago reappears, which is unfalsifiable from the outside and wastes
+   everyone's time deciding whether the fix is real.
+
+   `no-cache` does NOT mean "do not store". It means store it, but revalidate every
+   time. Responses stay cached and unchanged files come back as a 304 with no body,
+   so the cost is one conditional request per file, and a deploy is picked up on the
+   next load rather than whenever a heuristic expires.
+
+   Images and fonts are content, not code: they may sit in cache for an hour.
+   --------------------------------------------------------------------------- */
+const IMMUTABLE_ISH = /\.(png|jpe?g|gif|svg|ico|woff2?|ttf)$/i;
+app.use(express.static(path.join(__dirname, 'public'), {
+  etag: true,
+  lastModified: true,
+  setHeaders(res, filePath) {
+    res.setHeader('Cache-Control',
+      IMMUTABLE_ISH.test(filePath) ? 'public, max-age=3600' : 'no-cache');
+  },
+}));
 
 let cachedTeamId = TEAM_ID_OVERRIDE;
 let cachedTeams = null;
