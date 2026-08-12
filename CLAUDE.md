@@ -103,6 +103,59 @@ Added for this project:
   (maturities). All expose `property_name` + `management_company` (the PM filter). All six
   are surfaced in the ops **Loan Views** tab.
 
+## Access layer: app_user / app_module / app_permission (Phase 7, 2026-08-11)
+Applied by `migrations/20260810_app_access_reconcile.sql`. This is the login and
+permission layer the portal will gate on. It is **not** the RLS layer — that is
+still `tenant_member` / `company_member` and the four helpers below, until Phase 12.
+
+- `app_user(role: owner|admin|user)` — one row per person, `auth_user_id` links to
+  Supabase Auth. `app_module` is the catalog of grantable modules (49 rows).
+  `app_permission(app_user_id, company_id, module, level: read|write)` is a grant.
+- Resolution, in `app_level_for()`: **owner** → always `write`, needs no rows.
+  **admin** → `write` on a company holding a `module='*'` row; `write` across the
+  whole Executive scope from one `(company_id IS NULL, module='executive')` row.
+  **user** → the exact level on the matching `(company_id, module)` row, else none.
+
+**`app_my_access()` is the frontend contract.** One round trip returns
+`{user, companies, access}` where access is `{ "<company_id|exec>": { "<nav_id>":
+"read"|"write" } }`, and an absent key means no access. **Never call `my_level()`
+per module from the browser** — Exec plus four brands is up to 39 requests to
+paint one sidebar.
+
+**`app_module.nav_id` is the join to the portal, `module_key` is the catalog name.**
+They differ where the two were named independently: `marketing→ads`,
+`app_users→subscribers`, `loan_pipeline→pipeline`, `executive→exec`. The rule:
+**add a nav item, add its `app_module` row**, or it is invisible to everyone except
+owners. `uq_app_module_nav` enforces one nav_id per scope, because `app_my_access()`
+builds its payload with `jsonb_object_agg(nav_id, …)` and would raise on a
+duplicate — that would break the access call at boot for every user.
+
+**Executive Board is owner/admin only**, enforced in `app_permission_guard()`, not
+just hidden in the UI. `app_user_guard()` also refuses to demote an admin to `user`
+while they still hold Exec grants, so the rows can never be silently orphaned.
+
+An admin's Exec grant is **scope-wide, not per-module**. `app_level_for()` keys the
+Exec branch on `p_company IS NULL` rather than `p_module = 'executive'`; the older
+form fell through to the `module='*'` lookup and compared `company_id = NULL`,
+which is never true, so the seven non-`executive` Exec modules resolved to nothing
+for every admin.
+
+`handle_new_user()` on `auth.users` does double duty: the pre-existing `profiles`
+insert **and** claiming any `app_user` row waiting on that email
+(`auth_user_id is null`). Extended rather than adding a second trigger — two
+independent AFTER INSERT triggers would race and neither would own the result. This
+is why no manual auth-linking step is needed when someone accepts an invite.
+`app_user.auth_user_id` has a FK to `auth.users`, so it cannot be set to a UUID
+that does not exist yet.
+
+Hardening note that cost time: `revoke execute … from anon` does **not** make a
+function private. Postgres grants EXECUTE to `PUBLIC` on every new function and
+anon inherits it, so `app_my_access()` stayed callable via `/rest/v1/rpc/` after
+the anon revoke reported success. Revoke from `PUBLIC`. `authenticated` must keep
+`app_my_role()` and `current_app_user_id()`, because the `app_user` /
+`app_permission` policies call them directly and policy expressions run as the
+querying role.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
