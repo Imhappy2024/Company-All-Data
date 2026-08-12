@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Choose a password · LeavenWealth Group</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>document.documentElement.setAttribute('data-theme','dark');</script>
+<link rel="stylesheet" href="/tokens.css">
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px;
+       font-family:Inter,system-ui,sans-serif;font-size:13.5px;line-height:1.45;
+       background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+  .card{width:100%;max-width:410px;background:var(--surface);border:1px solid var(--border);
+        border-radius:var(--radius,12px);box-shadow:var(--shadow-lg,0 24px 70px -12px rgba(0,0,0,.5));
+        padding:28px 26px}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:20px}
+  .brand-mark{width:34px;height:34px;border-radius:8px;background:#fff;display:flex;
+              align-items:center;justify-content:center;flex:none;overflow:hidden}
+  .brand-mark img{width:100%;height:100%;object-fit:contain}
+  .brand-t{font-size:14.5px;font-weight:650}
+  .brand-s{font-size:11.5px;color:var(--text3)}
+  h1{font-size:19px;font-weight:600;margin-bottom:4px}
+  .sub{font-size:12.5px;color:var(--text2);margin-bottom:18px}
+  label{display:block;font-size:11.5px;font-weight:600;letter-spacing:.03em;
+        text-transform:uppercase;color:var(--text3);margin-bottom:6px}
+  .field{margin-bottom:14px}
+  input[type=password]{width:100%;height:38px;padding:0 11px;border-radius:8px;
+        border:1px solid var(--border);background:var(--bg);color:var(--text);font:inherit;font-size:13.5px}
+  input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft,rgba(79,107,237,.18))}
+  .hint{font-size:11.5px;color:var(--text3);margin:-8px 0 14px}
+  button.primary{width:100%;height:40px;border:none;border-radius:8px;background:var(--accent);
+        color:#fff;font:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+  button.primary:disabled{opacity:.6;cursor:progress}
+  .msg{margin-bottom:16px;padding:10px 12px;border-radius:8px;font-size:12.5px;line-height:1.55}
+  .msg.bad{background:var(--crit-soft,rgba(208,59,59,.12));color:var(--crit-ink,#ff8888);
+           border:1px solid var(--crit,#d03b3b)}
+  .msg.ok{background:var(--good-soft,rgba(12,163,12,.12));color:var(--good-ink,#66d166);
+          border:1px solid var(--good,#0ca30c)}
+  .msg[hidden]{display:none}
+  .link{background:none;border:none;padding:0;font:inherit;font-size:12.5px;
+        color:var(--accent);cursor:pointer;text-decoration:none}
+  .link:hover{text-decoration:underline}
+  .foot{margin-top:16px;text-align:center}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="brand">
+    <span class="brand-mark"><img src="/icons/leavenwealth-mark.svg" alt=""
+      onerror="this.parentNode.textContent='LW';this.parentNode.style.background='var(--accent)';this.parentNode.style.color='#fff';this.parentNode.style.fontWeight='700'"></span>
+    <div><div class="brand-t">LeavenWealth Group</div><div class="brand-s">Company dashboard</div></div>
+  </div>
+
+  <h1 id="title">Choose a password</h1>
+  <div class="sub" id="sub">Set a password and you are ready to sign in.</div>
+  <div class="msg bad" id="msg" hidden></div>
+
+  <form id="form">
+    <div class="field">
+      <label for="pw1">New password</label>
+      <input id="pw1" type="password" autocomplete="new-password" required>
+    </div>
+    <!-- The minimum is stated up front rather than only on failure. -->
+    <div class="hint">At least 8 characters.</div>
+    <div class="field">
+      <label for="pw2">Confirm password</label>
+      <input id="pw2" type="password" autocomplete="new-password" required>
+    </div>
+    <button class="primary" id="go" type="submit">Save password</button>
+  </form>
+
+  <div class="foot" id="foot" hidden>
+    <a class="link" href="/login">Go to sign in</a>
+  </div>
+</div>
+
+<script src="/portal-session.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var MIN = 8;
+  var isReset = /(^|[?&])mode=reset(&|$)/.test(location.search);
+
+  function show(text, kind) {
+    $('msg').textContent = text;
+    $('msg').className = 'msg ' + (kind || 'bad');
+    $('msg').hidden = false;
+  }
+  function fatal(text) {
+    show(text, 'bad');
+    $('form').hidden = true;
+    $('foot').hidden = false;
+  }
+
+  if (isReset) {
+    $('title').textContent = 'Set a new password';
+    $('sub').textContent = 'Choose a new password for your account.';
+  }
+
+  /* Supabase puts the token in the URL FRAGMENT, not the query string, so it never
+     reaches the server - which is the point. detectSessionInUrl is off in
+     portal-session.js (the portal must not consume fragments), so this page reads
+     the fragment itself and calls setSession explicitly.
+
+     An error can also arrive in the fragment - error=access_denied with
+     error_code=otp_expired for a link that has been used or has timed out - and that
+     is the case worth handling well, because it is the one people actually hit. */
+  var frag = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  var access = frag.get('access_token');
+  var refresh = frag.get('refresh_token');
+  var errCode = frag.get('error_code') || frag.get('error');
+  var errDesc = frag.get('error_description');
+
+  /* Strip the fragment immediately, whatever it held: it carries a live session and
+     should not survive in history, a bookmark or a shared URL. */
+  function stripFragment() {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+  }
+
+  var ready = (function () {
+    if (errCode) {
+      stripFragment();
+      var expired = /expired|invalid/i.test(errCode + ' ' + (errDesc || ''));
+      fatal(expired
+        ? 'That link has expired or has already been used. Links can only be used once. ' +
+          'Ask an administrator to send a new invitation, or use Forgot password on the sign-in page.'
+        : 'That link could not be used' + (errDesc ? ': ' + errDesc.replace(/\+/g, ' ') : '.') +
+          ' Ask an administrator for a new one.');
+      return Promise.reject(new Error('link error'));
+    }
+    if (!access || !refresh) {
+      stripFragment();
+      fatal('This page needs the link from your invitation or password-reset email. ' +
+            'Open that link again, or use Forgot password on the sign-in page.');
+      return Promise.reject(new Error('no token'));
+    }
+    return PortalSession.client().then(function (c) {
+      return c.auth.setSession({ access_token: access, refresh_token: refresh });
+    }).then(function (r) {
+      stripFragment();
+      if (r.error) throw r.error;
+      return true;
+    }).catch(function (e) {
+      stripFragment();
+      fatal('That link could not be used: ' + (e && e.message || e) +
+            ' Ask an administrator for a new one.');
+      throw e;
+    });
+  })();
+  ready.catch(function () { /* already surfaced */ });
+
+  $('form').onsubmit = function (ev) {
+    ev.preventDefault();
+    $('msg').hidden = true;
+    var a = $('pw1').value, b = $('pw2').value;
+    if (a.length < MIN) return show('Use at least ' + MIN + ' characters.');
+    if (a !== b) return show('Those two passwords do not match.');
+
+    $('go').disabled = true;
+    $('go').textContent = 'Saving…';
+    ready
+      .then(function () { return PortalSession.client(); })
+      .then(function (c) { return c.auth.updateUser({ password: a }); })
+      .then(function (r) {
+        if (r.error) throw r.error;
+        /* Sign out and send them to /login rather than straight into the dashboard:
+           signing in once themselves is what proves the password actually works, and
+           it puts them through the remember-this-device choice. */
+        return PortalSession.signOut();
+      })
+      .then(function () {
+        show('Password saved. Signing you in…', 'ok');
+        setTimeout(function () { location.replace('/login'); }, 900);
+      })
+      .catch(function (e) {
+        show((e && e.message) || 'Could not save that password.');
+        $('go').disabled = false;
+        $('go').textContent = 'Save password';
+      });
+  };
+})();
+</script>
+</body></html>

@@ -66,6 +66,7 @@ const CANDIDATES = [
 ];
 
 let lastPatch = null;
+let lastInvite = null;
 let patchShouldFail = null;
 
 const MIME = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
@@ -79,6 +80,20 @@ const server = http.createServer((req, res) => {
   };
   if (p === '/api/access/modules') return json(200, { modules: MODULES });
   if (p === '/api/access/candidates') return json(200, { candidates: CANDIDATES });
+  if (p.startsWith('/api/access/grants/')) {
+    /* Grants survive a revoke, so re-granting shows what is coming back. */
+    const id = p.split('/').pop();
+    return json(200, { grants: id === 'c-mitch'
+      ? [{ company_id: LW, module: 'properties', level: 'read' }] : [] });
+  }
+  if (p === '/api/access/invite' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    return req.on('end', () => {
+      lastInvite = JSON.parse(body || '{}');
+      json(200, { ok: true, staff_id: 's-new', email: lastInvite.email, pending: true });
+    });
+  }
   if (p === '/api/access/users') {
     const company = u.searchParams.get('company');
     let users = USERS;
@@ -394,6 +409,18 @@ function stub(payload) {
     check('and says so in as many words',
       await page.evaluate(() => /No second record is created/.test(document.body.textContent)), true);
 
+    /* Revoke leaves grant rows in place, so re-granting hands them back. Six months
+       is long enough for that to have become wrong, so it is shown, not restored
+       quietly. */
+    await page.waitForTimeout(400);
+    check('previous access is shown before it is handed back',
+      await page.evaluate(() => /previous access back/i.test(document.body.textContent)), true);
+    check('itemised by catalog label, not module key',
+      await page.evaluate(() => /Properties: Read/.test(document.body.textContent)), true);
+    check('and pre-loaded into the draft so it can be changed',
+      await page.evaluate(() => (PortalUsers._internals.ui.draft.grants[
+        'c0000000-0000-4000-8000-000000000003'] || {}).properties), 'read');
+
     console.log('\nFree text is still allowed for someone genuinely new');
     await page.fill('#puPick', 'brand-new@example.invalid');
     await page.waitForTimeout(250);
@@ -404,16 +431,31 @@ function stub(payload) {
     /* The Send button only exists on step 3; steps 1 and 2 show Next. */
     await page.click('[data-act="step"][data-step="3"]');
     await page.waitForTimeout(200);
-    check('sending is disabled until the invite flow exists, with the reason',
-      await page.evaluate(() => {
-        var b = [...document.querySelectorAll('.pu-dr-foot button')].pop();
-        return [b.disabled, /service role/.test(b.getAttribute('title') || '')];
-      }), [true, true]);
-    check('but the role and access choices still work meanwhile',
-      await page.evaluate(() => {
-        setTimeout(function(){}, 0);
-        return document.querySelectorAll('.pu-scope input[data-act="scope"]').length > 0;
-      }), true);
+    const sendBtn = () => page.evaluate(() => {
+      const b = [...document.querySelectorAll('.pu-dr-foot button')].pop();
+      return { text: b.textContent.trim(), disabled: b.disabled, title: b.getAttribute('title') || '' };
+    });
+    check('an address is enough to send', (await sendBtn()).disabled, false);
+
+    console.log('\nSending posts the invite');
+    lastInvite = null;
+    await page.click('[data-act="invite"]');
+    await page.waitForTimeout(500);
+    check('it called the invite endpoint', !!lastInvite, true);
+    check('with the typed address and the chosen role',
+      lastInvite && [lastInvite.email, lastInvite.role], ['brand-new@example.invalid', 'user']);
+    check('and the drawer closed on success', await page.locator('.pu-drawer').count(), 0);
+    check('with a message that explains Pending',
+      /Pending until they open the link/.test(await page.textContent('.pu-msg')), true);
+
+    console.log('\nNothing chosen means nothing to send');
+    await page.click('[data-act="add"]');
+    await page.waitForSelector('.pu-drawer');
+    await page.click('[data-act="step"][data-step="3"]');
+    await page.waitForTimeout(200);
+    const empty = await sendBtn();
+    check('disabled with no person and no address', empty.disabled, true);
+    check('and it says what is missing', /Choose a person or type an email/.test(empty.title), true);
     await ctx.close();
 
     console.log('\nRuntime errors');

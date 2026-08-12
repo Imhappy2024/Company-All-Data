@@ -157,6 +157,56 @@ grant would hide the per-brand item from everyone including the owner. **Do not 
 per-brand `access` rows** to make it symmetrical — a catalog row means grantable, and
 grantable means an owner could hand the screen to a plain user.
 
+### Invite and the Auth admin API
+There is no authoritative REST reference for the Auth admin endpoints. These shapes
+are read from the **auth-js source** (`GoTrueAdminApi.ts`, `lib/fetch.ts`), not guessed:
+
+    POST   /auth/v1/invite?redirect_to=<encoded>   { email, data? }
+    PUT    /auth/v1/admin/users/<uuid>             { ...attributes }
+    DELETE /auth/v1/admin/users/<uuid>             { should_soft_delete: false }
+
+    headers: apikey + Authorization: Bearer  (both the SERVICE ROLE)
+             X-Supabase-Api-Version: 2024-01-01
+             Content-Type: application/json
+
+**The redirect is a QUERY PARAMETER, not a body field.** In auth-js it is generic
+request plumbing — `lib/fetch.ts` builds `qs['redirect_to']` from `options.redirectTo`
+— which is why it reads like a body option. Put it in the body and nothing errors: it
+is ignored and the link falls back to Site URL, so the invite arrives, works, and
+lands in the wrong place. The same silent failure happens if the URL is not on the
+allow list in **Authentication → URL Configuration**. DELETE carries a body, which is
+unusual but is what auth-js sends.
+
+**Leave the email templates alone.** `{{ .ConfirmationURL }}` already resolves to
+`<ref>.supabase.co/auth/v1/verify?token=…&redirect_to=…`; replacing it with
+`{{ .SiteURL }}/invite` strips the token.
+
+### auth.users cannot be deleted while anything references it
+**~38 columns in `public` reference `auth.users` with `ON DELETE NO ACTION`** —
+`staff.user_id` plus `created_by` / `updated_by` / `uploaded_by` on `property`,
+`loan`, `entity`, `transaction`, `document`, `statement`, `unit`, `task` and others.
+Only **three cascade**: `profiles.id`, `tenant_member.user_id`, `company_member.user_id`.
+
+So **any Auth user who has ever created or updated a record cannot be deleted** —
+from the Supabase dashboard or anywhere else — until those columns are nulled. Someone
+will eventually try to delete a departed employee and hit a wall of foreign keys.
+
+This lands directly in the invite rollback. `handle_new_user()` fires on Auth user
+creation and immediately sets `staff.user_id` by email match, so by the time the
+staff/grant write fails, the staff row **already points at the new Auth user** and
+deleting it first fails with a foreign key violation — leaving exactly the orphan the
+rollback exists to prevent. The order must be:
+
+1. null `staff.user_id` and restore `dashboard_access` / `dashboard_role`
+2. **then** delete the Auth user
+
+For a fresh invite only `staff.user_id` is involved, because nothing else has been
+written yet. The rollback runs with the **service role**, not the caller's JWT: the
+caller's own permissions may be why the write failed, and a rollback that can itself
+be refused is not a rollback. `test/test-invite.js` forces the failure and asserts
+both that the Auth user is gone and that no half-configured staff row remains; its
+fake enforces the foreign key, and one check proves that enforcement is live.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.

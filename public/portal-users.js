@@ -291,11 +291,11 @@
           (ui.step > 1 ? '<button class="pu-btn ghost" data-act="back">Back</button>' : '<span></span>') +
           (ui.step < 3
             ? '<button class="pu-btn" data-act="next">Next</button>'
-            /* Adding is disabled until the invite endpoint exists: it needs the
-               service role to create the Auth user, which arrives in the invite
-               step. Disabled with the reason beats a button that always fails. */
             : ui.adding
-              ? '<button class="pu-btn" disabled title="Sending invitations needs the service role, which arrives with the invite flow">Send invitation</button>'
+              ? '<button class="pu-btn" data-act="invite"' +
+                ((ui.busy || !inviteReady()) ? ' disabled' : '') +
+                (inviteReady() ? '' : ' title="Choose a person or type an email address first"') + '>' +
+                (ui.busy ? 'Sending…' : 'Send invitation') + '</button>'
               : '<button class="pu-btn" data-act="save"' + (ui.busy ? ' disabled' : '') + '>' +
                 (ui.busy ? 'Saving…' : 'Save changes') + '</button>') +
         '</div>' +
@@ -358,11 +358,9 @@
             ' a new person, their email address is enough - a staff record is created for them.</div>') +
       (d.staff_id
         ? '<div class="pu-note">Granting dashboard access to the existing staff record for <b>' +
-          esc(d.full_name || d.email) + '</b>. No second record is created.</div>'
-        : '') +
-      '<div class="pu-note pu-todo">Sending the invitation needs the server-side service ' +
-        'role, which arrives with the invite flow. Choosing the person, the role and the ' +
-        'access all work now and are kept when you come back to this.</div>';
+          esc(d.full_name || d.email) + '</b>. No second record is created.</div>' +
+          priorGrantsNote(d.staff_id)
+        : '');
   }
 
   function stepType(d) {
@@ -441,6 +439,31 @@
     }).join('') || blank('Nothing to grant', 'You do not hold any business you could grant access to.');
   }
 
+  /* Revoking access leaves the grant rows in place, so re-granting hands the person
+     back exactly what they had. That is the right default - it beats silently
+     starting them at nothing - but six months is long enough for "read on
+     Properties" to have stopped being appropriate, so it is shown rather than
+     restored quietly. */
+  function priorGrantsNote(staffId) {
+    var prior = (ui.priorGrants || {})[staffId];
+    if (!prior) return '';
+    if (!prior.length) {
+      return '<div class="pu-note">They held no access before, so nothing is restored.</div>';
+    }
+    var mods = {};
+    (ui.modules || []).forEach(function (m) { mods[(m.company_id || EXEC) + '::' + m.module_key] = m.label; });
+    var lines = prior.map(function (g) {
+      var scope = g.company_id || EXEC;
+      var where = scope === EXEC ? 'Executive Board' : (ui.companies[scope] || 'A business');
+      var what = g.module === '*' ? 'the whole business'
+               : (mods[scope + '::' + g.module] || g.module);
+      return where + ' &rarr; ' + what + ': ' + (g.level === 'write' ? 'Read & Write' : 'Read');
+    });
+    return '<div class="pu-note pu-prior"><b>They will get their previous access back:</b>' +
+      '<ul>' + lines.map(function (l) { return '<li>' + l + '</li>'; }).join('') + '</ul>' +
+      'Check it is still appropriate &mdash; you can change it on the next two steps.</div>';
+  }
+
   function scopeOn(d, scope) {
     var m = d.grants[scope];
     return !!(m && Object.keys(m).length);
@@ -473,6 +496,20 @@
     ui.draft.full_name = c.full_name || '';
     ui.draft.email = c.email || '';
     ui.pickQuery = c.full_name || c.email || '';
+    /* Grants survive a revoke, so this person may already have some. Pre-load the
+       draft with them and show what is coming back. */
+    if (!(ui.priorGrants || {})[c.id]) {
+      api('/api/access/grants/' + encodeURIComponent(c.id)).then(function (r) {
+        ui.priorGrants = ui.priorGrants || {};
+        ui.priorGrants[c.id] = r.grants || [];
+        (r.grants || []).forEach(function (g) {
+          var s = g.company_id || EXEC;
+          ui.draft.grants[s] = ui.draft.grants[s] || {};
+          ui.draft.grants[s][g.module] = g.level;
+        });
+        paint();
+      }).catch(function () { /* the note is a courtesy; never block the invite */ });
+    }
     paint();
   }
 
@@ -548,6 +585,43 @@
     paint();
   }
 
+  /* Either an existing staff member is picked, or a plausible address is typed. */
+  function inviteReady() {
+    var d = ui.draft || {};
+    return !!(d.staff_id || (d.email && d.email.indexOf('@') > 0));
+  }
+
+  function sendInvite() {
+    var d = ui.draft;
+    var grants = [];
+    Object.keys(d.grants).forEach(function (s) {
+      Object.keys(d.grants[s]).forEach(function (m) {
+        grants.push({ company_id: s === EXEC ? null : s, module: m, level: d.grants[s][m] });
+      });
+    });
+    if (d.role === 'user' && !grants.length &&
+        !window.confirm('Invite ' + (d.email || d.full_name) +
+                        ' with no access at all? They will be able to sign in and see nothing.')) return;
+
+    ui.busy = true; paint();
+    api('/api/access/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: d.email, full_name: d.full_name, role: d.role, grants: grants }),
+    }).then(function (r) {
+      ui.busy = false; ui.open = null; ui.draft = null; ui.adding = false;
+      ui.candidates = null;                /* they are no longer a candidate */
+      ui.msg = 'Invitation sent to ' + (r.email || d.email) +
+               '. They appear as Pending until they open the link and choose a password.';
+      ui.msgBad = false;
+      return load(true).then(paint);
+    }).catch(function (e) {
+      ui.busy = false;
+      /* Verbatim, including the rollback note if the server could not fully undo. */
+      ui.msg = e.message; ui.msgBad = true; paint();
+    });
+  }
+
   function save() {
     var d = ui.draft, u = ui.open;
     var grants = [];
@@ -612,6 +686,8 @@
                  a.getAttribute('data-level') || null);
       } else if (act === 'save') {
         save();
+      } else if (act === 'invite') {
+        sendInvite();
       }
     });
     host.addEventListener('change', function (ev) {
@@ -664,6 +740,8 @@
         'border:1px solid var(--border);background:none;cursor:pointer;text-align:left;font:inherit}',
       '.pu-pick.on{border-color:var(--accent);background:var(--accent-soft,var(--surface-2))}',
       '.pu-todo{border:1px dashed var(--border-strong,var(--border));background:none}',
+      '.pu-prior ul{margin:6px 0 6px 16px;padding:0}',
+      '.pu-prior li{font-size:12px;color:var(--text2);margin:2px 0}',
       '.pu-table{border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}',
       '.pu-row{display:grid;grid-template-columns:minmax(0,2fr) 130px minmax(0,2fr) 110px;',
         'align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border)}',

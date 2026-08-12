@@ -45,6 +45,11 @@ const COOKIE_MAX_AGE = 60 * 60 * 24 * 365; // 1 year
    that obvious to the next reader. */
 const SUPABASE_URL = process.env.SUPABASE_URL || '';
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
+/* SERVER-SIDE ONLY. Bypasses RLS entirely, so it is read here and used in exactly
+   two places - creating an Auth user for an invite, and changing an Auth email -
+   both of which are impossible without it. It is never sent to the browser, and
+   /api/access/invite returns 503 rather than falling back to the anon key. */
+const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || '';
 
 app.set('trust proxy', 1);
 app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload to ~500KB
@@ -61,6 +66,9 @@ app.get('/ops', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'inde
    that fallback existed these paths fell through to app.get('*') and rendered the
    ClickUp ops dashboard. */
 app.get('/login', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'login.html')));
+/* Where invite and password-reset links land. Both end in "choose a password", so
+   they are one page; ?mode=reset only changes the wording. */
+app.get('/invite', (_req, res) => res.sendFile(path.join(__dirname, 'public', 'invite.html')));
 
 /* Supabase browser config. The anon key is publishable - RLS is the access
    boundary - so serving it to the client is fine. Hard-coding it in
@@ -129,6 +137,18 @@ async function sbRest(token, pathAndQuery, init = {}) {
     throw err;
   }
   return body;
+}
+
+/* PostgREST as the service role. Used ONLY by the invite rollback: the caller's own
+   permissions may be exactly why the invite failed, so a rollback that ran as the
+   caller could itself be refused - and a rollback that can be refused is not one.
+   Every other read and write on these routes goes through sbRest with the caller's
+   JWT so RLS and the triggers stay in charge. */
+function sbAdmin(pathAndQuery, init = {}) {
+  return sbRest(SUPABASE_SERVICE_ROLE, pathAndQuery, {
+    ...init,
+    headers: { apikey: SUPABASE_SERVICE_ROLE, ...(init.headers || {}) },
+  });
 }
 
 /* 503 rather than a confusing failure deeper in, matching /api/portal-config. */
@@ -216,6 +236,66 @@ app.get('/api/access/users', async (req, res) => {
   }
 });
 
+/* ---------------------------------------------------------------------------
+   Supabase Auth admin API.
+
+   Shapes taken from the auth-js source (GoTrueAdminApi.ts and lib/fetch.ts), not
+   guessed: there is no authoritative REST reference for these.
+
+     POST   /auth/v1/invite?redirect_to=<encoded>   { email, data? }
+     PUT    /auth/v1/admin/users/<uuid>             { ...attributes }
+     DELETE /auth/v1/admin/users/<uuid>             { should_soft_delete: false }
+
+   THE REDIRECT IS A QUERY PARAMETER, not a body field. In auth-js this is generic
+   request plumbing - lib/fetch.ts builds qs['redirect_to'] from options.redirectTo -
+   which is why it is easy to assume it belongs in the body. Put it in the body and
+   nothing errors: it is ignored and the link falls back to Site URL, so the invite
+   arrives, works, and lands in the wrong place.
+
+   The redirect must also be on the allow list in Authentication > URL Configuration
+   or it is silently swapped for Site URL, with the same symptom.
+
+   DELETE carries a body, which is unusual but is what auth-js sends; Node's fetch
+   handles it. should_soft_delete:false is a hard delete, which is what the invite
+   rollback needs - a soft-deleted user still occupies the email address.
+   --------------------------------------------------------------------------- */
+const AUTH_API_VERSION = '2024-01-01';
+
+async function authAdmin(method, pathAndQuery, body) {
+  const res = await fetch(`${SUPABASE_URL}/auth/v1${pathAndQuery}`, {
+    method,
+    headers: {
+      apikey: SUPABASE_SERVICE_ROLE,
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE}`,
+      'X-Supabase-Api-Version': AUTH_API_VERSION,
+      'Content-Type': 'application/json',
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text();
+  let parsed = null;
+  try { parsed = text ? JSON.parse(text) : null; } catch (e) { parsed = { message: text }; }
+  if (!res.ok) {
+    const err = new Error((parsed && (parsed.msg || parsed.message || parsed.error_description)) || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return parsed;
+}
+
+/* Fails CLOSED. Without the service role an invite cannot create an Auth user, and
+   silently doing anything less - writing the staff row and hoping, or falling back
+   to the anon key - would leave someone unable to sign in with no sign of why. */
+function requireServiceRole(res) {
+  if (SUPABASE_SERVICE_ROLE) return true;
+  res.status(503).json({
+    error: 'Invitations are not configured on this deployment: SUPABASE_SERVICE_ROLE is not set. ' +
+           'Set it in Railway (server-side only, never in the browser) and redeploy.',
+    missing: ['SUPABASE_SERVICE_ROLE'],
+  });
+  return false;
+}
+
 /* Staff who do NOT have dashboard access, for the add-person picker.
 
    This is the route from "Mitch is already in staff" to "Mitch has a login". Without
@@ -231,6 +311,185 @@ app.get('/api/access/candidates', async (req, res) => {
       '/staff?select=id,full_name,email,avatar_url&dashboard_access=is.false&is_active=is.true' +
       '&order=full_name.asc');
     res.json({ candidates: rows || [] });
+  } catch (e) {
+    res.status(e.status || 500).json({ error: e.message });
+  }
+});
+
+/* ---------------------------------------------------------------------------
+   POST /api/access/invite   { email | staff_id, full_name, role, grants }
+
+   The order below is the whole design, and each step exists because of the one
+   after it:
+
+     1. Verify the CALLER is owner or admin, from their JWT. A role in the body is
+        never trusted - that is the request, not the authority for it.
+     2. Validate the requested grants against the caller's own access, BEFORE an
+        Auth user exists. The trigger would catch it later, but by then there is an
+        Auth user to clean up, and cleanup is the part that can fail.
+     3. Create the Auth user (service role). handle_new_user fires here and links
+        staff.user_id by email match.
+     4. Set dashboard_access / dashboard_role on the staff row - inserting one if
+        this is a genuinely new person - and write the grants.
+     5. If 4 fails, undo 4 and then delete the Auth user.
+
+   STEP 5 ORDER MATTERS, and it is the reason this is spelled out. staff_user_id_fkey
+   is ON DELETE NO ACTION, and step 3's trigger has ALREADY pointed staff.user_id at
+   the new Auth user. Deleting the Auth user first therefore fails with a foreign key
+   violation and leaves exactly the orphan the rollback exists to prevent: someone
+   who can authenticate but has no working dashboard row. So: null staff.user_id and
+   restore the access columns first, THEN delete the Auth user.
+
+   The rollback runs with the SERVICE ROLE, not the caller's JWT, because the
+   caller's permissions may be the very reason step 4 failed. A rollback that can
+   itself be refused is not a rollback.
+   --------------------------------------------------------------------------- */
+app.post('/api/access/invite', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  if (!requireServiceRole(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+
+  const b = req.body || {};
+  const email = String(b.email || '').trim().toLowerCase();
+  const role = String(b.role || '').trim();
+  const fullName = String(b.full_name || '').trim();
+  const grants = Array.isArray(b.grants) ? b.grants : [];
+
+  if (!email || email.indexOf('@') < 1) return res.status(400).json({ error: 'A valid email address is required.' });
+  if (!['owner', 'admin', 'user'].includes(role)) return res.status(400).json({ error: `Unknown role: ${role}` });
+
+  let authUserId = null;
+  let undo = null;      /* how to put the staff row back, decided before touching it */
+
+  try {
+    /* ---- 1. the caller ---- */
+    const me = await sbRest(token, '/rpc/dash_my_access', { method: 'POST', body: '{}' });
+    const myRole = me && me.user && me.user.role;
+    if (myRole !== 'owner' && myRole !== 'admin') {
+      return res.status(403).json({ error: 'Only an owner or an administrator can invite people.' });
+    }
+    if (role === 'owner' && myRole !== 'owner') {
+      return res.status(403).json({ error: 'Only an owner can grant the Owner role.' });
+    }
+
+    /* ---- 2. the grants, before anything exists to clean up ---- */
+    const myAccess = (me && me.access) || {};
+    for (const g of grants) {
+      const scope = g.company_id || 'exec';
+      if (scope === 'exec' && role === 'user') {
+        return res.status(400).json({ error: 'Executive Board access requires the Admin or Owner role' });
+      }
+      if (myRole !== 'owner' && !myAccess[scope]) {
+        return res.status(403).json({ error: 'You cannot grant access to a business you do not hold.' });
+      }
+      if (!['read', 'write'].includes(g.level)) {
+        return res.status(400).json({ error: `Unknown access level: ${g.level}` });
+      }
+    }
+
+    /* The tenant to create into, and whether this person already exists. Matching on
+       lower(email) mirrors the unique index, so a near-miss typo lands on the same
+       row the index would have collided with rather than creating a second human. */
+    const myStaffId = await sbRest(token, '/rpc/current_staff_id', { method: 'POST', body: '{}' });
+    const mine = await sbRest(token, `/staff?select=tenant_id&id=eq.${encodeURIComponent(myStaffId)}`);
+    const tenantId = mine && mine[0] && mine[0].tenant_id;
+    if (!tenantId) return res.status(500).json({ error: 'Could not determine your tenant.' });
+
+    const existing = await sbRest(token,
+      `/staff?select=id,email,full_name,user_id,dashboard_access,dashboard_role&email=ilike.${encodeURIComponent(email)}`);
+    const already = existing && existing[0];
+    if (already && already.dashboard_access) {
+      return res.status(409).json({ error: `${already.email} already has dashboard access.` });
+    }
+
+    /* ---- 3. the Auth user. handle_new_user links staff.user_id from here. ---- */
+    const redirectTo = `${getBaseUrl(req)}/invite`;
+    const invited = await authAdmin('POST',
+      `/invite?redirect_to=${encodeURIComponent(redirectTo)}`,
+      { email, data: fullName ? { full_name: fullName } : undefined });
+    authUserId = invited && invited.id;
+
+    /* ---- 4. the staff row and the grants, as the CALLER so RLS and the triggers
+             still apply to what is being granted ---- */
+    let staffId;
+    if (already) {
+      undo = { kind: 'restore', id: already.id,
+               dashboard_access: already.dashboard_access, dashboard_role: already.dashboard_role };
+      staffId = already.id;
+      await sbRest(token, `/staff?id=eq.${encodeURIComponent(staffId)}`, {
+        method: 'PATCH', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify({ dashboard_access: true, dashboard_role: role,
+                               full_name: fullName || already.full_name }),
+      });
+    } else {
+      const created = await sbRest(token, '/staff', {
+        method: 'POST', headers: { Prefer: 'return=representation' },
+        body: JSON.stringify({ tenant_id: tenantId, email, full_name: fullName || email,
+                               user_id: authUserId, dashboard_access: true, dashboard_role: role }),
+      });
+      staffId = created && created[0] && created[0].id;
+      undo = { kind: 'delete', id: staffId };
+    }
+
+    if (grants.length) {
+      await sbRest(token, '/dashboard_permission', {
+        method: 'POST', headers: { Prefer: 'return=minimal' },
+        body: JSON.stringify(grants.map(g => ({
+          staff_id: staffId, company_id: g.company_id || null,
+          module: g.module, level: g.level, granted_by: myStaffId,
+        }))),
+      });
+    }
+
+    res.json({ ok: true, staff_id: staffId, email, pending: true });
+  } catch (e) {
+    /* ---- 5. rollback, in the only order the foreign key permits ---- */
+    let rollbackNote = null;
+    if (authUserId) {
+      try {
+        if (undo && undo.kind === 'restore') {
+          await sbAdmin(`/staff?id=eq.${encodeURIComponent(undo.id)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ user_id: null, dashboard_access: undo.dashboard_access,
+                                   dashboard_role: undo.dashboard_role }),
+          });
+        } else if (undo && undo.kind === 'delete' && undo.id) {
+          await sbAdmin(`/staff?id=eq.${encodeURIComponent(undo.id)}`, { method: 'DELETE' });
+        } else {
+          /* Step 4 failed before we recorded anything, but the trigger may still
+             have linked an existing row by email. Clear it by user_id. */
+          await sbAdmin(`/staff?user_id=eq.${encodeURIComponent(authUserId)}`, {
+            method: 'PATCH', headers: { Prefer: 'return=minimal' },
+            body: JSON.stringify({ user_id: null }),
+          });
+        }
+        await authAdmin('DELETE', `/admin/users/${encodeURIComponent(authUserId)}`,
+                        { should_soft_delete: false });
+      } catch (re) {
+        /* Say so loudly: a half-invited account is the outcome this whole ordering
+           exists to avoid, and silence would leave someone able to authenticate
+           with nothing behind it. */
+        rollbackNote = `The invitation failed AND could not be fully undone (${re.message}). ` +
+                       `An Auth user may exist for ${email} with no dashboard access. Remove it manually.`;
+        console.error('invite rollback failed:', re.message);
+      }
+    }
+    console.error('invite failed:', e.message);
+    res.status(e.status || 500).json({ error: e.message, rollback: rollbackNote });
+  }
+});
+
+/* Grants a person already holds, including someone whose access was revoked - their
+   rows survive a revoke, inert, so re-granting hands back exactly what they had.
+   The add-person drawer shows this before it happens: six months is long enough for
+   an old grant to have stopped being appropriate. */
+app.get('/api/access/grants/:id', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  try {
+    const rows = await sbRest(token,
+      `/dashboard_permission?select=company_id,module,level&staff_id=eq.${encodeURIComponent(req.params.id)}`);
+    res.json({ grants: rows || [] });
   } catch (e) {
     res.status(e.status || 500).json({ error: e.message });
   }
@@ -297,6 +556,43 @@ app.patch('/api/access/user/:id', async (req, res) => {
         headers: { Prefer: 'return=minimal' },
         body: JSON.stringify(staffPatch),
       });
+    }
+
+    /* 1b. Email. Changing it changes the address this person SIGNS IN with, so it
+       is an Auth operation, not a column update: writing staff.email alone would
+       leave them signing in with the old address, and app-side email is a mirror of
+       the confirmed Auth value. Needs the service role, so it fails closed. */
+    if (typeof b.email === 'string' && b.email.trim()) {
+      if (!SUPABASE_SERVICE_ROLE) {
+        return res.status(503).json({
+          error: 'Changing an email address needs SUPABASE_SERVICE_ROLE, which is not set on this deployment.',
+          missing: ['SUPABASE_SERVICE_ROLE'],
+        });
+      }
+      const newEmail = b.email.trim().toLowerCase();
+      const target = await sbRest(token,
+        `/staff?select=id,email,user_id,tenant_id&id=eq.${encodeURIComponent(staffId)}`);
+      const row = target && target[0];
+      if (!row) return res.status(404).json({ error: 'No such person.' });
+      if (newEmail !== String(row.email || '').toLowerCase()) {
+        /* Pre-check the unique index rather than discovering it as a constraint
+           error halfway through. */
+        const clash = await sbRest(token,
+          `/staff?select=id&email=ilike.${encodeURIComponent(newEmail)}&id=neq.${encodeURIComponent(staffId)}`);
+        if (clash && clash.length) {
+          return res.status(409).json({ error: `${newEmail} is already used by another staff record.` });
+        }
+        if (!row.user_id) {
+          return res.status(409).json({
+            error: 'This person has not accepted their invitation yet, so there is no login to move. ' +
+                   'Revoke their access and invite the correct address instead.',
+          });
+        }
+        /* Auth first: if it fails, staff.email is untouched and still mirrors the
+           address they can actually sign in with. */
+        await authAdmin('PUT', `/admin/users/${encodeURIComponent(row.user_id)}`, { email: newEmail });
+        staffPatch.email = newEmail;
+      }
     }
 
     /* 2. Grants, diffed. */
