@@ -96,6 +96,37 @@ async function waitUp(tries = 80) {
     const png = await get('/icons/icon-192.png');
     check('images are content, not code, and may sit in cache', png.cache, 'public, max-age=3600');
 
+    console.log('\nAPI responses are never stored at all');
+    /* no-store, not no-cache: no-cache still writes the body to disk as long as it
+       revalidates. These payloads are per-user and permission-filtered, so on a
+       shared machine that is one person's filtered data waiting for the next. */
+    for (const p of ['/api/health', '/api/portal-config', '/api/access/users', '/api/definitely-not-a-route']) {
+      check(`${p} is no-store`, (await get(p)).cache, 'no-store');
+    }
+    check('even a 404 under /api, so a future route cannot forget',
+      (await get('/api/definitely-not-a-route')).status, 404);
+    check('and the static handler did not override it for HTML',
+      (await get('/')).cache, 'no-cache');
+
+    console.log('\nThe stale-service-worker cleanup is on BOTH surfaces');
+    /* It used to be inline in index.html, so it only ran for people who opened /ops.
+       A worker from an older build survives a hard refresh and can answer /api from
+       its own cache, which is indistinguishable from a code fault. */
+    const portalHtml = (await get('/')).body;
+    const opsHtml = (await get('/ops')).body;
+    check('portal loads it', /portal-sw-cleanup\.js/.test(portalHtml), true);
+    check('ops loads it', /portal-sw-cleanup\.js/.test(opsHtml), true);
+    check('and the old inline unregister is gone from ops',
+      /getRegistrations\(\)/.test(opsHtml), false);
+    const cleanup = await get('/portal-sw-cleanup.js');
+    check('the file is served', cleanup.status, 200);
+    check('it unregisters workers', /getRegistrations/.test(cleanup.body), true);
+    check('and clears Cache Storage, which outlives the worker',
+      /caches\.delete/.test(cleanup.body), true);
+    check('no service worker is actually registered anywhere',
+      /serviceWorker\.register/.test(portalHtml + opsHtml + cleanup.body), false);
+    check('and there is no sw.js to register', (await get('/sw.js')).status, 404);
+
     console.log('\nUnmatched paths 404 instead of serving the ops dashboard');
     for (const p of ['/nonsense', '/deep/unknown/path', '/dashboard']) {
       const r = await get(p);

@@ -2,6 +2,10 @@
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LeavenWealth Group</title>
+<!-- Remove any stale service worker BEFORE anything else runs. This used to live
+     inline in index.html, so it only healed people who opened /ops; most people only
+     ever see the portal at "/". See portal-sw-cleanup.js. -->
+<script src="/portal-sw-cleanup.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails

@@ -52,6 +52,26 @@ const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 const SUPABASE_SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE || '';
 
 app.set('trust proxy', 1);
+
+/* ---------------------------------------------------------------------------
+   Never cache an API response.
+
+   These payloads are per-user and permission-filtered: /api/access/users is scoped
+   to what the caller may see, and dash_my_access-driven screens differ per person.
+   Storing them is wrong regardless of any particular bug, and on a shared machine it
+   is a genuine leak - one person's filtered user list sitting in the disk cache for
+   whoever signs in next.
+
+   no-store, not no-cache: no-cache permits storage as long as it revalidates, which
+   still writes the body to disk. no-store forbids keeping it at all.
+
+   Mounted here, above every /api route, so a route added later cannot forget it.
+   --------------------------------------------------------------------------- */
+app.use('/api', (_req, res, next) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Pragma', 'no-cache');
+  next();
+});
 app.use(compression()); // gzip responses — cuts the ~5MB /api/tasks payload to ~500KB
 app.use(cors());
 app.use(express.json());

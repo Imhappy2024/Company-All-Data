@@ -7,7 +7,11 @@
 <!-- Embed mode (properties-only, e.g. portal's Properties card iframe): set the
      class in <head> BEFORE render so the dashboard chrome never flashes. -->
 <script>try{var _h=location.hash||'';if(/[#&]embed=(1|properties)/.test(_h)){document.documentElement.classList.add('embed-only');if(/[#&]bare=1/.test(_h))document.documentElement.classList.add('embed-bare');var _tm=(_h.match(/[#&]theme=(dark|light)/)||[])[1];if(_tm){window.__embedTheme=_tm;if(_tm==='dark')document.documentElement.classList.add('embed-dark');}}else{var _s=null;try{_s=localStorage.getItem('lw-theme')||localStorage.getItem('theme');}catch(e){}if(_s!=='light'){document.documentElement.classList.add('boot-dark');new MutationObserver(function(m,o){if(document.body){document.body.classList.add('dark-mode');o.disconnect();}}).observe(document.documentElement,{childList:true,subtree:true});}}}catch(e){}</script>
-<!-- PWA: installable, standalone home-screen app -->
+<!-- Remove any stale service worker BEFORE anything else runs: a worker from an
+     older build can still control this origin and answer requests from its cache. -->
+<script src="/portal-sw-cleanup.js"></script>
+<!-- PWA: installable, standalone home-screen app. The manifest drives the install
+     prompt and icons; it never creates a service worker on its own. -->
 <link rel="manifest" href="/manifest.json"/>
 <meta name="theme-color" content="#0c1116"/>
 <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png"/>
@@ -8028,14 +8032,11 @@ setInterval(() => {
 </div>
 <script>
 (function () {
-  // Service worker intentionally DISABLED in the merged portal+ops app: the old
-  // sw.js served /index.html for EVERY navigation, which would hijack the portal
-  // at "/". Unregister any previously-installed worker so it can't interfere.
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => r.unregister())).catch(() => {});
-    });
-  }
+  // The service-worker unregister used to live here. It now lives in
+  // /portal-sw-cleanup.js, loaded by BOTH this page and portal.html: inline here it
+  // only ran when somebody opened /ops, so anyone who only ever visits the portal at
+  // "/" was never healed of a stale worker. See that file for why one exists at all.
+
   // Deep-link: /ops#tab=<tab>&sub=<subview> opens that tab/sub-view on load
   // (the portal's Properties card iframes /ops#tab=properties).
   window.addEventListener('load', () => {
