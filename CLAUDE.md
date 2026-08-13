@@ -138,14 +138,21 @@ one you would want there.
 `dashboard_permission` filtered by `staff_id=in.(…)` over just those people, and joins
 them in JavaScript. Two round trips instead of one, on a payload of a handful of rows.
 
-This is not stylistic. The hinted embed above is correct, is accepted by the live API
-when sent verbatim, and shipped in `390ed53` — and the screen still failed, reporting
-the **unqualified**-embed error, which is what PostgREST raises for a request carrying
-no hint rather than one carrying a wrong hint. Committed source, running build, URL
-construction and the live schema were each checked and cleared, and the contradiction
-never resolved. The screen that fixes everyone's access is the wrong place to keep an
-unexplained dependency on embed resolution, so the dependency is gone: `PGRST201`
-cannot occur on a request with no embed in it.
+The hinted embed was **not** broken, and the Supabase edge logs say so — read them
+before re-litigating this. Every `PGRST201` the app ever caused came from the
+unqualified form and stopped at `2026-08-12T21:18:14Z`; the hinted request that shipped
+in `390ed53` returned **200 in production at `2026-08-13T00:43:14Z`**. The error still
+on screen three minutes later was a **sticky client-side error string**, not a live
+failure: `ui.error` in portal-users.js survives until something calls `load(true)`, and
+a single-page app gives you no reload to clear it. Hours went into a bug that was
+already fixed, so: when a screen reports a server error, check the server's own logs
+before touching the query. `query_logs` on `source = 'edge_logs'` filtered by
+`log_attributes['request.path']` shows every request and status.
+
+Dropping the embed anyway is a durability choice, not a fix for that error. `PGRST201`
+cannot occur on a request with no embed in it, and this is the screen that fixes
+everyone else's access — the wrong place for a failure mode whose blast radius is
+"nobody can be granted anything".
 
 It is also the safer of the two. The silent-wrongness in the table above is only
 reachable through a hint; a join written out in code cannot pick the wrong foreign key
@@ -170,6 +177,43 @@ user and belongs on **Team directory**. Exec vs per-business scoping applies on 
 - **Adding someone** must be able to pick an existing staff member, not only type an
   address. `staff` has a unique index on `(tenant_id, lower(email))`, so an address
   matching an existing person must **UPDATE** that row, never insert a second one.
+
+### Staying current: three layers, none of which covers the others
+1. **A change made here** — invite, save, revoke each call `load(true)`. Works today.
+2. **A change made by someone else** — `staff` and `dashboard_permission` are bound to
+   the `access` view in `TABLE_VIEWS`, and portal.html's realtime `invalidate` calls
+   `PortalUsers.invalidate()`. Both halves are required: the component caches its list,
+   so `rerender()` without dropping the cache repaints the identical rows. **This layer
+   is dead until `migrations/20260810_supabase_webhooks.sql` is applied** — until then
+   nothing POSTs to the hook and no SSE ever fires.
+3. **Returning to a backgrounded tab** — `visibilitychange` in portal-users.js forces a
+   refetch. The stream has no replay buffer, so a client that was disconnected cannot
+   know what it missed; this is also the only layer that works before (2) is applied.
+
+`dashboard_module` is deliberately **not** bound: the catalog is seeded by migration
+rather than edited in the app, and `PortalUsers.invalidate()` does not clear
+`ui.modules`, so binding it would schedule a refresh that could not refresh it.
+
+The focus listener is bound **once**, not per paint. `render()` runs on every
+navigation, and a listener added each time leaves N copies attached firing N refetches
+per focus — the same bug as the old `bindOnce()`. The test asserts one focus is still
+one request after three re-renders.
+
+Every check counts **requests**, not rows: a repaint from cache and a real refetch look
+identical on screen, which is exactly why this went unnoticed.
+
+### Only one staff row has dashboard access
+Verified 2026-08-13: 1 of 14 `staff` rows has `dashboard_access = true` (Chris
+Pomerleau, owner). So this screen correctly shows **one person**, and an empty-looking
+list is the data, not a bug. The other 13 reach it through the Invite user picker,
+which lists `dashboard_access = false` staff. Confirmed as intended: the screen lists
+dashboard users only.
+
+`current_tenant_ids()` reads **`staff`**, not `tenant_member` — it returns
+`tenant_id from staff where user_id = auth.uid() and is_active and dashboard_access`.
+There are zero `tenant_member` rows in this project and RLS works fine without them, so
+do not "fix" that absence. Impersonating the owner through RLS reads 14 staff, 49
+modules.
 
 **Users & Roles is role-gated, not permission-gated** — visible when `dash_role()` is
 owner or admin, so an admin cannot lock themselves out of the screen that fixes

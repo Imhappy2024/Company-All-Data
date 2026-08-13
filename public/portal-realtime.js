@@ -75,7 +75,16 @@
     statement: ['financials', 'documents'],
 
     /* people + org */
-    staff: ['team', 'orgdept'],
+    /* staff drives 'access' too: it IS the dashboard user record, so an invite, a
+       revoke or a role change is a staff write. dashboard_permission is the grant
+       rows behind the same screen. Without both, Users & Roles keeps painting a
+       cached list after somebody else has changed who can see what - and that is the
+       one screen where a stale answer is a security answer.
+       dashboard_module is deliberately NOT bound: the catalog is seeded by migration
+       rather than edited in the app, and PortalUsers.invalidate() does not clear it,
+       so binding it would schedule a refresh that could not actually refresh it. */
+    staff: ['team', 'orgdept', 'access'],
+    dashboard_permission: ['access'],
     staff_company: ['team'],
     profiles: ['team'],
     department: ['departments', 'orgdept'],

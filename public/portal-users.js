@@ -147,8 +147,35 @@
 
     if (!el()) return;
     injectStyles();
+    bindFocusRefresh();
     paint();
     load().then(paint);
+  }
+
+  /* Staying current has three layers, because no one of them covers the others.
+     A change made HERE refetches immediately - the three mutations each call
+     load(true). A change made by ANOTHER admin arrives over the SSE channel, through
+     the staff and dashboard_permission bindings in portal-realtime.js. Neither one
+     reaches a tab that sat in the background while somebody else worked: the stream
+     has no replay buffer, and a disconnected client cannot know what it missed. So
+     returning to the tab refetches as well.
+
+     This layer is also the only one that works before
+     migrations/20260810_supabase_webhooks.sql is applied, since until then nothing
+     POSTs to the hook and the SSE channel never fires at all.
+
+     Bound ONCE, not per paint. render() runs on every navigation, and a listener
+     added each time would still be attached after you left the screen - N copies
+     firing N refetches on a single focus. */
+  var focusBound = false;
+  function bindFocusRefresh() {
+    if (focusBound) return;
+    focusBound = true;
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) return;
+      if (!el()) return;            /* not the screen on display - nothing to refresh */
+      load(true).then(paint);
+    });
   }
 
   function paint() {

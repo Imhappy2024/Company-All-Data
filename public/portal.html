@@ -1111,6 +1111,9 @@ if(window.PortalRealtime) PortalRealtime.start({
     if(v==='*' || v==='loans'){ loansCache=null; }
     if(v==='*' || v==='ads'){ adsFetched=false; adsRows=null; adsBrandKey=null; }
     if((v==='*' || v==='tasks') && window.PortalTasks){ PortalTasks.invalidate(); }
+    /* Users & Roles caches its list, so rerender() alone would repaint the SAME rows
+       it already had. Dropping the cache is what makes the refresh a refetch. */
+    if((v==='*' || v==='access') && window.PortalUsers){ PortalUsers.invalidate(); }
   },
 });
 

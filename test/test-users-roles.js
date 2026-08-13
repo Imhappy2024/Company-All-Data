@@ -68,6 +68,9 @@ const CANDIDATES = [
 let lastPatch = null;
 let lastInvite = null;
 let patchShouldFail = null;
+/* Counted so a refresh can be proved to REFETCH rather than repaint the cached
+   list, which looks identical on screen and is the whole failure mode. */
+let userFetches = 0;
 
 const MIME = { '.html': 'text/html', '.js': 'application/javascript', '.css': 'text/css',
                '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png' };
@@ -95,6 +98,7 @@ const server = http.createServer((req, res) => {
     });
   }
   if (p === '/api/access/users') {
+    userFetches++;
     const company = u.searchParams.get('company');
     let users = USERS;
     if (company) {
@@ -463,6 +467,59 @@ function stub(payload) {
     const empty = await sendBtn();
     check('disabled with no person and no address', empty.disabled, true);
     check('and it says what is missing', /Choose a person or type an email/.test(empty.title), true);
+    await ctx.close();
+
+    console.log('\nThe list refetches rather than repainting a cached copy');
+    /* Three independent layers, because none of them covers the others. A repaint
+       from cache is indistinguishable from a refresh on screen, so every check here
+       counts REQUESTS, not rows. */
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('.pu-row', { timeout: 8000 });
+    const afterLoad = userFetches;
+    check('the screen fetched once on open', afterLoad > 0, true);
+
+    /* Layer 1: the cache is real, so a plain re-render must NOT refetch - otherwise
+       the other two checks would pass for the wrong reason. */
+    await page.evaluate(() => render());
+    await page.waitForTimeout(250);
+    check('a plain re-render serves the cache', userFetches, afterLoad);
+
+    /* Layer 2: dropping the cache is what turns a re-render into a refetch. This is
+       the hook portal.html calls from PortalRealtime.invalidate('access'). */
+    await page.evaluate(() => { PortalUsers.invalidate(); render(); });
+    await page.waitForTimeout(400);
+    check('after invalidate() it refetches', userFetches > afterLoad, true);
+
+    /* Layer 3: returning to a backgrounded tab. This is the only layer that works
+       before the webhook migration is applied, since until then no SSE ever fires. */
+    const beforeFocus = userFetches;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForTimeout(400);
+    check('coming back to the tab refetches', userFetches > beforeFocus, true);
+
+    /* Bound once. render() runs on every navigation, and a per-paint listener would
+       leave N copies attached, firing N refetches for a single focus. */
+    const beforeMulti = userFetches;
+    await page.evaluate(() => { render(); render(); render(); });
+    await page.waitForTimeout(250);
+    const afterRenders = userFetches;
+    await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
+    await page.waitForTimeout(400);
+    check('three re-renders later, one focus is still ONE refetch',
+      userFetches - afterRenders, 1);
+    check('and those re-renders themselves did not refetch', afterRenders, beforeMulti);
+    await ctx.close();
+
+    console.log('\nThe realtime map knows which tables feed this screen');
+    /* A missing binding is a silently stale screen - and on THIS screen a stale
+       answer is a stale answer about who can see what. */
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    const tv = await page.evaluate(() => window.PortalRealtime.tableViews);
+    check('staff refreshes access (it IS the dashboard user record)',
+      (tv.staff || []).indexOf('access') >= 0, true);
+    check('and so do the grant rows', tv.dashboard_permission, ['access']);
+    check('without losing the bindings staff already had',
+      (tv.staff || []).filter(v => v === 'team' || v === 'orgdept'), ['team', 'orgdept']);
     await ctx.close();
 
     console.log('\nRuntime errors');
