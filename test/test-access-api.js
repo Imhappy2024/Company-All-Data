@@ -80,7 +80,12 @@ const pg = http.createServer((req, res) => {
        accepted there, never as a bearer. */
     if (!req.headers.apikey) return send(401, { message: 'No API key found in request' });
 
-    if (failNext) { const m = failNext; failNext = null; return send(400, { message: m }); }
+    /* A string is the common "database refused this" case, which is a 400. An object
+       forces a specific status, so the 300-passthrough bug can be reproduced. */
+    if (failNext) {
+      const f = failNext; failNext = null;
+      return typeof f === 'string' ? send(400, { message: f }) : send(f.status, { message: f.message });
+    }
 
     const select = u.searchParams.get('select') || '';
     /* THE POINT OF THIS FAKE: refuse an ambiguous embed the way the live API does. */
@@ -262,6 +267,28 @@ async function waitUp(tries = 80) {
     });
     check('unqualified embed is refused', amb.status, 300);
     check('with the same code the live API uses', amb.json.code, 'PGRST201');
+
+    console.log('\nAn upstream 3xx is never passed through as our own status');
+    /* THE BUG THIS EXISTS FOR. PostgREST answers an ambiguous embed with 300, and
+       these handlers used to forward it verbatim. 300 is cacheable by default (RFC
+       7231 6.4.1) with no Cache-Control needed, so the browser stored the error body
+       under the request URL and replayed it from disk on every later load - no
+       request reached the server, nothing showed in any log, and no server-side fix
+       could be observed to do anything. The screen reported an embed error for hours
+       after the embed had been removed from the code entirely.
+       Anything that is not 4xx/5xx is 502: a real failure status, and not cacheable
+       without explicit headers. */
+    failNext = { status: 300, message: "Could not embed because more than one relationship was found for 'staff' and 'dashboard_permission'" };
+    const three = await req('/api/access/users');
+    check('a 300 upstream becomes 502, not 300', three.status, 502);
+    check('and the upstream message still reaches the caller intact',
+      /more than one relationship/.test(three.json.error), true);
+
+    failNext = { status: 403, message: 'You cannot grant more access than you have' };
+    const forbidden = await req('/api/access/users');
+    check('but a real 4xx is passed through unchanged', forbidden.status, 403);
+    failNext = { status: 500, message: 'boom' };
+    check('and so is a real 5xx', (await req('/api/access/users')).status, 500);
 
     console.log('\nScope filtering');
     const scoped = await req('/api/access/users?company=' + LW);

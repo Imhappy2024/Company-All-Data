@@ -178,6 +178,28 @@ function sbAdmin(pathAndQuery, init = {}) {
   });
 }
 
+/* The status WE answer with when an upstream call fails.
+
+   Never pass an upstream 3xx through as our own. PostgREST answers an ambiguous embed
+   with `300 Multiple Choices`, and every one of these handlers used to forward that
+   verbatim - so /api/access/users replied 300 with an error body.
+
+   300 is CACHEABLE BY DEFAULT (RFC 7231 6.4.1; it is in the heuristically cacheable
+   set, no Cache-Control required). The browser therefore stored that error under the
+   request URL and replayed it from disk on every later load: no request reached the
+   server, nothing appeared in any log, and no server-side fix could be seen to have
+   any effect. The screen kept reporting an embed error for hours after the embed was
+   fixed and then removed entirely, and the Supabase edge logs showed the query simply
+   not happening. `Cache-Control: no-store` does not help - it applies to responses we
+   send, and cannot evict one cached before it shipped.
+
+   A failure is 4xx or 5xx. Anything else upstream means "we could not complete this",
+   which is 502 - and 502 is not cacheable without explicit headers. */
+function upstreamStatus(e) {
+  const s = Number(e && e.status);
+  return (s >= 400 && s <= 599) ? s : 502;
+}
+
 /* 503 rather than a confusing failure deeper in, matching /api/portal-config. */
 function requireSupabaseConfig(res) {
   if (SUPABASE_URL && SUPABASE_ANON_KEY) return true;
@@ -201,7 +223,7 @@ app.get('/api/access/modules', async (req, res) => {
       '/dashboard_module?select=id,company_id,module_key,nav_id,label,sort&order=sort.asc,label.asc');
     res.json({ modules: rows || [] });
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(upstreamStatus(e)).json({ error: e.message });
   }
 });
 
@@ -289,7 +311,7 @@ app.get('/api/access/users', async (req, res) => {
     }
     res.json({ users, scope: company || 'exec' });
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(upstreamStatus(e)).json({ error: e.message });
   }
 });
 
@@ -369,7 +391,7 @@ app.get('/api/access/candidates', async (req, res) => {
       '&order=full_name.asc');
     res.json({ candidates: rows || [] });
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(upstreamStatus(e)).json({ error: e.message });
   }
 });
 
@@ -532,7 +554,7 @@ app.post('/api/access/invite', async (req, res) => {
       }
     }
     console.error('invite failed:', e.message);
-    res.status(e.status || 500).json({ error: e.message, rollback: rollbackNote });
+    res.status(upstreamStatus(e)).json({ error: e.message, rollback: rollbackNote });
   }
 });
 
@@ -548,7 +570,7 @@ app.get('/api/access/grants/:id', async (req, res) => {
       `/dashboard_permission?select=company_id,module,level&staff_id=eq.${encodeURIComponent(req.params.id)}`);
     res.json({ grants: rows || [] });
   } catch (e) {
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(upstreamStatus(e)).json({ error: e.message });
   }
 });
 
@@ -687,7 +709,7 @@ app.patch('/api/access/user/:id', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     /* Verbatim. The database's refusals are the useful part. */
-    res.status(e.status || 500).json({ error: e.message });
+    res.status(upstreamStatus(e)).json({ error: e.message });
   }
 });
 
