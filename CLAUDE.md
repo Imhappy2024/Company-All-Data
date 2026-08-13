@@ -553,12 +553,36 @@ Do **not** re-add an unguarded `html.embed-only body` palette to
 and loads later, so it wins and turns every embed white. The guard is
 `:not(.embed-dark)`.
 
+### Task writes patch the cache; they must not dump it
+`PUT`/`DELETE /api/task/:id` used to set `cachedTasksAt = 0`, expiring the whole
+tasks cache. The next `/api/tasks` re-walked the entire ClickUp workspace — 21 spaces,
+211 lists, ~4800 tasks — behind ClickUp's rate limiter, retrying at 60s. One status
+change cost **minutes** of blank screen, and the app got slower the more it was used.
+The cache was working; it was being thrown away.
+
+`task-cache.js` patches the one task instead, from the object ClickUp's PUT returns.
+The merge is **one level deep on purpose**: the walk enriches objects the single-task
+response returns thinner — `space` is `{id}` there and `{id, name}` in the cache — so a
+flat overwrite silently strips the name off every edited task. Arrays are replaced, not
+merged, or unassigning everyone would keep the previous assignee. Anything it cannot
+patch confidently falls back to expiring the cache: a slow read beats a wrong one.
+
+**The same task is editable from two screens with two separate caches** — the property
+detail overlay reads `allTasks`, the Property Tasks board reads `propTasksData` plus a
+localStorage SWR copy (`lwPtaskCacheV1`). Both wrote to ClickUp and both were right
+about ClickUp, but neither told the other, so whichever screen you were not looking at
+stayed stale. Every write funnels through `updateTask()` in index.html, which is why
+`taskChangedElsewhere()` lives there: it patches `allTasks` and **drops** the board's
+cache rather than patching it, because the two shapes are built by different code paths
+and a wrong patch is a silent lie on the screen people use to decide what needs doing.
+
 ### Tests
     npm install --no-save playwright express
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
     node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
+    node test/test-task-cache.js # task cache patching after a write (no network needed)
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability

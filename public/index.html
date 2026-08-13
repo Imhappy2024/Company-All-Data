@@ -2938,7 +2938,35 @@ async function updateTask(taskId, body) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `HTTP ${res.status}`);
   }
-  return res.json();
+  const updated = await res.json();
+  taskChangedElsewhere(taskId, updated);
+  return updated;
+}
+
+/* The same task is editable from TWO screens with TWO separate caches: the property
+   detail overlay reads `allTasks`, and the Property Tasks board reads `propTasksData`
+   with its own localStorage SWR copy. Both wrote to ClickUp and both were right about
+   ClickUp - but neither told the other, so whichever screen you were not looking at
+   kept showing the old value until its cache aged out.
+
+   Every write goes through updateTask(), so this is the one place that knows a task
+   changed. It drops the OTHER cache rather than trying to patch it: the two shapes are
+   built by different code paths, and a wrong patch here would be a silent lie on the
+   screen people use to decide what still needs doing. */
+function taskChangedElsewhere(taskId, updated) {
+  const t = Array.isArray(allTasks) ? allTasks.find(x => x && x.id === taskId) : null;
+  if (t && updated && updated.id) Object.assign(t, updated);
+
+  propTasksLoaded = false;
+  propTasksData = null;
+  propTasksCachedAt = 0;
+  try { localStorage.removeItem(PTASK_CACHE_KEY); } catch (e) { /* private mode */ }
+
+  /* Repaint whichever property view is actually open, so the change is visible
+     without a reload. Nothing to do when neither is. */
+  if (document.body.classList.contains('props-active') && propSub === 'tasks') {
+    try { refreshPropTasks(); } catch (e) { /* the cache is cleared either way */ }
+  }
 }
 
 async function deleteTaskApi(taskId) {
@@ -2952,6 +2980,10 @@ async function deleteTaskApi(taskId) {
     const err = await res.json().catch(() => ({}));
     throw new Error(err.error || `HTTP ${res.status}`);
   }
+  /* A deletion has to reach the other board too, or it keeps offering a task that is
+     no longer there and every edit from it fails. */
+  allTasks = Array.isArray(allTasks) ? allTasks.filter(t => !t || t.id !== taskId) : allTasks;
+  taskChangedElsewhere(taskId, null);
   return res.json();
 }
 

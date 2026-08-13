@@ -7,6 +7,7 @@ const fs = require('fs');
 const compression = require('compression');
 const taskSync = require('./supabase-sync'); // gated: inert unless DATA_SOURCE=supabase
 const supaProps = require('./supabase-properties'); // gated: Properties from Supabase when enabled
+const taskCache = require('./task-cache'); // patch the tasks cache after a write instead of dumping it
 const db = require('./supabase-db'); // shared Supabase pg pool (same cached instance supaProps uses; not a new pool)
 
 const app = express();
@@ -1247,6 +1248,34 @@ let refreshInProgress = false;
 let inProgressPromise = null;
 let lastRefreshError = null;
 
+/* Patch ONE task in the cached payload, instead of throwing the whole thing away.
+
+   Every task write used to set `cachedTasksAt = 0`, expiring the entire cache. The
+   next /api/tasks then re-walked the whole workspace - 21 spaces, 211 lists, ~4800
+   tasks - and ClickUp rate-limits that walk, retrying at 60s a time. So a single
+   status change bought minutes of empty screen, and the app got slower the more it
+   was used. The cache was working; it was being discarded.
+
+   It also kept the two task screens out of step for exactly that long. The property
+   detail and the Property Tasks board show the same task and both write to ClickUp,
+   but neither could see the other's change until the walk finished.
+
+   ClickUp's PUT returns the updated task, so the correct value is already in hand.
+   Merging it keeps the cache warm AND correct, and the next read from any screen has
+   the new value.
+
+   The merge rule lives in task-cache.js so it can be tested without a network or a
+   server: see that file for why it is one level deep. Both wrappers below fall back to
+   expiring the cache when the payload cannot be patched with confidence - a slow read
+   beats a confidently wrong one. */
+function patchCachedTask(taskId, updated) {
+  if (!taskCache.patchTask(cachedTasksPayload, taskId, updated)) cachedTasksAt = 0;
+}
+
+function dropCachedTask(taskId) {
+  if (!taskCache.dropTask(cachedTasksPayload, taskId)) cachedTasksAt = 0;
+}
+
 // Single source of truth for refreshing the task cache. If a refresh is already
 // running, all callers share the same in-flight promise — no duplicate workspace
 // walks even if scheduled + manual + post-write all fire concurrently.
@@ -1741,7 +1770,7 @@ app.put('/api/task/:id', async (req, res) => {
   const auth = requireAuth(req, res); if (!auth) return;
   try {
     const result = await clickupWriteWithToken(auth.token, 'PUT', `/task/${req.params.id}`, req.body || {});
-    cachedTasksAt = 0;
+    patchCachedTask(req.params.id, result);
     res.json(result);
   } catch (err) {
     console.error('task update:', err.message);
@@ -1754,7 +1783,7 @@ app.delete('/api/task/:id', async (req, res) => {
   const auth = requireAuth(req, res); if (!auth) return;
   try {
     const result = await clickupWriteWithToken(auth.token, 'DELETE', `/task/${req.params.id}`, null);
-    cachedTasksAt = 0;
+    dropCachedTask(req.params.id);
     res.json(result || { ok: true });
   } catch (err) {
     console.error('task delete:', err.message);
