@@ -309,12 +309,18 @@
         return '<div class="pu-row" data-id="' + esc(u.id) + '">' +
           '<div class="pu-person">' +
             avatarChip(u) +
-            '<span><span class="pu-name">' + esc(u.full_name || '(no name)') +
+            '<span class="pu-who"><span class="pu-name">' + esc(u.full_name || '(no name)') +
               (mine ? ' <span class="pu-you">you</span>' : '') +
-              /* user_id is still null: invited, link not yet clicked. */
-              (u.pending ? ' <span class="pu-pending" title="Invited, but the invitation has not been accepted yet">Pending</span>' : '') +
               '</span>' +
             '<span class="pu-email">' + esc(u.email) + '</span></span>' +
+            /* Sits at the right edge of the Person column, so it reads between the
+               name and the role rather than crowding the name.
+
+               It disappears on its own: pending is user_id IS NULL, and
+               handle_new_user() fills user_id the moment the person accepts the
+               invitation and sets a password. So nothing has to clear this flag -
+               signing in clears it. */
+            (u.pending ? '<span class="pu-sent" title="The invitation has been sent. This clears itself once they set a password and sign in.">Invite sent</span>' : '') +
           '</div>' +
           '<div><span class="pu-role r-' + esc(u.role) + '">' + esc(ROLE_LABEL[u.role] || u.role) + '</span></div>' +
           '<div class="pu-reach">' + (execCol
@@ -881,9 +887,12 @@
       '.pu-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}',
       '.pu-head-t{font-size:14.5px;font-weight:650;color:var(--text)}',
       '.pu-head-s{font-size:12.5px;color:var(--text2);margin-top:2px;max-width:620px;line-height:1.5}',
-      '.pu-pending{font-size:10px;font-weight:700;letter-spacing:.03em;text-transform:uppercase;',
-        'padding:1px 6px;border-radius:999px;background:var(--warn-soft,rgba(224,138,11,.16));',
-        'color:var(--warn-ink,var(--text2));cursor:help}',
+      /* margin-left:auto pushes it to the right edge of the Person cell, which is the
+         gap before the Role column - "between the name and the role" without adding a
+         column to the grid. flex:none so a long name cannot squeeze it away. */
+      '.pu-sent{margin-left:auto;flex:none;font-size:10.5px;font-weight:700;letter-spacing:.02em;',
+        'padding:2px 8px;border-radius:999px;cursor:help;white-space:nowrap;',
+        'color:var(--good,#12a150);background:var(--good-soft,rgba(18,161,80,.14))}',
       '.pu-btn.danger{color:var(--crit-ink,var(--text2));border-color:var(--border)}',
       '.pu-btn.danger:hover{border-color:var(--crit,#d03b3b);color:var(--crit,#d03b3b)}',
       '.pu-actions{display:flex;gap:6px;justify-content:flex-end}',
@@ -905,6 +914,8 @@
       '.pu-hrow{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;',
         'color:var(--text3);background:var(--surface-2,var(--panel-2))}',
       '.pu-person{display:flex;align-items:center;gap:10px;min-width:0}',
+      /* The name block is what gives way when the row is narrow, not the badge. */
+      '.pu-who{min-width:0;overflow:hidden}',
       '.pu-av{width:28px;height:28px;border-radius:50%;flex:none;display:flex;align-items:center;',
         'justify-content:center;font-size:11px;font-weight:700;background:var(--accent);color:#fff}',
       /* The photo sits OVER the initials rather than replacing them, so removing a

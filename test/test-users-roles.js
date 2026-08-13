@@ -394,13 +394,25 @@ function stub(payload) {
     console.log('\nInvited-not-accepted is shown, because user_id is still null');
     ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
     await page.waitForSelector('.pu-row[data-id="s-pending"]');
-    check('Pending badge on the invited person',
-      await page.$eval('.pu-row[data-id="s-pending"] .pu-pending', e => e.textContent), 'Pending');
-    check('and it explains itself on hover',
-      await page.$eval('.pu-row[data-id="s-pending"] .pu-pending', e => e.getAttribute('title')),
-      'Invited, but the invitation has not been accepted yet');
-    check('nobody who has accepted is marked pending',
-      await page.locator('.pu-row[data-id="s-user"] .pu-pending').count(), 0);
+    check('"Invite sent" on the invited person',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-sent', e => e.textContent), 'Invite sent');
+    check('and it explains that it clears itself',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-sent', e => e.getAttribute('title')),
+      'The invitation has been sent. This clears itself once they set a password and sign in.');
+    /* It clears on ACCEPTANCE, not on anything this screen does: pending is
+       user_id IS NULL, and handle_new_user() fills user_id when the person sets a
+       password. s-user has accepted, so the badge must be absent - that pairing is
+       the whole behaviour being asked for. */
+    check('and it is gone once they have signed in',
+      await page.locator('.pu-row[data-id="s-user"] .pu-sent').count(), 0);
+    /* Between the name and the role, not crowding the name: it is the last child of
+       the person cell, after the name block. */
+    check('it sits at the end of the person cell, not beside the name',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-person',
+        e => e.lastElementChild.className), 'pu-sent');
+    check('and the name block is untouched by it',
+      await page.$eval('.pu-row[data-id="s-pending"] .pu-who .pu-name', e => e.textContent.trim()),
+      'Pat Pending');
 
     /* ------------------------------------------------------------- revoke */
     console.log('\nRevoke removes access without deleting the staff record');
@@ -638,7 +650,7 @@ function stub(payload) {
        heading is decoration sitting above the wrong rows. */
     const order = await page.evaluate(() => Array.from(
       document.querySelectorAll('.pu-grouph,.pu-row:not(.pu-hrow)'))
-      .map(e => e.classList.contains('pu-grouph') ? 'HEAD' : (e.querySelector('.pu-pending') ? 'pending' : 'live')));
+      .map(e => e.classList.contains('pu-grouph') ? 'HEAD' : (e.querySelector('.pu-sent') ? 'pending' : 'live')));
     check('no pending row appears before the Invited heading',
       order.indexOf('pending') > order.lastIndexOf('HEAD'), true);
     check('and no accepted row appears after it',

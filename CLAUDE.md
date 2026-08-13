@@ -168,7 +168,10 @@ Shows only `dashboard_access = true`. A staff record without access is not a das
 user and belongs on **Team directory**. Exec vs per-business scoping applies on top.
 
 - **`user_id IS NULL` means invited but not yet accepted** — `handle_new_user()` fills
-  `user_id` only on acceptance — and is rendered as a Pending badge. Those rows are
+  `user_id` only on acceptance — and is rendered as a green **"Invite sent"** chip at
+  the right edge of the Person cell, between the name and the role. It clears itself:
+  nothing in the app resets it, because `handle_new_user()` fills `user_id` the moment
+  the person sets a password and signs in. Those rows are
   **grouped into "Invited — not yet accepted" below the accepted users**, not hidden:
   an invitation nobody can see is one nobody can chase, and "did that actually send?"
   stops being answerable from the screen that sent it. The Active heading appears only
