@@ -221,23 +221,55 @@ app.get('/api/access/users', async (req, res) => {
   const token = requireUserToken(req, res); if (!token) return;
   const company = (req.query.company || '').trim() || null;
   try {
-    /* The embed MUST name the constraint. dashboard_permission has two foreign keys
-       to staff - staff_id (the subject) and granted_by (an audit column) - so an
-       unqualified `dashboard_permission(...)` is ambiguous and PostgREST refuses it
-       with HTTP 300 PGRST201 rather than guessing.
-       `!staff_id` (the column form) also works on current PostgREST, but the
-       constraint name is the version-stable spelling. Note that
-       `!dashboard_permission_granted_by_fkey` is ALSO accepted and returns 200 -
-       it would silently join on who granted the row rather than whose row it is,
-       which is why this is spelled out rather than left to a hint that "works". */
+    /* NO EMBED, deliberately. dashboard_permission has two foreign keys to staff -
+       staff_id (the subject) and granted_by (an audit column) - so an unqualified
+       `dashboard_permission(...)` is ambiguous and PostgREST answers HTTP 300
+       PGRST201. Naming the constraint resolves that, and this route did exactly
+       that: the hinted string is accepted by the live API (verified by sending it
+       verbatim), and the commit carrying it was confirmed deployed.
+
+       The screen kept failing anyway, reporting the UNQUALIFIED-embed error - which
+       is the error PostgREST raises for a request carrying no hint at all, not for a
+       hint that is wrong. Every layer between this string and PostgREST was checked
+       and cleared: committed source, running build, URL construction, and the live
+       schema. Rather than keep an unexplained dependency on embed resolution in the
+       one screen that fixes access, this route no longer uses an embed. Two plain
+       queries and an explicit join: PGRST201 is now structurally impossible here.
+
+       That is also strictly safer than the form it replaces. The trap with the hint
+       is that `!dashboard_permission_granted_by_fkey` is ALSO accepted and returns
+       200 - it joins on who GRANTED each row rather than whose row it is, so it
+       returns data, the data is wrong, and nothing reports an error. A join written
+       out in code cannot go wrong that quietly, and the test pins it with a grant
+       whose granted_by points at somebody else.
+
+       RLS is unchanged. Both queries carry the caller's JWT, and PostgREST applies
+       the same policies to a top-level table as to an embedded one, so this returns
+       the same rows the embed did. */
     /* dashboard_access=is.true is the whole point of this screen: a staff record
        without dashboard access is not a dashboard user and belongs on Team
        directory, not here. Today that is one row. */
     const rows = await sbRest(token,
-      '/staff?select=id,full_name,email,avatar_url,is_active,user_id,dashboard_access,dashboard_role,' +
-      'dashboard_permission!dashboard_permission_staff_id_fkey(id,company_id,module,level)' +
-      '&dashboard_access=is.true&order=full_name.asc');
-    let users = (rows || []).map(r => ({
+      '/staff?select=id,full_name,email,avatar_url,is_active,user_id,dashboard_access,dashboard_role' +
+      '&dashboard_access=is.true&order=full_name.asc') || [];
+
+    /* Scoped to the people actually being shown rather than fetching every grant in
+       the tenant. Skipped when there is nobody: `in.()` with an empty list is a
+       syntax error, not an empty result. */
+    const ids = rows.map(r => r.id).filter(Boolean);
+    const perms = ids.length ? (await sbRest(token,
+      '/dashboard_permission?select=id,staff_id,company_id,module,level' +
+      `&staff_id=in.(${ids.map(encodeURIComponent).join(',')})`) || []) : [];
+
+    const grantsFor = new Map();
+    for (const p of perms) {
+      if (!grantsFor.has(p.staff_id)) grantsFor.set(p.staff_id, []);
+      grantsFor.get(p.staff_id).push({
+        id: p.id, company_id: p.company_id, module: p.module, level: p.level,
+      });
+    }
+
+    let users = rows.map(r => ({
       id: r.id,
       full_name: r.full_name,
       email: r.email,
@@ -249,9 +281,7 @@ app.get('/api/access/users', async (req, res) => {
          "the invitation has not been clicked". Free to compute, and it answers
          "who is holding things up" without anyone having to ask. */
       pending: !r.user_id,
-      grants: (r.dashboard_permission || []).map(g => ({
-        id: g.id, company_id: g.company_id, module: g.module, level: g.level,
-      })),
+      grants: grantsFor.get(r.id) || [],
     }));
     if (company) {
       users = users.filter(u =>

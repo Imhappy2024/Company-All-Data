@@ -116,7 +116,7 @@ role and has nothing to do with dashboard access. Never read it for permissions.
 `{user, companies, access}` with access keyed by `nav_id`, absent meaning no access.
 **Never call `dash_level()` per module from the browser.**
 
-### The PostgREST embed must name the constraint
+### `/api/access/users` does not embed — it joins in code
 `dashboard_permission` has **two** foreign keys to `staff` — `staff_id` (the subject)
 and `granted_by` (an audit column) — so an unqualified embed is ambiguous. Verified
 against the live API:
@@ -128,11 +128,33 @@ against the live API:
 | `!staff_id` (column form) | 200 |
 | `!dashboard_permission_granted_by_fkey` | **200 — and silently wrong** |
 
-The last row is the reason to spell out the constraint name. The wrong-direction hint
-is *accepted*: it joins on who granted the row rather than whose row it is, so it
-returns data and the data is wrong. A query that works and is wrong does more damage
-than a 300. If you ever embed `staff` **from** `dashboard_permission`, it is ambiguous
-the same way and `granted_by` is the one you would want there.
+The last row is the trap. The wrong-direction hint is *accepted*: it joins on who
+granted the row rather than whose row it is, so it returns data and the data is wrong.
+A query that works and is wrong does more damage than a 300. If you ever embed `staff`
+**from** `dashboard_permission`, it is ambiguous the same way and `granted_by` is the
+one you would want there.
+
+**`/api/access/users` therefore uses no embed at all.** It reads `staff`, then reads
+`dashboard_permission` filtered by `staff_id=in.(…)` over just those people, and joins
+them in JavaScript. Two round trips instead of one, on a payload of a handful of rows.
+
+This is not stylistic. The hinted embed above is correct, is accepted by the live API
+when sent verbatim, and shipped in `390ed53` — and the screen still failed, reporting
+the **unqualified**-embed error, which is what PostgREST raises for a request carrying
+no hint rather than one carrying a wrong hint. Committed source, running build, URL
+construction and the live schema were each checked and cleared, and the contradiction
+never resolved. The screen that fixes everyone's access is the wrong place to keep an
+unexplained dependency on embed resolution, so the dependency is gone: `PGRST201`
+cannot occur on a request with no embed in it.
+
+It is also the safer of the two. The silent-wrongness in the table above is only
+reachable through a hint; a join written out in code cannot pick the wrong foreign key
+quietly. `test-access-api.js` pins it with a fixture where **every grant was handed out
+by Ada**, so a join on `granted_by` gives Ada all three rows and Ute none — and the
+test asserts both that each person gets their own grant and that the granter does not
+collect anyone else's. Mutating the route to join on `granted_by` fails those two
+checks; that was run, not assumed. If you reintroduce an embed here, that fixture is
+what will catch you.
 
 ### Users & Roles
 Shows only `dashboard_access = true`. A staff record without access is not a dashboard

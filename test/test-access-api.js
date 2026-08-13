@@ -40,15 +40,23 @@ function check(name, actual, want) {
 /* ---- fake PostgREST ------------------------------------------------------ */
 const db = {
   staff: [
+    /* user_id is the accepted/pending signal: handle_new_user() fills it only when
+       the person clicks the invite, so a null here is "invited, not yet accepted". */
     { id: 's-1', full_name: 'Ada Admin', email: 'ada@x.invalid', avatar_url: null,
-      is_active: true, dashboard_access: true, dashboard_role: 'admin' },
+      is_active: true, user_id: 'u-1', dashboard_access: true, dashboard_role: 'admin' },
     { id: 's-2', full_name: 'Ute User', email: 'ute@x.invalid', avatar_url: null,
-      is_active: true, dashboard_access: true, dashboard_role: 'user' },
+      is_active: true, user_id: null, dashboard_access: true, dashboard_role: 'user' },
   ],
+  /* granted_by is the SECOND foreign key to staff, and it is set to somebody other
+     than the subject on purpose. Every grant here was handed out by Ada, so a join
+     that used granted_by instead of staff_id would hand Ada all three rows and Ute
+     none - and would return 200 while doing it. That is the failure this fixture
+     exists to catch; without a differing granted_by the two joins agree and the test
+     cannot tell them apart. */
   perms: [
-    { id: 'p-1', staff_id: 's-1', company_id: null, module: 'executive', level: 'write' },
-    { id: 'p-2', staff_id: 's-1', company_id: LW, module: '*', level: 'write' },
-    { id: 'p-3', staff_id: 's-2', company_id: LW, module: 'properties', level: 'read' },
+    { id: 'p-1', staff_id: 's-1', granted_by: 's-1', company_id: null, module: 'executive', level: 'write' },
+    { id: 'p-2', staff_id: 's-1', granted_by: 's-1', company_id: LW, module: '*', level: 'write' },
+    { id: 'p-3', staff_id: 's-2', granted_by: 's-1', company_id: LW, module: 'properties', level: 'read' },
   ],
 };
 let log = [];
@@ -102,11 +110,14 @@ const pg = http.createServer((req, res) => {
         if (row) Object.assign(row, patch);
         return send(204, null);
       }
+      /* The hinted embed is still served, so the fake stays faithful to an API that
+         does accept it. The route no longer asks for it; that is asserted below by
+         looking at the request, not by crippling the fake here. */
       const wantEmbed = /dashboard_permission!/.test(select);
       return send(200, db.staff.filter(s => s.dashboard_access).map(s => {
         const out = { id: s.id, full_name: s.full_name, email: s.email, avatar_url: s.avatar_url,
-                      is_active: s.is_active, dashboard_access: s.dashboard_access,
-                      dashboard_role: s.dashboard_role };
+                      is_active: s.is_active, user_id: s.user_id,
+                      dashboard_access: s.dashboard_access, dashboard_role: s.dashboard_role };
         if (wantEmbed) {
           out.dashboard_permission = db.perms.filter(p => p.staff_id === s.id)
             .map(p => ({ id: p.id, company_id: p.company_id, module: p.module, level: p.level }));
@@ -133,10 +144,37 @@ const pg = http.createServer((req, res) => {
         if (row) Object.assign(row, patch);
         return send(204, null);
       }
-      const staffEq = (u.searchParams.get('staff_id') || '').replace('eq.', '');
-      let rows = db.perms.filter(p => !staffEq || p.staff_id === staffEq);
+      /* eq. for one person, in.(…) for the whole list the users screen shows. An
+         unrecognised filter is a 400 rather than "no filter": silently returning
+         every row would let a broken predicate pass as if it worked. */
+      const staffFilter = u.searchParams.get('staff_id') || '';
+      let rows = db.perms;
+      if (staffFilter.startsWith('eq.')) {
+        const id = staffFilter.slice(3);
+        rows = rows.filter(p => p.staff_id === id);
+      } else if (staffFilter.startsWith('in.')) {
+        const set = new Set(staffFilter.slice(3).replace(/^\(|\)$/g, '')
+          .split(',').map(s => decodeURIComponent(s.trim())).filter(Boolean));
+        rows = rows.filter(p => set.has(p.staff_id));
+      } else if (staffFilter) {
+        return send(400, { message: 'unhandled staff_id filter: ' + staffFilter });
+      }
       if (u.searchParams.get('company_id') === 'is.null') rows = rows.filter(p => p.company_id === null);
-      return send(200, rows.map(p => ({ id: p.id, company_id: p.company_id, module: p.module, level: p.level })));
+      /* Project to the requested columns, like the real thing. granted_by therefore
+         only appears if something explicitly asks for it, which nothing does.
+         `alias:column` is honoured because PostgREST honours it - and because it is
+         how a join on the wrong foreign key would be spelled, so the fake has to
+         reproduce it faithfully for the test below to mean anything. */
+      const cols = (select || 'id,staff_id,company_id,module,level')
+        .split(',').map(s => s.trim()).filter(Boolean);
+      return send(200, rows.map(p => {
+        const out = {};
+        cols.forEach(c => {
+          const [alias, source] = c.includes(':') ? c.split(':') : [c, c];
+          if (source in p) out[alias] = p[source];
+        });
+        return out;
+      }));
     }
     send(404, { message: 'unhandled ' + table });
   });
@@ -186,15 +224,31 @@ async function waitUp(tries = 80) {
   try {
     await waitUp();
 
-    console.log('\nThe embed is disambiguated, so PostgREST does not refuse it');
+    console.log('\nGrants are joined in code, so no embed is resolved at all');
     log = [];
     const users = await req('/api/access/users');
     check('200, not the 300 an ambiguous embed would cause', users.status, 200);
-    check('grants actually came back embedded',
+    check('the request asks for NO embed, hinted or otherwise',
+      /dashboard_permission[!(]/.test(log.join(' ')), false);
+    check('it reads the two tables separately',
+      [log.some(l => l.startsWith('GET staff')),
+       log.some(l => l.startsWith('GET dashboard_permission'))], [true, true]);
+    check('and scopes the grant read to the staff on screen, not the whole tenant',
+      /staff_id=in\.\(/.test(log.join(' ')), true);
+
+    console.log('\nThe join is on staff_id - the subject - not on granted_by');
+    /* The real trap. Every grant in the fixture was handed out by Ada, so joining on
+       granted_by returns 200 with Ada holding all three and Ute holding none. Both
+       halves are asserted: the right rows arrive AND the wrong ones do not. */
+    check('the subject gets their own grant',
       users.json.users.find(u => u.id === 's-2').grants,
       [{ id: 'p-3', company_id: LW, module: 'properties', level: 'read' }]);
-    check('the request named the constraint',
-      /dashboard_permission!dashboard_permission_staff_id_fkey/.test(log.join(' ')), true);
+    check('the granter does NOT collect it',
+      users.json.users.find(u => u.id === 's-1').grants.map(g => g.id), ['p-1', 'p-2']);
+
+    console.log('\nAcceptance state is per person, not a constant');
+    check('null user_id is pending, a filled one is not',
+      users.json.users.map(u => [u.id, u.pending]), [['s-1', false], ['s-2', true]]);
 
     console.log('\nAnd the fake really would have caught the old form');
     /* Proof the guard is live rather than decorative. */
