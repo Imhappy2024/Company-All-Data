@@ -168,7 +168,15 @@ Shows only `dashboard_access = true`. A staff record without access is not a das
 user and belongs on **Team directory**. Exec vs per-business scoping applies on top.
 
 - **`user_id IS NULL` means invited but not yet accepted** — `handle_new_user()` fills
-  `user_id` only on acceptance — and is rendered as a Pending badge.
+  `user_id` only on acceptance — and is rendered as a Pending badge. Those rows are
+  **grouped into "Invited — not yet accepted" below the accepted users**, not hidden:
+  an invitation nobody can see is one nobody can chase, and "did that actually send?"
+  stops being answerable from the screen that sent it. The Active heading appears only
+  when both groups exist — one group needs no label saying what it is.
+- **`is_active = false` staff are deliberately NOT filtered out of this list.** They
+  cannot sign in (`current_staff_id()` requires `is_active AND dashboard_access`), but
+  hiding them here would hide access that still needs revoking, on the one screen that
+  can revoke it.
 - **Revoke** sets `dashboard_access = false`; `dashboard_role` **must go NULL in the
   same UPDATE** or `staff_dashboard_consistent` rejects it. The staff record is not
   deleted, and grant rows are left in place — they are inert while access is off

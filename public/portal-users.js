@@ -248,13 +248,36 @@
           : 'Nobody has been granted access to this business yet.');
     }
     var execCol = ui.scope === EXEC;
+
+    /* Accepted people first, outstanding invitations in their own group underneath.
+       SPLIT, not hidden: an invitation nobody can see is one nobody can chase, and
+       "did that actually send?" stops being answerable from the screen that sent it.
+       Grouping keeps the working list uncluttered without losing that.
+       The Active heading only appears when there is something to contrast it with -
+       a single group does not need a label telling you what it is. */
+    var live = [], invited = [];
+    ui.users.forEach(function (u) { (u.pending ? invited : live).push(u); });
+
     return '<div class="pu-table">' +
       '<div class="pu-row pu-hrow">' +
         '<div>Person</div><div>Role</div>' +
         (execCol ? '<div>Reaches</div>' : '<div>Access here</div>') +
         '<div></div>' +
       '</div>' +
-      ui.users.map(function (u) {
+      (live.length && invited.length ? groupHead('Active', live.length) : '') +
+      rows(live, execCol) +
+      (invited.length
+        ? groupHead('Invited &mdash; not yet accepted', invited.length) + rows(invited, execCol)
+        : '') +
+    '</div>';
+  }
+
+  function groupHead(label, n) {
+    return '<div class="pu-grouph">' + label + '<span class="pu-groupn">' + n + '</span></div>';
+  }
+
+  function rows(list, execCol) {
+    return list.map(function (u) {
         var mine = ui.me && u.id === ui.me.id;
         /* An admin cannot edit its own row - the database refuses it, so the control
            is hidden and the reason is on hover rather than discovered on save. */
@@ -281,8 +304,7 @@
               (mine ? '' : '<button class="pu-btn ghost danger" data-act="revoke">Revoke</button>')
             ) + '</div>' +
         '</div>';
-      }).join('') +
-    '</div>';
+      }).join('');
   }
 
   /* What one person holds in the CURRENT business, by catalog label. */
@@ -814,6 +836,10 @@
       '.pu-row{display:grid;grid-template-columns:minmax(0,2fr) 130px minmax(0,2fr) 110px;',
         'align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--border)}',
       '.pu-row:last-child{border-bottom:none}',
+      '.pu-grouph{display:flex;align-items:center;gap:7px;padding:7px 14px;',
+        'background:var(--surface-2,var(--panel-2));border-bottom:1px solid var(--border);',
+        'font-size:10.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}',
+      '.pu-groupn{font-weight:600;opacity:.75}',
       '.pu-hrow{font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;',
         'color:var(--text3);background:var(--surface-2,var(--panel-2))}',
       '.pu-person{display:flex;align-items:center;gap:10px;min-width:0}',

@@ -567,6 +567,31 @@ function stub(payload) {
       await page.$eval(box, e => e.checked), true);
     await ctx.close();
 
+    console.log('\nOutstanding invitations are grouped, not hidden');
+    /* Hiding them would make "did that invite actually send?" unanswerable from the
+       screen that sent it. USERS carries one pending person, so the two groups are
+       genuinely distinguishable - with an all-accepted fixture this test would pass
+       whether or not the grouping existed. */
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('.pu-row', { timeout: 8000 });
+    const heads = await page.$$eval('.pu-grouph', els => els.map(e => e.textContent.trim()));
+    check('both groups are labelled', heads.length, 2);
+    check('active first, invitations second',
+      heads.map(h => /^Active/.test(h) ? 'active' : /Invited/.test(h) ? 'invited' : h),
+      ['active', 'invited']);
+    check('every invited person is still listed, none dropped',
+      (await page.$$('.pu-row:not(.pu-hrow)')).length, USERS.length);
+    /* Order matters: the pending row must fall AFTER the invited heading, or the
+       heading is decoration sitting above the wrong rows. */
+    const order = await page.evaluate(() => Array.from(
+      document.querySelectorAll('.pu-grouph,.pu-row:not(.pu-hrow)'))
+      .map(e => e.classList.contains('pu-grouph') ? 'HEAD' : (e.querySelector('.pu-pending') ? 'pending' : 'live')));
+    check('no pending row appears before the Invited heading',
+      order.indexOf('pending') > order.lastIndexOf('HEAD'), true);
+    check('and no accepted row appears after it',
+      order.slice(order.lastIndexOf('HEAD')).indexOf('live'), -1);
+    await ctx.close();
+
     console.log('\nRuntime errors');
     check('no page errors', errors, []);
   } catch (e) {
