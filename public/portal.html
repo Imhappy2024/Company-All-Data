@@ -797,7 +797,10 @@ function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBo
 function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
 function adsScopedRows(){
   if(adsMode==='live'&&adsRows){
-    return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id),cname:r.campaign_name||('Campaign '+r.campaign_id)}))};
+    /* campaign_id is null on every live row - n8n writes the NAME and not the id - so
+       keying on it collapsed every campaign into one bucket labelled "Campaign null".
+       The name is what the feed actually provides, so it is the fallback key. */
+    return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id||r.campaign_name||'unknown'),cname:r.campaign_name||('Campaign '+(r.campaign_id||'unnamed'))}))};
   }
   const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);
   const rows=[];
@@ -814,7 +817,17 @@ async function loadAds(force){
   try{
     const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
     let q=sb.from('meta_ads_insight').select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name').gte('date_start',since);
-    const cid=brandCompanyId(brand); if(cid) q=q.eq('company_id',cid);
+    /* MIRROR THE RLS RULE, do not narrow past it. meta_ads_insight rows carry a
+       company_id only if whatever wrote them set one, and n8n does not - every live
+       row is untagged. An .eq(company_id) filter therefore matched nothing, so the
+       screen went empty the moment portal auth existed: before that there was no
+       session, it fell back to baked demo data, and the gap was invisible.
+
+       The SELECT policy already allows "company_id = mine OR (company_id is null and
+       my tenant)", so asking for the same shape cannot return a row the database
+       would have withheld. */
+    const cid=brandCompanyId(brand);
+    if(cid) q=q.or(`company_id.eq.${cid},company_id.is.null`);
     const {data,error}=await q;
     if(error) throw error;
     adsRows=data||[]; adsMode='live';
@@ -824,7 +837,12 @@ async function loadAds(force){
 }
 function renderAdsBody(){
   const {source,rows}=adsScopedRows();
-  if(!rows.length) return `<div class="placeholder">${I.trend}<div>No ad data for ${brand==='all'?'this date range':esc(BRANDS[brand].name)} yet</div></div>`;
+  /* "No data yet" reads as a broken screen. When the query DID run, the honest
+     statement is that the feed has written nothing into the window - that is a data
+     problem to chase in n8n, not something to look for in here. */
+  if(!rows.length) return `<div class="placeholder">${I.trend}<div>${source==='live'
+    ? 'No ad data in the last 14 days.<div class="ph-sub">The query ran and returned nothing &mdash; Meta ads land in <b>meta_ads_insight</b> via n8n, so nothing has been written for this window.</div>'
+    : 'No ad data for '+(brand==='all'?'this date range':esc(BRANDS[brand].name))+' yet'}</div></div>`;
   const campMap=new Map(); rows.forEach(r=>{if(!campMap.has(r.cid))campMap.set(r.cid,r.cname);});
   if(adsCampaign!=='all'&&!campMap.has(adsCampaign)) adsCampaign='all';
   const scoped=adsCampaign==='all'?rows:rows.filter(r=>r.cid===adsCampaign);
