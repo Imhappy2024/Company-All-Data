@@ -238,7 +238,19 @@ tbody tr:hover{background:var(--panel-2)}
 .drawer.open{transform:none}
 .dr-hero{padding:26px 24px 20px;text-align:center;border-bottom:1px solid var(--border-2);position:relative}
 .dr-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:18px;color:var(--dim);line-height:1}
-.dr-av{width:80px;height:80px;border-radius:20px;object-fit:cover;margin:0 auto 12px;display:block}
+/* .dr-av and .pav are SPANS holding initials, with the photo layered over the top -
+   so a headshot that fails to load leaves the chip rather than an empty square. */
+.dr-av{width:80px;height:80px;border-radius:20px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-weight:700;font-size:24px}
+.pav{width:40px;height:40px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
+.dr-av.has-photo,.pav.has-photo,.avatar.has-photo{position:relative;overflow:hidden}
+/* object-position sits ABOVE centre: these are headshots, and a centred square crop
+   of a portrait cuts the top of the head off. 50% 20% keeps the face in frame. */
+.dr-av img,.pav img,.avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 20%;border-radius:inherit}
+.bio-none{font-size:13.5px;color:var(--faint);font-style:italic}
+.ph-sub{font-size:12px;margin-top:6px;color:var(--faint)}
+.person.skel{opacity:.45;pointer-events:none}
+.person.skel .pav{background:var(--panel-2)}
+.person.skel .pn,.person.skel .pr{background:var(--panel-2);border-radius:4px}
 .dr-nm{font-size:18px;font-weight:700}
 .dr-rl{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px}
 .dr-tag{display:inline-block;margin-top:10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--dim);padding:3px 11px;border-radius:20px}
@@ -495,6 +507,37 @@ const STAFF=[
   {id:7,name:'John Younes',role:'Director of Property Management',brand:'leavenwealth',img:'https://static.showit.co/400/PtanfGLIc8gigKNKxl3tWA/shared/john-younes-leavenwealth.jpg',email:'john@leavenwealth.com',phone:'—',bio:'Oversees property management operations, establishing communication systems and KPI frameworks that drive portfolio performance, efficiency, and accountability.'},
   {id:8,name:'Brian Nelson',role:'Director of Asset Management',brand:'leavenwealth',img:'https://static.showit.co/400/fRxzlQ9skMmfswPunOibZA/shared/brian-nelson-leavenwealth.jpg',email:'brian@leavenwealth.com',phone:'—',bio:'15 years in real estate investing and 11 as a financial advisor, spanning property management, financial strategy, and software product development. Previously managed 1,200 units.'},
 ];
+/* Team directory reads LIVE from staff via /api/team. STAFF above is now only the
+   org and department charts, which encode reporting lines the database does not hold
+   - so those keep their baked ids and hierarchy until there is a real one to read. */
+let teamRows=null, teamErr=null, teamFetching=false;
+function fetchTeam(){
+  if(teamFetching) return; teamFetching=true;
+  PortalSession.client().then(c=>c.auth.getSession()).then(r=>{
+    const t=r&&r.data&&r.data.session&&r.data.session.access_token;
+    if(!t) throw new Error('Your session has expired. Sign in again.');
+    return fetch('/api/team',{headers:{Authorization:'Bearer '+t}});
+  }).then(r=>r.text().then(txt=>{
+    let b=null; try{b=txt?JSON.parse(txt):null;}catch(e){b={error:txt};}
+    if(!r.ok) throw new Error((b&&b.error)||('HTTP '+r.status));
+    return b;
+  })).then(d=>{teamRows=d.people||[];teamErr=null;teamFetching=false;render();})
+    .catch(e=>{teamErr=e.message;teamFetching=false;render();});
+}
+function initialsOf(n){
+  const p=String(n||'').trim().split(/\s+/).filter(Boolean);
+  if(!p.length) return '?';
+  return ((p[0][0]||'?')+(p.length>1?(p[p.length-1][0]||''):'')).toUpperCase();
+}
+/* Same rule as brandMark(): the initials sit UNDER the photo, so dropping a broken
+   image reveals them with nothing to re-render. The headshots are hotlinked from
+   static.showit.co, so a failure here is a live case rather than a theoretical one. */
+function staffPhoto(p,cls){
+  const ini=esc(initialsOf(p.name));
+  if(!p.avatar_url) return `<span class="${cls}">${ini}</span>`;
+  return `<span class="${cls} has-photo">${ini}<img src="${esc(p.avatar_url)}" alt="" loading="lazy" onerror="staffPhotoFailed(this)"></span>`;
+}
+function staffPhotoFailed(img){const s=img.parentNode;if(s)s.classList.remove('has-photo');img.remove();}
 const PROPS=[{n:'Lincoln Portfolio',u:14,o:93,noi:9800},{n:'Midwest Portfolio 1',u:22,o:95,noi:12600},{n:'Midwest Portfolio 2',u:18,o:89,noi:8900},{n:'48 SF Unit Portfolio',u:48,o:91,noi:24100},{n:'Midwest Portfolio 5',u:16,o:97,noi:10200},{n:'Midwest Portfolio 8',u:12,o:83,noi:6400}];
 const INVESTORS=[{n:'Robert Hensley',stake:35,where:'Midwest Portfolio 1'},{n:'Patel Family Trust',stake:20,where:'Fund-level'},{n:'Diane Foster',stake:15,where:'Lincoln Portfolio'},{n:'Kwan Holdings LLC',stake:25,where:'Fund-level'},{n:'Miguel Santos',stake:5,where:'48 SF Portfolio'}];
 const PROV={closers:{n:'Closers.io',c:'#4f6bed'},aia:{n:'AIA',c:'#8b5cf6'},organic:{n:'Organic',c:'#0d9488'},none:{n:'—',c:'#98a0ac'}};
@@ -666,7 +709,15 @@ const V={
   pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
   borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
   team(){
-    return `<div class="people">${STAFF.map(p=>`<div class="person" role="button" tabindex="0" onclick="openStaff(${p.id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${p.id})}"><img src="${p.img}" alt=""><div><div class="pn">${esc(p.name)}</div><div class="pr">${esc(p.role)}</div></div></div>`).join('')}</div>`;
+    if(teamErr) return `<div class="placeholder">${I.users}<div>Could not load the team<div class="ph-sub">${esc(teamErr)}</div></div></div>`;
+    /* Fetched on first paint rather than at boot: most sessions never open this
+       screen, and fetchTeam() guards against the re-entry this creates. */
+    if(!teamRows){ fetchTeam(); return `<div class="people">${'<div class="person skel"><span class="pav"></span><div style="flex:1"><div class="pn">&nbsp;</div><div class="pr">&nbsp;</div></div></div>'.repeat(6)}</div>`; }
+    if(!teamRows.length) return `<div class="placeholder">${I.users}<div>No active staff<div class="ph-sub">Nobody in <b>staff</b> is marked active.</div></div></div>`;
+    return `<div class="people">${teamRows.map(p=>{
+      const go=`openStaff('${esc(p.id)}')`;
+      return `<div class="person" role="button" tabindex="0" onclick="${go}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${go}}">${staffPhoto(p,'pav')}<div><div class="pn">${esc(p.name)}</div><div class="pr">${esc(p.title||'—')}</div></div></div>`;
+    }).join('')}</div>`;
   },
   departments(){return V.orgdept();},
   orgdept(){
@@ -801,17 +852,36 @@ function renderAdsBody(){
 }
 
 /* ---- profile drawer ---- */
-function openStaff(id){const p=STAFF.find(s=>s.id===id);if(!p)return;
+/* Opens for BOTH sources: a live staff uuid from Team directory, and a baked numeric
+   id from the org and department charts. Live is checked first, so once someone is in
+   staff their real record wins over any baked copy of them. */
+function openStaff(id){
+  const live=(teamRows||[]).find(s=>s.id===id);
+  const baked=live?null:STAFF.find(s=>s.id===id);
+  if(!live&&!baked)return;
+  const p=live
+    ? {name:live.name,role:live.title,avatar_url:live.avatar_url,email:live.email,
+       phone:live.phone,bio:live.bio,brand:null,type:live.staff_type}
+    : {name:baked.name,role:baked.role,avatar_url:baked.img,email:baked.email,
+       phone:baked.phone,bio:baked.bio,brand:baked.brand,type:''};
+  /* Five staff rows currently carry no title, bio, photo or phone. An empty About
+     with a dead "See more" reads as broken, so the section is dropped and the gap is
+     stated instead - that is the data being incomplete, not the screen failing. */
+  const hasBio=!!(p.bio&&p.bio.trim());
   document.getElementById('drawer').innerHTML=`
     <div class="dr-hero"><button class="dr-x" onclick="closeDrawer()">&times;</button>
-      <img class="dr-av" src="${p.img}" alt=""><div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role)}</div><div class="dr-tag">${esc(BRANDS[p.brand].name)}</div></div>
+      ${staffPhoto(p,'dr-av')}<div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role||'No title recorded')}</div>${
+        p.brand&&BRANDS[p.brand]?`<div class="dr-tag">${esc(BRANDS[p.brand].name)}</div>`
+        :p.type?`<div class="dr-tag">${esc(p.type)}</div>`:''}</div>
     <div class="dr-b">
       <div class="dr-sec">About</div>
-      <div class="bio clamp" id="bioText">${esc(p.bio)}</div>
-      <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>
+      ${hasBio
+        ?`<div class="bio clamp" id="bioText">${esc(p.bio)}</div>
+          <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>`
+        :`<div class="bio-none">No bio recorded yet.</div>`}
       <div style="height:8px"></div>
-      <div class="dr-field">${I.mail}<div><div class="fk">Email</div><div>${esc(p.email)}</div></div></div>
-      <div class="dr-field">${I.phone}<div><div class="fk">Phone</div><div>${esc(p.phone)}</div></div></div>
+      <div class="dr-field">${I.mail}<div><div class="fk">Email</div><div>${esc(p.email||'—')}</div></div></div>
+      <div class="dr-field">${I.phone}<div><div class="fk">Phone</div><div>${esc(p.phone||'—')}</div></div></div>
     </div>`;
   document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');
   requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});
@@ -1114,6 +1184,9 @@ if(window.PortalRealtime) PortalRealtime.start({
     /* Users & Roles caches its list, so rerender() alone would repaint the SAME rows
        it already had. Dropping the cache is what makes the refresh a refetch. */
     if((v==='*' || v==='access') && window.PortalUsers){ PortalUsers.invalidate(); }
+    /* Team directory caches its list the same way, so the staff binding in
+       TABLE_VIEWS only refreshes it if the cache is dropped first. */
+    if(v==='*' || v==='team'){ teamRows=null; teamErr=null; }
   },
 });
 
@@ -1160,7 +1233,14 @@ function idInitials(u){
 
 function renderIdentity(){
   const u=dashAccess&&dashAccess.user; if(!u) return;
-  document.getElementById('idAvatar').textContent=idInitials(u).toUpperCase();
+  /* The signed-in person's headshot, layered over their initials exactly like every
+     other avatar here - so a photo that fails to load leaves the chip rather than an
+     empty circle. dash_my_access() already returns avatar_url; only this was ignoring
+     it, which is why the chip stayed initials while the lists showed photos. */
+  const av=document.getElementById('idAvatar');
+  av.innerHTML=esc(idInitials(u).toUpperCase())+
+    (u.avatar_url?`<img src="${esc(u.avatar_url)}" alt="" onerror="staffPhotoFailed(this)">`:'');
+  av.classList.toggle('has-photo',!!u.avatar_url);
   document.getElementById('idName').textContent=u.full_name||u.email;
   document.getElementById('idRole').textContent=ROLE_WORD[u.role]||u.role||'';
 }

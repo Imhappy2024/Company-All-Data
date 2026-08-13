@@ -32,6 +32,7 @@ const MODULES = [
   { id: 'm1', company_id: null, module_key: 'executive', nav_id: 'exec', label: 'Executive', sort: 10 },
   { id: 'm2', company_id: null, module_key: 'financials', nav_id: 'financials', label: 'Financials', sort: 50 },
   { id: 'm3', company_id: null, module_key: 'access', nav_id: 'access', label: 'Users & Roles', sort: 80 },
+  { id: 'm9', company_id: null, module_key: 'team', nav_id: 'team', label: 'Team directory', sort: 20 },
   { id: 'm4', company_id: LW, module_key: 'overview', nav_id: 'overview', label: 'Overview', sort: 5 },
   { id: 'm5', company_id: LW, module_key: 'properties', nav_id: 'properties', label: 'Properties', sort: 10 },
   { id: 'm6', company_id: LW, module_key: 'loans', nav_id: 'loans', label: 'Loans', sort: 20 },
@@ -69,6 +70,19 @@ const USERS = [
     grants: [{ id: 'g4', company_id: LW, module: 'overview', level: 'read' }] },
 ];
 
+/* ---- Team directory, as GET /api/team returns it -------------------------- */
+/* Deliberately mixed: one complete record, one with nothing but a name and email.
+   Five live staff rows are the sparse shape, so a fixture where everyone is complete
+   would not exercise the screen people actually see. */
+const TEAM = [
+  { id: 't-full', name: 'Mitch Hagen', title: 'Director of Finance',
+    email: 'mitch@x.invalid', phone: '555-0100', staff_type: 'employee',
+    avatar_url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+    bio: 'Oversees financial reporting and strategy.' },
+  { id: 't-sparse', name: 'Karen Romero', title: '', email: 'karen@x.invalid',
+    phone: '', staff_type: 'employee', avatar_url: '', bio: '' },
+];
+
 /* Staff WITHOUT dashboard access - the add-person picker's source. These must never
    appear in the users list; that is the whole point of the change. */
 const CANDIDATES = [
@@ -92,6 +106,9 @@ const server = http.createServer((req, res) => {
     res.writeHead(code, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(obj));
   };
+  /* Team directory: everyone in staff, including people with no photo, no title and
+     no bio - five real rows look like that, and they must still render. */
+  if (p === '/api/team') return json(200, { people: TEAM });
   if (p === '/api/access/modules') return json(200, { modules: MODULES });
   if (p === '/api/access/candidates') return json(200, { candidates: CANDIDATES });
   if (p.startsWith('/api/access/grants/')) {
@@ -156,7 +173,7 @@ const OWNER_ACCESS = {
   user: { id: 's-owner', email: 'owner@x.invalid', full_name: 'Chris Owner', avatar_url: null, role: 'owner' },
   companies: { [LW]: 'LeavenWealth', [LEADLI]: 'Leadli AI' },
   access: {
-    exec: { exec: 'write', financials: 'write', access: 'write' },
+    exec: { exec: 'write', financials: 'write', access: 'write', team: 'write' },
     [LW]: { overview: 'write', properties: 'write', loans: 'write' },
     [LEADLI]: { overview: 'write', leads: 'write' },
   },
@@ -418,23 +435,27 @@ function stub(payload) {
     await page.waitForSelector('.pu-drawer');
     check('the drawer header matches the button',
       (await page.textContent('.pu-dr-t')).trim(), 'Invite user');
-    await page.waitForSelector('.pu-pick', { timeout: 8000 });
-    check('candidates are staff WITHOUT dashboard access',
-      await page.$$eval('.pu-pick', b => b.map(x => x.getAttribute('data-id'))),
-      ['c-mitch', 'c-jane']);
-    check('nobody already holding access is offered',
-      await page.$$eval('.pu-pick', b => b.some(x => /Chris Owner|Ute User/.test(x.textContent))), false);
+    /* Typed fields, NOT a staff list. Somebody hired to run leads is not in staff
+       yet, and a picker made that the one shape the screen could not handle. */
+    await page.waitForSelector('#puEmail', { timeout: 8000 });
+    check('it asks for a name and an email, not a person to choose',
+      await page.$$eval('.pu-drawer .pu-in', i => i.map(e => e.id)),
+      ['puFirst', 'puLast', 'puEmail']);
+    check('and no staff list is rendered', await page.locator('.pu-pick').count(), 0);
 
-    await page.fill('#puPick', 'mitch');
-    await page.waitForTimeout(200);
-    check('typing filters the list',
-      await page.$$eval('.pu-pick', b => b.map(x => x.getAttribute('data-id'))), ['c-mitch']);
-    await page.click('.pu-pick[data-id="c-mitch"]');
-    await page.waitForTimeout(200);
-    check('picking records the existing staff id, so no second record is created',
+    console.log('\nA typed address that already belongs to someone links to them');
+    /* The picker used to be what stopped a second staff record being created. staff
+       has a unique index on (tenant_id, lower(email)), so the guarantee now comes from
+       the server - and the match is surfaced as it is typed so nobody has to wonder
+       which of the two happened. */
+    await page.fill('#puFirst', 'Mitch');
+    await page.fill('#puLast', 'Existing');
+    await page.fill('#puEmail', 'mitch@x.invalid');
+    await page.waitForTimeout(250);
+    check('the existing staff id is attached, so no second record is created',
       await page.evaluate(() => PortalUsers._internals.ui.draft.staff_id), 'c-mitch');
-    check('and says so in as many words',
-      await page.evaluate(() => /No second record is created/.test(document.body.textContent)), true);
+    check('and it says whose record it is joining',
+      await page.evaluate(() => /already belongs to/.test(document.body.textContent)), true);
 
     /* Revoke leaves grant rows in place, so re-granting hands them back. Six months
        is long enough for that to have become wrong, so it is shown, not restored
@@ -448,13 +469,19 @@ function stub(payload) {
       await page.evaluate(() => (PortalUsers._internals.ui.draft.grants[
         'c0000000-0000-4000-8000-000000000003'] || {}).properties), 'read');
 
-    console.log('\nFree text is still allowed for someone genuinely new');
-    await page.fill('#puPick', 'brand-new@example.invalid');
+    console.log('\nA genuinely new hire needs no staff record first');
+    /* The whole point of the change: someone taken on to run leads is not in staff
+       yet, and this screen now creates the staff record alongside the login. */
+    await page.fill('#puFirst', 'Brand');
+    await page.fill('#puLast', 'New');
+    await page.fill('#puEmail', 'brand-new@example.invalid');
     await page.waitForTimeout(250);
-    check('typing detaches the picked record',
+    check('an address nobody holds detaches the match',
       await page.evaluate(() => PortalUsers._internals.ui.draft.staff_id), null);
-    check('and keeps the address as the intent',
-      await page.evaluate(() => PortalUsers._internals.ui.draft.email), 'brand-new@example.invalid');
+    check('the name is assembled into full_name for the staff row',
+      await page.evaluate(() => PortalUsers._internals.ui.draft.full_name), 'Brand New');
+    check('and it says a staff record will be created',
+      await page.evaluate(() => /staff record is created for them/.test(document.body.textContent)), true);
     /* The Send button only exists on step 3; steps 1 and 2 show Next. */
     await page.click('[data-act="step"][data-step="3"]');
     await page.waitForTimeout(200);
@@ -462,27 +489,37 @@ function stub(payload) {
       const b = [...document.querySelectorAll('.pu-dr-foot button')].pop();
       return { text: b.textContent.trim(), disabled: b.disabled, title: b.getAttribute('title') || '' };
     });
-    check('an address is enough to send', (await sendBtn()).disabled, false);
+    check('a name and an address are enough to send', (await sendBtn()).disabled, false);
 
     console.log('\nSending posts the invite');
     lastInvite = null;
     await page.click('[data-act="invite"]');
     await page.waitForTimeout(500);
     check('it called the invite endpoint', !!lastInvite, true);
-    check('with the typed address and the chosen role',
-      lastInvite && [lastInvite.email, lastInvite.role], ['brand-new@example.invalid', 'user']);
+    check('with the typed address, name and chosen role',
+      lastInvite && [lastInvite.email, lastInvite.full_name, lastInvite.role],
+      ['brand-new@example.invalid', 'Brand New', 'user']);
     check('and the drawer closed on success', await page.locator('.pu-drawer').count(), 0);
     check('with a message that explains Pending',
       /Pending until they open the link/.test(await page.textContent('.pu-msg')), true);
 
-    console.log('\nNothing chosen means nothing to send');
+    console.log('\nAn incomplete form cannot be sent');
     await page.click('.page-h .btn');
     await page.waitForSelector('.pu-drawer');
     await page.click('[data-act="step"][data-step="3"]');
     await page.waitForTimeout(200);
     const empty = await sendBtn();
-    check('disabled with no person and no address', empty.disabled, true);
-    check('and it says what is missing', /Choose a person or type an email/.test(empty.title), true);
+    check('disabled with nothing filled in', empty.disabled, true);
+    check('and it says what is missing', /first name, last name and email/i.test(empty.title), true);
+
+    /* A name is genuinely required, not decorative: this screen now creates the staff
+       record, and a directory of people identified only by an address is not one. */
+    await page.click('[data-act="step"][data-step="1"]');
+    await page.fill('#puEmail', 'no-name@example.invalid');
+    await page.waitForTimeout(200);
+    await page.click('[data-act="step"][data-step="3"]');
+    await page.waitForTimeout(200);
+    check('an address without a name is still not enough', (await sendBtn()).disabled, true);
     await ctx.close();
 
     console.log('\nThe list refetches rather than repainting a cached copy');
@@ -633,6 +670,44 @@ function stub(payload) {
       await page.$eval('.pu-row[data-id="s-user"] .pu-av',
         e => [e.querySelector('img') ? 'img' : 'none', e.className, e.textContent.trim()]),
       ['none', 'pu-av', 'UU']);
+    await ctx.close();
+
+    console.log('\nTeam directory reads live staff, not the baked list');
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=team'));
+    await page.waitForSelector('.person:not(.skel)', { timeout: 8000 });
+    check('it lists exactly who /api/team returned',
+      await page.$$eval('.person:not(.skel) .pn', n => n.map(e => e.textContent.trim())),
+      ['Mitch Hagen', 'Karen Romero']);
+    /* The old screen was a hard-coded array of eight. If any of those names appear,
+       the baked list is still driving this view. */
+    check('nobody from the baked STAFF array leaked in',
+      await page.$$eval('.person .pn', n => n.map(e => e.textContent).some(t => /Nick Bruhn|Jason Belt/.test(t))),
+      false);
+    check('a title renders, and a missing one degrades to a dash',
+      await page.$$eval('.person:not(.skel) .pr', n => n.map(e => e.textContent.trim())),
+      ['Director of Finance', '—']);
+    check('the person with a photo gets an img',
+      await page.$$eval('.person .pav img', i => i.length), 1);
+    check('and the one without still gets a legible chip',
+      await page.$$eval('.person .pav', a => a.map(e => e.textContent.trim())), ['MH', 'KR']);
+
+    console.log('\nThe profile drawer copes with an incomplete record');
+    /* Five real staff rows have no title, bio, photo or phone. An empty About with a
+       dead "See more" reads as broken, so the section states the gap instead. */
+    await page.click('.person:has(.pn:text-is("Karen Romero"))');
+    await page.waitForTimeout(250);
+    check('it opened', await page.$eval('#drawer', e => e.classList.contains('open')), true);
+    check('no dead See more button', await page.locator('#drawer .bio-toggle').count(), 0);
+    check('the gap is stated', await page.$eval('#drawer .bio-none', e => e.textContent), 'No bio recorded yet.');
+    check('missing title does not render as "undefined"',
+      await page.$eval('#drawer .dr-rl', e => e.textContent), 'No title recorded');
+    check('missing phone shows a dash, not blank',
+      await page.$$eval('#drawer .dr-field',
+        f => f.map(e => e.querySelector('.fk').nextElementSibling.textContent.trim())),
+      ['karen@x.invalid', '—']);
+    check('and the hero shows initials rather than a broken image',
+      await page.$eval('#drawer .dr-av', e => [e.querySelector('img') ? 'img' : 'none', e.textContent.trim()]),
+      ['none', 'KR']);
     await ctx.close();
 
     console.log('\nRuntime errors');

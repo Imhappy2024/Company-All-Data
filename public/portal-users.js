@@ -365,19 +365,23 @@
         '<div class="pu-dr-body">' +
           (ui.step === 1 ? stepDetails(u, d) : ui.step === 2 ? stepType(d) : stepAccess(d)) +
         '</div>' +
-        '<div class="pu-dr-foot">' +
-          (ui.step > 1 ? '<button class="pu-btn ghost" data-act="back">Back</button>' : '<span></span>') +
-          (ui.step < 3
-            ? '<button class="pu-btn" data-act="next">Next</button>'
-            : ui.adding
-              ? '<button class="pu-btn" data-act="invite"' +
-                ((ui.busy || !inviteReady()) ? ' disabled' : '') +
-                (inviteReady() ? '' : ' title="Choose a person or type an email address first"') + '>' +
-                (ui.busy ? 'Sending…' : 'Send invitation') + '</button>'
-              : '<button class="pu-btn" data-act="save"' + (ui.busy ? ' disabled' : '') + '>' +
-                (ui.busy ? 'Saving…' : 'Save changes') + '</button>') +
-        '</div>' +
+        '<div class="pu-dr-foot">' + footInner() + '</div>' +
       '</aside>';
+  }
+
+  /* Split out so refreshFoot() can re-evaluate the Send button as the name is typed
+     without repainting the field the caret is in. */
+  function footInner() {
+    return (ui.step > 1 ? '<button class="pu-btn ghost" data-act="back">Back</button>' : '<span></span>') +
+      (ui.step < 3
+        ? '<button class="pu-btn" data-act="next">Next</button>'
+        : ui.adding
+          ? '<button class="pu-btn" data-act="invite"' +
+            ((ui.busy || !inviteReady()) ? ' disabled' : '') +
+            (inviteReady() ? '' : ' title="Enter a first name, last name and email address first"') + '>' +
+            (ui.busy ? 'Sending…' : 'Send invitation') + '</button>'
+          : '<button class="pu-btn" data-act="save"' + (ui.busy ? ' disabled' : '') + '>' +
+            (ui.busy ? 'Saving…' : 'Save changes') + '</button>');
   }
 
   function steps() {
@@ -417,28 +421,43 @@
       return ((c.full_name || '') + ' ' + (c.email || '')).toLowerCase().indexOf(q) >= 0;
     }).slice(0, 8);
 
-    return '<label class="pu-lab" for="puPick">Who is this?</label>' +
-      '<input class="pu-in" id="puPick" data-field="pick" autocomplete="off"' +
-        ' placeholder="Search staff, or type a new email address"' +
-        ' value="' + esc(ui.pickQuery || '') + '">' +
-      (ui.candidates === null
-        ? '<div class="pu-note">Loading staff…</div>'
-        : list.length
-          ? '<div class="pu-picks">' + list.map(function (c) {
-              var on = d.staff_id === c.id;
-              return '<button class="pu-pick' + (on ? ' on' : '') + '" data-act="pick" data-id="' + esc(c.id) + '">' +
-                avatarChip(c) +
-                '<span><span class="pu-name">' + esc(c.full_name || '(no name)') + '</span>' +
-                '<span class="pu-email">' + esc(c.email) + '</span></span></button>';
-            }).join('') + '</div>'
-          : '<div class="pu-note">No staff record matches. If ' +
-            (q ? '<b>' + esc(q) + '</b> is' : 'that is') +
-            ' a new person, their email address is enough - a staff record is created for them.</div>') +
-      (d.staff_id
-        ? '<div class="pu-note">Granting dashboard access to the existing staff record for <b>' +
-          esc(d.full_name || d.email) + '</b>. No second record is created.</div>' +
-          priorGrantsNote(d.staff_id)
-        : '');
+    /* TYPED, not picked. Somebody hired to run leads is not in staff yet, and making
+       the list the only way in meant they had to be created elsewhere first. These
+       fields serve both jobs: a new person gets a staff record AND a login, and an
+       address that already belongs to someone attaches to that person instead.
+
+       The uniqueness guarantee the picker used to provide is kept, and is now the
+       server's rather than the UI's: staff has a unique index on
+       (tenant_id, lower(email)), so an address that matches UPDATES that row and
+       never inserts a second. The match is surfaced below as it is typed so nobody
+       has to wonder which of the two happened. */
+    var match = matchedStaff(d.email);
+    return '<div class="pu-two">' +
+        '<div><label class="pu-lab" for="puFirst">First name</label>' +
+          '<input class="pu-in" id="puFirst" data-field="first" autocomplete="off" value="' + esc(d.first || '') + '"></div>' +
+        '<div><label class="pu-lab" for="puLast">Last name</label>' +
+          '<input class="pu-in" id="puLast" data-field="last" autocomplete="off" value="' + esc(d.last || '') + '"></div>' +
+      '</div>' +
+      '<label class="pu-lab" for="puEmail">Email</label>' +
+      '<input class="pu-in" id="puEmail" data-field="email" type="email" autocomplete="off"' +
+        ' placeholder="name@company.com" value="' + esc(d.email || '') + '">' +
+      (match
+        ? '<div class="pu-note">That address already belongs to <b>' + esc(match.full_name || match.email) +
+          '</b> in staff. Access is added to that record - no second person is created.</div>' +
+          priorGrantsNote(match.id)
+        : '<div class="pu-note">A staff record is created for them alongside the login, ' +
+          'so a new hire does not have to be added anywhere else first.</div>');
+  }
+
+  /* An existing staff member with this address, if there is one. Candidates are the
+     staff WITHOUT dashboard access, which is exactly the set an invite can attach to;
+     anyone already holding access is on the list behind this drawer. */
+  function matchedStaff(email) {
+    var e = String(email || '').trim().toLowerCase();
+    if (!e) return null;
+    return (ui.candidates || []).filter(function (c) {
+      return String(c.email || '').trim().toLowerCase() === e;
+    })[0] || null;
   }
 
   function stepType(d) {
@@ -567,7 +586,7 @@
   function openAdd() {
     ui.adding = true;
     ui.open = { id: null, full_name: '', email: '', role: 'user', grants: [] };
-    ui.draft = { role: 'user', full_name: '', email: '', staff_id: null, grants: {} };
+    ui.draft = { role: 'user', first: '', last: '', full_name: '', email: '', staff_id: null, grants: {} };
     ui.pickQuery = '';
     ui.step = 1;
     ui.msg = null;
@@ -579,21 +598,19 @@
     }
   }
 
-  function pickStaff(id) {
-    var c = (ui.candidates || []).filter(function (x) { return x.id === id; })[0];
-    if (!c) return;
-    /* Selecting toggles off, so a mis-click is recoverable without reopening. */
-    if (ui.draft.staff_id === id) { ui.draft.staff_id = null; return paint(); }
-    ui.draft.staff_id = c.id;
-    ui.draft.full_name = c.full_name || '';
-    ui.draft.email = c.email || '';
-    ui.pickQuery = c.full_name || c.email || '';
-    /* Grants survive a revoke, so this person may already have some. Pre-load the
-       draft with them and show what is coming back. */
-    if (!(ui.priorGrants || {})[c.id]) {
-      api('/api/access/grants/' + encodeURIComponent(c.id)).then(function (r) {
-        ui.priorGrants = ui.priorGrants || {};
-        ui.priorGrants[c.id] = r.grants || [];
+  /* When the typed address matches somebody already in staff, pre-load the access
+     they held before. Grants survive a revoke, so re-inviting hands back exactly what
+     they had - the right default, but it wants showing rather than restoring quietly.
+     Same behaviour the picker used to give, now reached by typing the address. */
+  function loadPriorGrants(staffId) {
+    if (!staffId) return;
+    ui.priorGrants = ui.priorGrants || {};
+    /* Claimed before the request so a further keystroke cannot fire a second one. */
+    if (staffId in ui.priorGrants) return;
+    ui.priorGrants[staffId] = null;
+    {
+      api('/api/access/grants/' + encodeURIComponent(staffId)).then(function (r) {
+        ui.priorGrants[staffId] = r.grants || [];
         (r.grants || []).forEach(function (g) {
           var s = g.company_id || EXEC;
           ui.draft.grants[s] = ui.draft.grants[s] || {};
@@ -602,7 +619,6 @@
         paint();
       }).catch(function () { /* the note is a courtesy; never block the invite */ });
     }
-    paint();
   }
 
   function revoke(u) {
@@ -697,10 +713,21 @@
     paint();
   }
 
-  /* Either an existing staff member is picked, or a plausible address is typed. */
+  /* A name AND a plausible address. The name is required because this now creates the
+     staff record too - "who is this" cannot be answered by an address alone, and a
+     directory full of people identified only by email is not a directory. */
   function inviteReady() {
     var d = ui.draft || {};
-    return !!(d.staff_id || (d.email && d.email.indexOf('@') > 0));
+    return !!(String(d.first || '').trim() && String(d.last || '').trim() &&
+              /.+@.+\..+/.test(String(d.email || '').trim()));
+  }
+
+  /* Repaints ONLY the footer, so the Send button can enable as the name is typed
+     without the repaint stealing the caret out of the field being typed into. */
+  function refreshFoot() {
+    var host = el(); if (!host) return;
+    var foot = host.querySelector('.pu-dr-foot');
+    if (foot) foot.innerHTML = footInner();
   }
 
   function sendInvite() {
@@ -781,8 +808,6 @@
         var ru = rowOf(); if (ru) revoke(ru);
       } else if (act === 'add') {
         openAdd();
-      } else if (act === 'pick') {
-        pickStaff(a.getAttribute('data-id'));
       } else if (act === 'close') {
         ui.open = null; ui.draft = null; ui.adding = false; paint();
       } else if (act === 'step') {
@@ -814,15 +839,28 @@
       var f = ev.target.getAttribute && ev.target.getAttribute('data-field');
       if (f === 'full_name') {
         ui.draft.full_name = ev.target.value;   /* no repaint: it would lose the caret */
-      } else if (f === 'pick') {
-        /* Typing detaches any picked record: what is in the box is the intent, and a
-           stale selection underneath it would be invisible and wrong. */
-        ui.pickQuery = ev.target.value;
-        ui.draft.staff_id = null;
-        ui.draft.email = ev.target.value.indexOf('@') > 0 ? ev.target.value.trim() : '';
+      } else if (f === 'first' || f === 'last') {
+        /* No repaint: it would lose the caret, and nothing on screen depends on the
+           name except the Send button, which foot() re-evaluates on its own. */
+        ui.draft[f] = ev.target.value;
+        ui.draft.full_name = [ui.draft.first || '', ui.draft.last || ''].join(' ').trim();
+        refreshFoot();
+      } else if (f === 'email') {
+        /* Email DOES repaint, because the "already belongs to X" note underneath it
+           changes as it is typed - that note is the only thing telling you whether
+           this attaches to an existing person or creates one. Caret restored by hand,
+           since the repaint replaces the field. */
+        ui.draft.email = ev.target.value.trim();
+        /* Resolved HERE rather than during render, so painting stays free of side
+           effects. staff_id is what tells the server this is an existing person; the
+           server would reach the same answer from the address alone, but sending it
+           makes the intent explicit rather than implied. */
+        var m = matchedStaff(ui.draft.email);
+        ui.draft.staff_id = m ? m.id : null;
+        if (m) loadPriorGrants(m.id);
         var caret = ev.target.selectionStart;
         paint();
-        var again = document.getElementById('puPick');
+        var again = document.getElementById('puEmail');
         if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (e) {} }
       }
     });
@@ -872,7 +910,8 @@
       /* The photo sits OVER the initials rather than replacing them, so removing a
          broken <img> reveals the chip underneath with nothing to re-render. */
       '.pu-av.has-photo{position:relative;overflow:hidden}',
-      '.pu-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}',
+      /* Above centre: a centred square crop of a portrait cuts the top of the head. */
+      '.pu-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 20%;border-radius:inherit}',
       '.pu-name{display:block;font-size:13px;font-weight:600;color:var(--text)}',
       '.pu-email{display:block;font-size:11.5px;color:var(--text3)}',
       '.pu-you{font-size:10px;font-weight:600;color:var(--accent)}',
@@ -908,6 +947,7 @@
       '.pu-dr-body{flex:1;overflow:auto;padding:16px 18px}',
       '.pu-dr-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;',
         'padding:12px 18px;border-top:1px solid var(--border)}',
+      '.pu-two{display:flex;gap:12px}.pu-two>div{flex:1;min-width:0}',
       '.pu-lab{display:block;font-size:11px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;',
         'color:var(--text3);margin:0 0 6px}',
       '.pu-in{width:100%;height:36px;padding:0 10px;border-radius:8px;border:1px solid var(--border);',

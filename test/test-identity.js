@@ -60,8 +60,13 @@ const OWNER = {
   companies: { [LW]: 'LeavenWealth' },
   access: { exec: { exec: 'write' }, [LW]: { overview: 'write', properties: 'write' } },
 };
+/* This one HAS a headshot, so the chip's photo path is exercised alongside OWNER's
+   initials-only path. A data: URI rather than an http one - the sandbox has no
+   outbound network, so a real URL would fail to load, the fallback would strip the
+   img exactly as designed, and the test would read as the feature being broken. */
+const PHOTO = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 const READER = {
-  user: { id: 's-r', email: 'ute@x.invalid', full_name: 'Ute User', avatar_url: null, role: 'user' },
+  user: { id: 's-r', email: 'ute@x.invalid', full_name: 'Ute User', avatar_url: PHOTO, role: 'user' },
   companies: { [LW]: 'LeavenWealth' },
   access: { [LW]: { overview: 'read', properties: 'write' } },
 };
@@ -112,6 +117,12 @@ function stub(payload) {
       await page.$eval('#idName', e => e.textContent), 'Chris Pomerleau');
     check('role spelled out', await page.$eval('#idRole', e => e.textContent), 'Owner');
     check('initials', await page.$eval('#idAvatar', e => e.textContent), 'CP');
+    /* No avatar_url on this fixture, so the chip must be initials ONLY - no empty
+       <img> sitting in front of them. */
+    check('and no stray image when there is no photo',
+      await page.$eval('#idAvatar', e => [e.querySelector('img') ? 'img' : 'none',
+                                          e.classList.contains('has-photo')]),
+      ['none', false]);
     /* The old static block said "Owner · Admin" for everyone. If it survived
        anywhere, this finds it. */
     check('the old static chip is gone',
@@ -203,6 +214,23 @@ function stub(payload) {
     console.log('\nA non-owner sees their actual access, by catalog label');
     ({ ctx, page } = await open(READER));
     check('role reads User', await page.$eval('#idRole', e => e.textContent), 'User');
+
+    /* The account chip was the last place still ignoring staff.avatar_url while every
+       list showed photos. dash_my_access() has always returned it. */
+    check('the account chip shows the headshot when there is one',
+      await page.$eval('#idAvatar', e => [e.querySelector('img') ? 'img' : 'none',
+                                          e.classList.contains('has-photo')]),
+      ['img', true]);
+    check('with the initials still underneath as the fallback',
+      await page.$eval('#idAvatar', e => e.textContent.trim()), 'UU');
+    /* Hotlinked headshots do fail. Dropping the img must reveal the chip, never an
+       empty circle. */
+    await page.$eval('#idAvatar img', i => i.dispatchEvent(new Event('error')));
+    await page.waitForTimeout(150);
+    check('and a broken photo falls back rather than leaving a hole',
+      await page.$eval('#idAvatar', e => [e.querySelector('img') ? 'img' : 'none',
+                                          e.classList.contains('has-photo'), e.textContent.trim()]),
+      ['none', false, 'UU']);
     await page.click('#idChip');
     await page.click('#idMenu .idmenu-i');
     await page.waitForTimeout(500);

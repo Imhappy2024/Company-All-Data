@@ -182,9 +182,36 @@ user and belongs on **Team directory**. Exec vs per-business scoping applies on 
   deleted, and grant rows are left in place — they are inert while access is off
   (`dash_level_for` and `current_staff_id` both require it), so restoring access
   restores what the person had.
-- **Adding someone** must be able to pick an existing staff member, not only type an
-  address. `staff` has a unique index on `(tenant_id, lower(email))`, so an address
-  matching an existing person must **UPDATE** that row, never insert a second one.
+- **Adding someone is a typed form — first name, last name, email — not a staff
+  picker.** A new hire is not in `staff` yet, and a picker made that the one case the
+  screen could not serve; the form creates the staff record alongside the login.
+  `staff` has a unique index on `(tenant_id, lower(email))`, so an address matching an
+  existing person must **UPDATE** that row, never insert a second one — that guarantee
+  is the server's, and the UI surfaces the match ("already belongs to X") as the
+  address is typed, along with any access they held before a revoke.
+- **Avatars come from `staff.avatar_url` everywhere**, with the initials chip rendered
+  *underneath* the photo so dropping a broken `<img>` reveals it with nothing to
+  re-render — `avatarChip()` in portal-users.js, `staffPhoto()`/`renderIdentity()` in
+  portal.html. The headshots are hotlinked from `static.showit.co`, so that path is
+  live. `object-position: 50% 20%`, because a centred square crop of a portrait cuts
+  the top of the head off. **Test fixtures must use a `data:` URI** — the sandbox has
+  no outbound network, so an http URL fails, the fallback strips the img exactly as
+  designed, and the result is indistinguishable from the feature being broken.
+
+### Team directory reads live staff
+`GET /api/team` returns every **active** staff row; `V.team()` and the profile drawer
+in portal.html render it. `is_active` is filtered here and deliberately *not* on Users
+& Roles: a directory answers "who works here now", while Users & Roles answers "who can
+get in", where a departed person still holding access is the most important row.
+
+The job title is `staff.title`, **not** `staff_company.role` — `staff_company` has one
+row per person per business (Brian Nelson two, Jay Delgado three), so joining it lists
+people two and three times.
+
+Five staff rows have no title, bio, photo or phone, and one has an avatar URL sitting in
+`description`. A description that is only a URL is dropped server-side rather than
+rendered as somebody's About text. The baked `STAFF` array now serves **only** the org
+and department charts, which encode reporting lines the database does not hold.
 
 ### Staying current: three layers, none of which covers the others
 1. **A change made here** — invite, save, revoke each call `load(true)`. Works today.

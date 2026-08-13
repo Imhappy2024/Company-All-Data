@@ -213,6 +213,49 @@ function requireUserToken(req, res) {
   return null;
 }
 
+/* ---------------------------------------------------------------------------
+   Team directory: EVERYONE in staff, not just the dashboard users.
+
+   Read with the caller's JWT, so RLS decides what comes back - staff_sel filters by
+   current_tenant_ids(), which is exactly the tenant scoping a directory needs.
+
+   is_active=true is filtered HERE, unlike /api/access/users, and the difference is
+   deliberate. A directory answers "who works here now", so someone who has left does
+   not belong on it. Users & Roles answers "who can get in", where a departed person
+   still holding access is the single most important row on the screen.
+
+   The job title comes from staff.title, NOT staff_company.role. staff_company has one
+   row per person per business - Brian Nelson has two, Jay Delgado three - so joining
+   it here would list the same person two or three times.
+   --------------------------------------------------------------------------- */
+app.get('/api/team', async (req, res) => {
+  if (!requireSupabaseConfig(res)) return;
+  const token = requireUserToken(req, res); if (!token) return;
+  try {
+    const rows = await sbRest(token,
+      '/staff?select=id,full_name,email,phone,title,staff_type,avatar_url,description,is_active' +
+      '&is_active=is.true&order=full_name.asc') || [];
+    res.json({
+      people: rows.map(r => ({
+        id: r.id,
+        name: r.full_name || '',
+        title: r.title || '',
+        email: r.email || '',
+        phone: r.phone || '',
+        staff_type: r.staff_type || '',
+        avatar_url: r.avatar_url || '',
+        /* A description that is nothing but a URL is not a bio - one row currently
+           holds an avatar URL in this column. Rendering it as somebody's About text
+           would look broken and would teach nobody that the row needs fixing, so it
+           is dropped here and the person shows with no About section. */
+        bio: /^\s*https?:\/\/\S+\s*$/.test(r.description || '') ? '' : (r.description || ''),
+      })),
+    });
+  } catch (e) {
+    res.status(upstreamStatus(e)).json({ error: e.message });
+  }
+});
+
 /* The grantable module catalog. Read from the database, never hard-coded in the
    UI: a constant would drift the first time a module is added. */
 app.get('/api/access/modules', async (req, res) => {
