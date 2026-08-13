@@ -722,6 +722,23 @@ function stub(payload) {
       ['none', 'KR']);
     await ctx.close();
 
+    console.log('\nEvery workspace scopes the same, including LeavenWealth');
+    /* Reported as working everywhere except LeavenWealth. Each brand is driven by the
+       same component through accessScope(), so if one behaves differently the cause is
+       in the mapping or the payload, not the screen - this walks all four rather than
+       spot-checking one. */
+    for (const [b, want] of [['leavenwealth', ['s-owner', 's-admin', 's-user', 's-pending']],
+                             ['leadli', ['s-owner', 's-leadli']]]) {
+      ({ ctx, page } = await open(OWNER_ACCESS, `#brand=${b}&view=access`));
+      await page.waitForSelector('.pu-row[data-id]', { timeout: 8000 });
+      check(`${b}: routes to access and lists its people`,
+        await page.$$eval('.pu-row[data-id]', r => r.map(x => x.getAttribute('data-id'))), want);
+      check(`${b}: scope is the company id, not exec`,
+        await page.evaluate(() => PortalUsers._internals.ui.scope !== 'exec'), true);
+      check(`${b}: no error banner`, await page.locator('.pu-blank-t').count(), 0);
+      await ctx.close();
+    }
+
     console.log('\nRuntime errors');
     check('no page errors', errors, []);
   } catch (e) {
