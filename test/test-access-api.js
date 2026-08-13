@@ -268,6 +268,42 @@ async function waitUp(tries = 80) {
     check('unqualified embed is refused', amb.status, 300);
     check('with the same code the live API uses', amb.json.code, 'PGRST201');
 
+    console.log('\nA service role that is not the service role is caught HERE');
+    /* Live failure: SUPABASE_SERVICE_ROLE was set to the anon key, so every invite
+       went out with apikey_role=anon and came back 403 "User not allowed" - which
+       reads as the person clicking Invite lacking permission, not as a deployment
+       problem. The check must name the VARIABLE, and must never echo the key. */
+    child.kill(); await new Promise(r => setTimeout(r, 350));
+    child = boot({ SUPABASE_SERVICE_ROLE: ANON });   /* the exact mistake */
+    await waitUp();
+    const anonAsService = await req('/api/access/invite', {
+      method: 'POST', body: { email: 'x@y.invalid', role: 'user', grants: [] } });
+    check('refused before any Auth call', anonAsService.status, 503);
+    check('and it names the variable', /SUPABASE_SERVICE_ROLE/.test(anonAsService.json.error), true);
+    check('and says it is the anon key', /ANON/.test(anonAsService.json.error), true);
+    check('the key itself is never echoed back',
+      anonAsService.json.error.indexOf(ANON) >= 0, false);
+
+    /* A JWT whose payload says role=anon is the same mistake wearing the real key. */
+    const anonJwt = 'x.' + Buffer.from(JSON.stringify({ role: 'anon' })).toString('base64url') + '.y';
+    child.kill(); await new Promise(r => setTimeout(r, 350));
+    child = boot({ SUPABASE_SERVICE_ROLE: anonJwt });
+    await waitUp();
+    const jwtAnon = await req('/api/access/invite', {
+      method: 'POST', body: { email: 'x@y.invalid', role: 'user', grants: [] } });
+    check('a JWT with role=anon is refused too', jwtAnon.status, 503);
+    check('quoting the role it actually found', /"anon"/.test(jwtAnon.json.error), true);
+
+    /* Must not block a deployment it cannot classify - the API is the final judge. */
+    child.kill(); await new Promise(r => setTimeout(r, 350));
+    child = boot({ SUPABASE_SERVICE_ROLE: 'sb_secret_abc123' });
+    await waitUp();
+    check('an sb_secret_ key is allowed through',
+      (await req('/api/access/invite', { method: 'POST',
+        body: { email: 'x@y.invalid', role: 'user', grants: [] } })).status !== 503, true);
+    child.kill(); await new Promise(r => setTimeout(r, 350));
+    child = boot(); await waitUp();
+
     console.log('\nAn upstream 3xx is never passed through as our own status');
     /* THE BUG THIS EXISTS FOR. PostgREST answers an ambiguous embed with 300, and
        these handlers used to forward it verbatim. 300 is cacheable by default (RFC

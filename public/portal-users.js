@@ -231,6 +231,30 @@
     });
   }
 
+  /* The headshot from staff.avatar_url, with the initials chip as the fallback.
+
+     The initials stay in the DOM UNDERNEATH the image rather than being swapped in on
+     failure: dropping the <img> then reveals them with no re-render, and no state to
+     keep in sync. Same rule as brandMarkFailed() for the workspace logos - a broken
+     image must never leave an empty circle.
+
+     That path is live, not theoretical. Every one of these headshots is hotlinked from
+     static.showit.co, so anywhere that host is blocked or unreachable, every avatar on
+     the screen takes it. */
+  function avatarChip(u) {
+    var ini = esc(initials(u));
+    if (!u.avatar_url) return '<span class="pu-av">' + ini + '</span>';
+    return '<span class="pu-av has-photo">' + ini +
+      '<img src="' + esc(u.avatar_url) + '" alt="" loading="lazy"' +
+      ' onerror="PortalUsers.avatarFailed(this)"></span>';
+  }
+
+  function avatarFailed(img) {
+    var span = img.parentNode;
+    if (span) span.classList.remove('has-photo');
+    if (img.remove) img.remove();
+  }
+
   function initials(u) {
     var n = (u.full_name || '').trim();
     if (n) {
@@ -284,7 +308,7 @@
         var blocked = mine && !isOwner();
         return '<div class="pu-row" data-id="' + esc(u.id) + '">' +
           '<div class="pu-person">' +
-            '<span class="pu-av">' + esc(initials(u)) + '</span>' +
+            avatarChip(u) +
             '<span><span class="pu-name">' + esc(u.full_name || '(no name)') +
               (mine ? ' <span class="pu-you">you</span>' : '') +
               /* user_id is still null: invited, link not yet clicked. */
@@ -403,7 +427,7 @@
           ? '<div class="pu-picks">' + list.map(function (c) {
               var on = d.staff_id === c.id;
               return '<button class="pu-pick' + (on ? ' on' : '') + '" data-act="pick" data-id="' + esc(c.id) + '">' +
-                '<span class="pu-av">' + esc(initials(c)) + '</span>' +
+                avatarChip(c) +
                 '<span><span class="pu-name">' + esc(c.full_name || '(no name)') + '</span>' +
                 '<span class="pu-email">' + esc(c.email) + '</span></span></button>';
             }).join('') + '</div>'
@@ -845,6 +869,10 @@
       '.pu-person{display:flex;align-items:center;gap:10px;min-width:0}',
       '.pu-av{width:28px;height:28px;border-radius:50%;flex:none;display:flex;align-items:center;',
         'justify-content:center;font-size:11px;font-weight:700;background:var(--accent);color:#fff}',
+      /* The photo sits OVER the initials rather than replacing them, so removing a
+         broken <img> reveals the chip underneath with nothing to re-render. */
+      '.pu-av.has-photo{position:relative;overflow:hidden}',
+      '.pu-av img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:inherit}',
       '.pu-name{display:block;font-size:13px;font-weight:600;color:var(--text)}',
       '.pu-email{display:block;font-size:11.5px;color:var(--text3)}',
       '.pu-you{font-size:10px;font-weight:600;color:var(--accent)}',
@@ -923,7 +951,9 @@
   window.PortalUsers = {
     render: render,
     openAdd: openAdd,        /* the page header's "Invite user" button calls this */
+    avatarFailed: avatarFailed,   /* referenced from the img onerror attribute */
     invalidate: function () { ui.users = null; },
-    _internals: { ui: ui, reachOf: reachOf, hereSummary: hereSummary, myCap: myCap },
+    _internals: { ui: ui, reachOf: reachOf, hereSummary: hereSummary, myCap: myCap,
+                  avatarChip: avatarChip },
   };
 })();

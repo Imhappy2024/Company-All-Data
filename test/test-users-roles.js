@@ -46,7 +46,18 @@ const USERS = [
   { id: 's-admin', full_name: 'Ada Admin', email: 'admin@x.invalid', avatar_url: null,
     is_active: true, role: 'admin', pending: false,
     grants: [{ id: 'g1', company_id: LW, module: '*', level: 'write' }] },
-  { id: 's-user', full_name: 'Ute User', email: 'user@x.invalid', avatar_url: null,
+  /* One person carries a headshot and the rest do not, so the avatar tests can tell
+     the photo path from the initials path. In production every dashboard user has one
+     and they are all hotlinked off static.showit.co.
+
+     A data: URI, NOT an http one. The sandbox has no outbound network, so any real URL
+     fails to load, onerror fires, and the fallback correctly strips the img - which
+     looks exactly like the feature being broken. That cost a debugging session: the
+     code was right and the fixture was unreachable. This 1x1 gif always decodes, so
+     the photo path is testable; the fallback is proved separately by firing error by
+     hand, which does not depend on the network either way. */
+  { id: 's-user', full_name: 'Ute User', email: 'user@x.invalid',
+    avatar_url: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
     is_active: true, role: 'user', pending: false,
     grants: [{ id: 'g2', company_id: LW, module: 'properties', level: 'read' }] },
   { id: 's-leadli', full_name: 'Leo Leadli', email: 'leo@x.invalid', avatar_url: null,
@@ -120,7 +131,12 @@ const server = http.createServer((req, res) => {
   if (p === '/ops') p = '/index.html';
   for (const f of [path.join(ROOT, 'public', p), path.join(ROOT, p), path.join(ROOT, 'test', p)]) {
     if (fs.existsSync(f) && fs.statSync(f).isFile()) {
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'text/plain' });
+      /* no-store on the code under test. Without it the browser may serve an earlier
+         copy of portal-users.js, and the suite silently checks yesterday's file - the
+         same class of fault that cost hours in production when a cached 300 kept an
+         already-fixed error on screen. */
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(f)] || 'text/plain',
+                           'Cache-Control': 'no-store' });
       return res.end(fs.readFileSync(f));
     }
   }
@@ -590,6 +606,33 @@ function stub(payload) {
       order.indexOf('pending') > order.lastIndexOf('HEAD'), true);
     check('and no accepted row appears after it',
       order.slice(order.lastIndexOf('HEAD')).indexOf('live'), -1);
+    await ctx.close();
+
+    console.log('\nHeadshots come from staff.avatar_url, initials are the fallback');
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('.pu-row', { timeout: 8000 });
+    check('a person with avatar_url renders an img from it',
+      await page.$eval('.pu-row[data-id="s-user"] .pu-av img',
+        i => i.getAttribute('src').slice(0, 15)),
+      'data:image/gif;');
+    check('and the chip is marked as carrying a photo',
+      await page.$eval('.pu-row[data-id="s-user"] .pu-av', e => e.className), 'pu-av has-photo');
+    check('and a person without one renders initials, no img',
+      await page.$eval('.pu-row[data-id="s-owner"] .pu-av',
+        e => [e.querySelector('img') ? 'img' : 'none', e.textContent.trim()]),
+      ['none', 'CO']);
+    /* The initials sit UNDER the photo rather than being swapped in, so a broken
+       image reveals them with nothing to re-render. Every one of these headshots is
+       hotlinked from static.showit.co, so this path is live, not theoretical. */
+    check('the initials are already there behind the photo',
+      await page.$eval('.pu-row[data-id="s-user"] .pu-av', e => e.textContent.trim()), 'UU');
+    await page.$eval('.pu-row[data-id="s-user"] .pu-av img',
+      i => i.dispatchEvent(new Event('error')));
+    await page.waitForTimeout(150);
+    check('a broken photo leaves a legible chip, never an empty circle',
+      await page.$eval('.pu-row[data-id="s-user"] .pu-av',
+        e => [e.querySelector('img') ? 'img' : 'none', e.className, e.textContent.trim()]),
+      ['none', 'pu-av', 'UU']);
     await ctx.close();
 
     console.log('\nRuntime errors');

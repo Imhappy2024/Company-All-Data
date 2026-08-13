@@ -362,14 +362,54 @@ async function authAdmin(method, pathAndQuery, body) {
   return parsed;
 }
 
+/* SUPABASE_SERVICE_ROLE must actually BE the service role, not merely be set.
+
+   Pointing it at the anon key is an easy mistake - both are long JWTs off the same
+   settings page - and it fails a very long way from its cause. GoTrue answers every
+   admin endpoint with 403 "User not allowed", which reads as "the person clicking
+   Invite lacks permission" rather than "this deployment is misconfigured". Nine of
+   those were logged against the live project before the edge logs showed the request
+   going out with apikey_role=anon and bearer_role=anon.
+
+   Legacy service keys are JWTs carrying {"role":"service_role"}; current ones are
+   opaque sb_secret_ strings. Anything positively identifiable as NOT the service role
+   is refused here, naming the variable. A key we cannot classify is allowed through -
+   the API is the final judge, and guessing wrong must not block a working deployment.
+
+   The key itself is never logged, echoed, or included in the response. */
+function serviceRoleProblem() {
+  const k = SUPABASE_SERVICE_ROLE;
+  if (!k) return 'SUPABASE_SERVICE_ROLE is not set.';
+  if (k === SUPABASE_ANON_KEY) {
+    return 'SUPABASE_SERVICE_ROLE is set to the same value as SUPABASE_ANON_KEY. ' +
+           'It needs the service_role (secret) key.';
+  }
+  if (k.indexOf('sb_secret_') === 0) return null;
+  if (k.indexOf('sb_publishable_') === 0) {
+    return 'SUPABASE_SERVICE_ROLE is set to a publishable key. It needs the secret (service_role) key.';
+  }
+  const parts = k.split('.');
+  if (parts.length === 3) {
+    try {
+      const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+      if (payload && payload.role && payload.role !== 'service_role') {
+        return 'SUPABASE_SERVICE_ROLE is a key whose role is "' + payload.role +
+               '", not "service_role".';
+      }
+    } catch (e) { /* unreadable payload - let the API decide rather than guess */ }
+  }
+  return null;
+}
+
 /* Fails CLOSED. Without the service role an invite cannot create an Auth user, and
    silently doing anything less - writing the staff row and hoping, or falling back
    to the anon key - would leave someone unable to sign in with no sign of why. */
 function requireServiceRole(res) {
-  if (SUPABASE_SERVICE_ROLE) return true;
+  const problem = serviceRoleProblem();
+  if (!problem) return true;
   res.status(503).json({
-    error: 'Invitations are not configured on this deployment: SUPABASE_SERVICE_ROLE is not set. ' +
-           'Set it in Railway (server-side only, never in the browser) and redeploy.',
+    error: 'Invitations are not configured on this deployment: ' + problem +
+           ' Set it in Railway (server-side only, never sent to the browser) and redeploy.',
     missing: ['SUPABASE_SERVICE_ROLE'],
   });
   return false;
