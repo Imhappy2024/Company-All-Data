@@ -512,8 +512,8 @@ function stub(payload) {
       lastInvite && [lastInvite.email, lastInvite.full_name, lastInvite.role],
       ['brand-new@example.invalid', 'Brand New', 'user']);
     check('and the drawer closed on success', await page.locator('.pu-drawer').count(), 0);
-    check('with a message that explains Pending',
-      /Pending until they open the link/.test(await page.textContent('.pu-msg')), true);
+    check('with a message that explains the Invite sent state',
+      /Invite sent until they open the link/.test(await page.textContent('.pu-msg')), true);
 
     console.log('\nAn incomplete form cannot be sent');
     await page.click('.page-h .btn');

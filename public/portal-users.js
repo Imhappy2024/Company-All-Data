@@ -756,8 +756,15 @@
     }).then(function (r) {
       ui.busy = false; ui.open = null; ui.draft = null; ui.adding = false;
       ui.candidates = null;                /* they are no longer a candidate */
-      ui.msg = 'Invitation sent to ' + (r.email || d.email) +
-               '. They appear as Pending until they open the link and choose a password.';
+      /* Two genuinely different outcomes. Someone whose access was revoked still has
+         their login, so no email goes out and telling them to watch for one would
+         leave them waiting for nothing. */
+      ui.msg = r.restored
+        ? 'Access restored for ' + (r.email || d.email) +
+          '. They already have a login, so no new invitation was sent - they sign in ' +
+          'with their existing password.'
+        : 'Invitation sent to ' + (r.email || d.email) +
+          '. They stay marked Invite sent until they open the link and choose a password.';
       ui.msgBad = false;
       return load(true).then(paint);
     }).catch(function (e) {

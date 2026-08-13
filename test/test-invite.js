@@ -76,6 +76,12 @@ const sb = http.createServer((req, res) => {
         return send(400, { msg: 'missing X-Supabase-Api-Version' });
       }
       const b = JSON.parse(body || '{}');
+      /* GoTrue refuses a second Auth user for the same address. This is what turned
+         "revoke someone, then add them back" into a dead end, and a fake that happily
+         created a duplicate could never have caught it. */
+      if (db.authUsers.some(a => String(a.email).toLowerCase() === String(b.email).toLowerCase())) {
+        return send(422, { msg: 'A user with this email address has already been registered' });
+      }
       const id = 'au-' + (++db.seq);
       db.authUsers.push({ id, email: b.email, redirect_to: u.searchParams.get('redirect_to') });
       /* handle_new_user: link a waiting staff row by email. This is what makes the
@@ -159,6 +165,14 @@ const sb = http.createServer((req, res) => {
         return send(201, null);
       }
       const staffEq = (u.searchParams.get('staff_id') || '').replace('eq.', '');
+      if (req.method === 'DELETE') {
+        /* Real PostgREST applies the filter. A fake that ignored it would let a
+           "replace the grant set" bug through as a pass - which is exactly what
+           happened before this branch existed. */
+        if (!staffEq) return send(400, { message: 'refusing an unfiltered DELETE' });
+        db.perms = db.perms.filter(p => p.staff_id !== staffEq);
+        return send(204, null);
+      }
       return send(200, db.perms.filter(p => !staffEq || p.staff_id === staffEq));
     }
     send(404, { message: 'unhandled ' + table });
@@ -330,6 +344,45 @@ async function waitUp(tries = 80) {
     r = await api('/api/access/invite', { method: 'POST', body: {
       email: 'owner@x.invalid', role: 'admin', grants: [] } });
     check('409 rather than a duplicate', r.status, 409);
+
+    console.log('\nAdding back somebody whose access was revoked');
+    /* THE REPORTED BUG. Jay accepted an invitation, signed in, then had access
+       revoked. Revoke deliberately leaves the staff row, the grant rows and the Auth
+       account standing, so staff.user_id still points at a live login - and a second
+       /auth/v1/invite for the same address is refused by GoTrue with "A user with this
+       email address has already been registered". A dead end, when the real state is
+       "they already have a login and just need access switched back on". */
+    reset();
+    /* Seeded HERE rather than in reset(), so every other test keeps its baseline -
+       "no Auth user was created" means the count is unchanged, and pinning that to a
+       fixture belonging to a different test makes both harder to read. */
+    db.authUsers.push({ id: 'au-jay', email: 'jay@x.invalid' });
+    db.staff.push({ id: 's-jay', tenant_id: TENANT, email: 'jay@x.invalid',
+      full_name: 'Jay Returning', user_id: 'au-jay',
+      dashboard_access: false, dashboard_role: null });
+    db.perms.push({ id: 'p-old', staff_id: 's-jay', company_id: LW,
+      module: 'leads', level: 'read' });
+
+    r = await api('/api/access/invite', { method: 'POST', body: {
+      email: 'jay@x.invalid', role: 'user', full_name: 'Jay Returning',
+      grants: [{ company_id: LW, module: 'leads', level: 'write' }] } });
+    check('it succeeds instead of colliding on the address', r.status, 200);
+    check('and says an existing login was restored, not that mail went out',
+      [r.json.restored, r.json.pending], [true, false]);
+    check('no second invitation was sent',
+      log.some(l => l.startsWith('POST /auth/v1/invite')), false);
+    check('and no second Auth user exists', db.authUsers.length, 2);   /* owner + jay */
+
+    const jay = db.staff.find(s2 => s2.id === 's-jay');
+    check('access is back on, with the role asked for',
+      [jay.dashboard_access, jay.dashboard_role], [true, 'user']);
+    check('their existing login is left linked - nulling it would lock them out',
+      jay.user_id, 'au-jay');
+    /* The drawer pre-loads the grants they held, so a plain insert would write a
+       second copy of every row it had just shown you. */
+    check('grants are replaced, not duplicated',
+      db.perms.filter(p2 => p2.staff_id === 's-jay').map(p2 => [p2.module, p2.level]),
+      [['leads', 'write']]);
 
     console.log('\nWithout the service role it fails closed');
     child.kill(); await new Promise(r => setTimeout(r, 350));

@@ -564,18 +564,37 @@ app.post('/api/access/invite', async (req, res) => {
       return res.status(409).json({ error: `${already.email} already has dashboard access.` });
     }
 
-    /* ---- 3. the Auth user. handle_new_user links staff.user_id from here. ---- */
-    const redirectTo = `${getBaseUrl(req)}/invite`;
-    const invited = await authAdmin('POST',
-      `/invite?redirect_to=${encodeURIComponent(redirectTo)}`,
-      { email, data: fullName ? { full_name: fullName } : undefined });
-    authUserId = invited && invited.id;
+    /* ---- 3. the Auth user, ONLY if there is not one already ----
+
+       handle_new_user() fires on auth.users INSERT, and /auth/v1/invite inserts
+       immediately - so staff.user_id is linked when the invitation is SENT, not when
+       it is accepted. A non-null user_id therefore means "this person already has a
+       login", whether or not they have ever used it.
+
+       Revoking deliberately leaves all of that standing - the staff row, the grants,
+       and the Auth account - so that restoring access gives back exactly what they
+       had. The cost was that inviting the same address again hit GoTrue's email_exists
+       and returned "A user with this email address has already been registered": a
+       dead end, when the real state is "they already have a login and just need access
+       switched back on". So that is what happens instead. */
+    const hasLogin = !!(already && already.user_id);
+    if (!hasLogin) {
+      const redirectTo = `${getBaseUrl(req)}/invite`;
+      const invited = await authAdmin('POST',
+        `/invite?redirect_to=${encodeURIComponent(redirectTo)}`,
+        { email, data: fullName ? { full_name: fullName } : undefined });
+      authUserId = invited && invited.id;
+    }
 
     /* ---- 4. the staff row and the grants, as the CALLER so RLS and the triggers
              still apply to what is being granted ---- */
     let staffId;
     if (already) {
-      undo = { kind: 'restore', id: already.id,
+      /* clearUserId only when WE created the Auth user. Undoing a restore for someone
+         who already had a login must not null their link - that would leave them able
+         to authenticate with no staff row behind it, which is the exact orphan this
+         rollback exists to prevent. */
+      undo = { kind: 'restore', id: already.id, clearUserId: !hasLogin,
                dashboard_access: already.dashboard_access, dashboard_role: already.dashboard_role };
       staffId = already.id;
       await sbRest(token, `/staff?id=eq.${encodeURIComponent(staffId)}`, {
@@ -583,6 +602,11 @@ app.post('/api/access/invite', async (req, res) => {
         body: JSON.stringify({ dashboard_access: true, dashboard_role: role,
                                full_name: fullName || already.full_name }),
       });
+      /* Grant rows survive a revoke, and the drawer pre-loads them into the draft -
+         so re-inviting would INSERT a second copy of every row it had just shown you.
+         The submitted set is the intent, so replace rather than add to it. */
+      await sbRest(token,
+        `/dashboard_permission?staff_id=eq.${encodeURIComponent(staffId)}`, { method: 'DELETE' });
     } else {
       const created = await sbRest(token, '/staff', {
         method: 'POST', headers: { Prefer: 'return=representation' },
@@ -603,21 +627,28 @@ app.post('/api/access/invite', async (req, res) => {
       });
     }
 
-    res.json({ ok: true, staff_id: staffId, email, pending: true });
+    /* restored says an existing login was switched back on rather than an email sent -
+       the two need different words on screen, because in one case the person is
+       waiting for a link and in the other they already have a password. */
+    res.json({ ok: true, staff_id: staffId, email, restored: hasLogin, pending: !hasLogin });
   } catch (e) {
-    /* ---- 5. rollback, in the only order the foreign key permits ---- */
+    /* ---- 5. rollback, in the only order the foreign key permits ----
+       Runs whenever anything was written, NOT only when an Auth user was created: the
+       restore path can now reach step 4 without creating one, and leaving that staff
+       row switched on after a failure would grant access nobody asked for. */
     let rollbackNote = null;
-    if (authUserId) {
+    if (authUserId || undo) {
       try {
         if (undo && undo.kind === 'restore') {
+          const back = { dashboard_access: undo.dashboard_access, dashboard_role: undo.dashboard_role };
+          if (undo.clearUserId) back.user_id = null;
           await sbAdmin(`/staff?id=eq.${encodeURIComponent(undo.id)}`, {
             method: 'PATCH', headers: { Prefer: 'return=minimal' },
-            body: JSON.stringify({ user_id: null, dashboard_access: undo.dashboard_access,
-                                   dashboard_role: undo.dashboard_role }),
+            body: JSON.stringify(back),
           });
         } else if (undo && undo.kind === 'delete' && undo.id) {
           await sbAdmin(`/staff?id=eq.${encodeURIComponent(undo.id)}`, { method: 'DELETE' });
-        } else {
+        } else if (authUserId) {
           /* Step 4 failed before we recorded anything, but the trigger may still
              have linked an existing row by email. Clear it by user_id. */
           await sbAdmin(`/staff?user_id=eq.${encodeURIComponent(authUserId)}`, {
@@ -625,8 +656,12 @@ app.post('/api/access/invite', async (req, res) => {
             body: JSON.stringify({ user_id: null }),
           });
         }
-        await authAdmin('DELETE', `/admin/users/${encodeURIComponent(authUserId)}`,
-                        { should_soft_delete: false });
+        /* Only an Auth user WE created. Deleting a pre-existing login because a grant
+           write failed would lock a working account out over an unrelated error. */
+        if (authUserId) {
+          await authAdmin('DELETE', `/admin/users/${encodeURIComponent(authUserId)}`,
+                          { should_soft_delete: false });
+        }
       } catch (re) {
         /* Say so loudly: a half-invited account is the outcome this whole ordering
            exists to avoid, and silence would leave someone able to authenticate
