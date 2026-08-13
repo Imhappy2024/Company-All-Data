@@ -522,6 +522,51 @@ function stub(payload) {
       (tv.staff || []).filter(v => v === 'team' || v === 'orgdept'), ['team', 'orgdept']);
     await ctx.close();
 
+    console.log('\nTicking a business for a User opens its modules');
+    /* The core of the granting flow: check a business, then set each module. It is
+       driven by scopeOn(), which must report a business as ON the moment it is
+       ticked - BEFORE any module has been granted. Deriving that from "has at least
+       one grant" makes the first tick read back as unchecked, so the module list
+       never appears and a plain user can never be granted anything. */
+    ({ ctx, page } = await open(OWNER_ACCESS, '#brand=all&view=access'));
+    await page.waitForSelector('.pu-row', { timeout: 8000 });
+    await page.click('.page-h .btn');
+    await page.waitForSelector('.pu-drawer');
+    await page.click('[data-act="step"][data-step="2"]');
+    await page.click('[data-act="role"][data-role="user"]');
+    await page.click('[data-act="step"][data-step="3"]');
+    await page.waitForTimeout(200);
+    const box = '[data-act="scope"][data-scope="' + LW + '"]';
+    await page.click(box);
+    await page.waitForTimeout(200);
+    check('the box stays ticked', await page.$eval(box, e => e.checked), true);
+    check('and its modules are now listed',
+      (await page.$$('.pu-mod')).length > 0, true);
+
+    /* Bulk set: eleven modules on LeavenWealth alone, so one at a time is the slow
+       common case. Counts levels in the DRAFT, not ticked buttons, because that is
+       what gets saved. */
+    const draftFor = () => page.evaluate(s => {
+      const g = (PortalUsers._internals.ui.draft.grants[s]) || {};
+      const out = { read: 0, write: 0, keys: Object.keys(g).length };
+      Object.values(g).forEach(v => { out[v] = (out[v] || 0) + 1; });
+      return out;
+    }, LW);
+    const modCount = (await page.$$('.pu-mod')).length;
+    await page.click('.pu-bulk button[data-level="write"]');
+    await page.waitForTimeout(150);
+    check('all read & write sets every module', (await draftFor()).write, modCount);
+    await page.click('.pu-bulk button[data-level="read"]');
+    await page.waitForTimeout(150);
+    check('all read replaces them, not adds to them', await draftFor(),
+      { read: modCount, write: 0, keys: modCount });
+    await page.click('.pu-bulk .pu-bulk-x');
+    await page.waitForTimeout(150);
+    check('clear empties the grants', (await draftFor()).keys, 0);
+    check('but leaves the business ticked, so the modules stay on screen',
+      await page.$eval(box, e => e.checked), true);
+    await ctx.close();
+
     console.log('\nRuntime errors');
     check('no page errors', errors, []);
   } catch (e) {

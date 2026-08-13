@@ -447,7 +447,16 @@
             ? '<span class="pu-why">Requires the Administrator or Owner role</span>'
             : adminWhole
               ? '<span class="pu-why">Whole business</span>'
-              : '') +
+              : scopeOn(d, scope)
+                /* LeavenWealth alone carries eleven modules, so setting them one at a
+                   time is the common case and the slow one. Clear keeps the business
+                   ticked - it empties the grants rather than undoing the choice. */
+                ? '<span class="pu-bulk">' +
+                    '<button data-act="bulk" data-scope="' + esc(scope) + '" data-level="write">All read &amp; write</button>' +
+                    '<button data-act="bulk" data-scope="' + esc(scope) + '" data-level="read">All read</button>' +
+                    '<button data-act="bulk" data-scope="' + esc(scope) + '" data-level="" class="pu-bulk-x">Clear</button>' +
+                  '</span>'
+                : '') +
         '</div>' +
         (!execBlocked && scopeOn(d, scope) && !adminWhole
           ? '<div class="pu-mods">' + mods.map(function (m) {
@@ -496,9 +505,14 @@
       'Check it is still appropriate &mdash; you can change it on the next two steps.</div>';
   }
 
+  /* Selected means "the key exists", NOT "it holds at least one grant".
+     toggleScope() sets an EMPTY object for a plain user - the business is chosen, no
+     module granted yet - so counting grants made that first tick read back as
+     unchecked. The module list is rendered on the same test, so it never opened and a
+     User could not be granted anything at all. Unticking deletes the key, which is
+     what makes presence the right test. */
   function scopeOn(d, scope) {
-    var m = d.grants[scope];
-    return !!(m && Object.keys(m).length);
+    return Object.prototype.hasOwnProperty.call(d.grants || {}, scope);
   }
 
   /* ---- drafting --------------------------------------------------------- */
@@ -610,6 +624,26 @@
     paint();
   }
 
+  /* Set every module in one business at once, CLAMPED to what the signed-in user
+     actually holds. The trigger refuses a grant above the granter's own level, so an
+     unclamped "all read & write" would quietly assemble rows that bounce on save -
+     and the person who pressed it would not be told which ones. A module the granter
+     cannot grant at all is skipped rather than written at a level it would reject.
+     An owner's cap is 'write' everywhere, so for an owner this is the plain
+     everything. */
+  function bulkLevel(scope, level) {
+    var d = ui.draft;
+    if (!d) return;
+    d.grants[scope] = d.grants[scope] || {};
+    modulesFor(scope).forEach(function (m) {
+      if (!level) { delete d.grants[scope][m.module_key]; return; }
+      var cap = myCap(scope, m.module_key, m.nav_id);
+      if (!cap) return;
+      d.grants[scope][m.module_key] = rank(level) > rank(cap) ? cap : level;
+    });
+    paint();
+  }
+
   function setLevel(scope, mod, level) {
     ui.draft.grants[scope] = ui.draft.grants[scope] || {};
     if (!level) delete ui.draft.grants[scope][mod];
@@ -716,6 +750,8 @@
       } else if (act === 'level') {
         setLevel(a.getAttribute('data-scope'), a.getAttribute('data-mod'),
                  a.getAttribute('data-level') || null);
+      } else if (act === 'bulk') {
+        bulkLevel(a.getAttribute('data-scope'), a.getAttribute('data-level') || null);
       } else if (act === 'save') {
         save();
       } else if (act === 'invite') {
@@ -837,6 +873,10 @@
       '.pu-check{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer}',
       '.pu-check input{width:15px;height:15px;accent-color:var(--accent);cursor:pointer}',
       '.pu-why{margin-left:auto;font-size:11.5px;color:var(--text3)}',
+      '.pu-bulk{margin-left:auto;display:flex;gap:12px}',
+      '.pu-bulk button{all:unset;cursor:pointer;font-size:11px;font-weight:650;color:var(--accent)}',
+      '.pu-bulk button:hover{text-decoration:underline}',
+      '.pu-bulk .pu-bulk-x{color:var(--text3)}',
       '.pu-mods{margin-top:10px;display:flex;flex-direction:column;gap:6px}',
       '.pu-mod{display:flex;align-items:center;gap:10px}',
       '.pu-mod-n{flex:1;min-width:0;font-size:12.5px;color:var(--text2)}',
