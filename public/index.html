@@ -1940,6 +1940,16 @@
   .sov-kv { display: grid; grid-template-columns: minmax(140px, 34%) 1fr; gap: 4px 14px; font-size: 12.5px; }
   .sov-kv dt { color: var(--text3); font-weight: 600; }
   .sov-kv dd { margin: 0; color: var(--text); }
+  .sov-ins { padding: 2px 0 10px; display: flex; flex-direction: column; gap: 6px; }
+  .sov-ins-carrier { font-weight: 700; font-size: 13px; color: var(--text); }
+  /* Property summary strip at the top of the detail overlay. */
+  .sov-summary { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; padding: 4px 0 10px; }
+  .sov-sum { font-size: 12px; color: var(--text2); }
+  .sov-sum strong { color: var(--text); font-variant-numeric: tabular-nums; }
+  .sov-sum em { font-style: normal; color: var(--text3); font-weight: 600; margin-right: 4px; }
+  .sov-mortgagee { margin: 4px 0 6px; font-size: 11.5px; }
+  .sov-mortgagee em { font-style: normal; color: var(--text3); font-weight: 600; display: block; margin-bottom: 2px; }
+  .sov-mortgagee pre { margin: 0; padding: 6px 9px; white-space: pre-wrap; font-family: inherit; color: var(--text2); background: var(--surface-2, var(--panel-2)); border: 1px solid var(--border); border-radius: 6px; }
   /* Ownership block: primary dropdown + co-owner chips. */
   .prop-owner-block { display: flex; flex-direction: column; gap: 10px; }
   .prop-owner-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -4393,6 +4403,118 @@ function sovDeductible(p, pctLabel, amtLabel, minLabel, perLabel) {
   return s;
 }
 
+/* The header strip: the facts you need before reading anything else.
+
+   Two statuses appear, labelled differently on purpose. `ownership_status` is whether
+   the group still owns it; `status` is operational (Under Development / Stabilized).
+   They are unrelated, and a sold property can still read "Stabilized". */
+function sovSummaryHtml(p) {
+  const bit = (label, val, title) => val === '' || val == null ? ''
+    : `<span class="sov-sum"${title ? ` title="${escHtml(title)}"` : ''}><em>${escHtml(label)}</em><strong>${val}</strong></span>`;
+
+  const nb = sovBuildings(p).length, na = sovApartments(p);
+  /* Verified leads. Reported is often just the first building's count, so it is
+     shown as a secondary only when it actually disagrees. */
+  const ver = propF(p, 'Total Units (Verified)')?.value;
+  const rep = propF(p, 'Total Units')?.value;
+  let units = '';
+  if (ver != null && ver !== '') {
+    units = `${Number(ver)}`;
+    if (rep != null && rep !== '' && Number(rep) !== Number(ver)) units += ` <span class="sov-secondary">reported: ${Number(rep)}</span>`;
+  } else if (rep != null && rep !== '') {
+    units = `${Number(rep)} <span class="sov-secondary">reported</span>`;
+  }
+
+  const mvF = propF(p, 'Current Market Value');
+  const mvAsOf = propFDisp(p, 'Market Value As Of');
+  const mv = (mvF && mvF.value != null && mvF.value !== '')
+    ? money(Number(mvF.value)) + (mvAsOf ? ` <span class="sov-secondary">as of ${escHtml(String(mvAsOf).slice(0, 10))}</span>` : '') : '';
+
+  /* A null purchase price with a note is not missing data - "included" means it came
+     as part of a portfolio buy and has no separate figure. */
+  const ppF = propF(p, 'Purchase Price');
+  const ppNote = propFDisp(p, 'Purchase Price Note');
+  const pp = (ppF && ppF.value != null && ppF.value !== '')
+    ? money(Number(ppF.value)) + (propFDisp(p, 'Purchase Date') ? ` <span class="sov-secondary">${escHtml(fmtPropField(propF(p, 'Purchase Date')))}</span>` : '')
+    : (ppNote ? `<span class="sov-basis">${escHtml(ppNote)}</span>` : '');
+
+  const parcels = p.parcels || [];
+  /* Parcel numbers carry meaningful dashes and periods (216-13-0-10-01-007.00-0);
+     they are rendered verbatim in a mono chip so nothing is trimmed or reformatted. */
+  const parcelHtml = parcels.length
+    ? `<div class="sov-parcels">${parcels.slice(0, 4).map(x =>
+        `<span class="sov-parcel"${x.county ? ` title="${escHtml(x.county)}"` : ''}>${escHtml(x.parcel_number)}${x.is_primary && parcels.length > 1 ? ' ★' : ''}</span>`).join('')}${
+        parcels.length > 4 ? `<span class="sov-parcel" title="${escHtml(parcels.slice(4).map(x => x.parcel_number).join(', '))}">+${parcels.length - 4} more</span>` : ''}</div>`
+    : '';
+
+  return `<div class="sov-summary">
+    ${bit('Ownership', escHtml(SOV_OWNERSHIP_LABEL[sovOwnership(p)] || sovOwnership(p))
+      + (p.disposition_date ? ` <span class="sov-secondary">${escHtml(String(p.disposition_date).slice(0, 10))}</span>` : ''), 'ownership_status — whether the group still owns it')}
+    ${bit('Operational', escHtml(propFDisp(p, 'Status')), 'property.status — operational state, unrelated to ownership')}
+    ${bit('Offering', p.deal ? escHtml(p.deal.name) : '')}
+    ${bit('Buildings', nb ? String(nb) : '')}
+    ${bit('Apartments', nb ? String(na) : '', 'Sum of current_total_units across all buildings')}
+    ${bit('Units', units)}
+    ${bit('Market value', mv)}
+    ${bit('Purchase', pp)}
+    ${bit('Manager', escHtml(propFDisp(p, 'Management Company')))}
+    ${bit('Asset type', escHtml(propFDisp(p, 'Asset Type')))}
+  </div>${parcelHtml}`;
+}
+
+/* Fields COMPOSED into the insurance panel, and therefore suppressed from the generic
+   field grid so they are not printed twice - once assembled and once as raw enum. */
+const SOV_RAW = new Set([
+  'building limit basis', 'business income basis', 'bpp basis', 'tiv basis',
+  'aop deductible ($)', 'aop deductible (%)', 'wind/hail deductible (%)',
+  'wind/hail minimum ($)', 'wind/hail basis', 'wind/hail applies per',
+  'building limit (replacement cost)', 'business income limit',
+  'business personal property', 'tiv  (total insured value)',
+  'all other perils deductible', 'wind/hail deductible',
+  'broker', 'broker contact', 'broker email', 'policy note', 'limits note',
+  'deductible note',
+].map(propNorm));
+
+/* The insurance panel, assembled rather than listed. Every limit is a BASIS plus
+   sometimes a number, and 142 of 262 Business Income rows are actual_loss_sustained -
+   uncapped cover that has no number at all. Printing the number alone made a fully
+   populated policy look like an empty form. */
+function sovInsuranceHtml(p) {
+  const row = (label, val) => val ? `<dt>${escHtml(label)}</dt><dd>${val}</dd>` : '';
+  const basisVal = v => /^[$\d]/.test(v) ? escHtml(v) : `<span class="sov-basis">${escHtml(v)}</span>`;
+  const lim = (label, amt, basis) => { const v = sovLimit(p, amt, basis); return v ? row(label, basisVal(v)) : ''; };
+
+  const aop = sovDeductible(p, 'AOP Deductible (%)', 'AOP Deductible ($)', null, null)
+            || propFDisp(p, 'All Other Perils Deductible');
+  const wind = sovDeductible(p, 'Wind/Hail Deductible (%)', 'Wind/Hail Deductible', 'Wind/Hail Minimum ($)', 'Wind/Hail Applies Per')
+             || propFDisp(p, 'Wind/Hail Deductible');
+
+  const limits = [
+    lim('Building limit', 'Building Limit (Replacement Cost)', 'Building Limit Basis'),
+    lim('Business income', 'Business Income Limit', 'Business Income Basis'),
+    lim('Business personal property', 'Business Personal Property', 'BPP Basis'),
+    lim('TIV', 'TIV  (Total Insured Value)', 'TIV Basis'),
+    row('All other perils deductible', aop ? escHtml(aop) : ''),
+    row('Wind / hail deductible', wind ? escHtml(wind) : ''),
+  ].filter(Boolean).join('');
+
+  const carrier = propFDisp(p, 'Insurance Carrier');
+  /* Broker sits UNDER the carrier: the carrier is who covers it, the broker is who
+     you call about it, and they are routinely different organisations. */
+  const brokerBits = [propFDisp(p, 'Broker'), propFDisp(p, 'Broker Contact'), propFDisp(p, 'Broker Email')].filter(Boolean);
+  const notes = ['Deductible Note', 'Policy Note', 'Limits Note']
+    .map(l => { const v = propFDisp(p, l); return v ? `<div class="sov-note">${escHtml(v)}</div>` : ''; })
+    .filter(Boolean).join('');
+
+  if (!limits && !carrier && !brokerBits.length && !notes) return '';
+  return `<div class="sov-ins">
+    ${carrier ? `<div class="sov-ins-carrier">${escHtml(carrier)}</div>` : ''}
+    ${brokerBits.length ? `<div class="sov-note">Broker: ${escHtml(brokerBits.join(' · '))}</div>` : ''}
+    ${limits ? `<dl class="sov-kv">${limits}</dl>` : ''}
+    ${notes}
+  </div>`;
+}
+
 const SOV_OWNERSHIP_LABEL = {
   held: 'Held', sold: 'Sold', demolished: 'Demolished', not_owned: 'Not owned',
   under_contract: 'Under contract', transferred: 'Transferred', unknown: 'Unknown',
@@ -5193,9 +5315,17 @@ function renderPropDetailInOverlay(ov, ent) {
   const addr = [propFDisp(p, 'Location Street Address'), propFDisp(p, 'Location City'), propFDisp(p, 'Location State'), propFDisp(p, 'Location Zip')].filter(Boolean).join(', ');
   const byGroup = {};
   // Owner Entity is presented in the dedicated Ownership section, not the field list.
-  Object.entries(p.fields).forEach(([k, f]) => { if (k === 'loans' || k === propNorm('Owner Entity')) return; (byGroup[propGroupOf(k)] = byGroup[propGroupOf(k)] || []).push([k, f]); });
+  // The SOV_RAW fields are composed into the Insurance panel above; leaving them in
+  // the generic grid too would print "actual_loss_sustained" as its own row next to
+  // an empty amount, which is where the panel's "everything is blank" look came from.
+  Object.entries(p.fields).forEach(([k, f]) => {
+    if (k === 'loans' || k === propNorm('Owner Entity') || SOV_RAW.has(k)) return;
+    (byGroup[propGroupOf(k)] = byGroup[propGroupOf(k)] || []).push([k, f]);
+  });
   const groupsHtml = PROP_GROUP_ORDER.filter(g => byGroup[g]).map(g =>
-    `<div class="prop-dsection"><div class="prop-dsection-h">${escHtml(g)}</div>${byGroup[g].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([k, f]) => propFieldRow(f)).join('')}</div>`).join('');
+    `<div class="prop-dsection"><div class="prop-dsection-h">${escHtml(g)}</div>${
+      g === 'Insurance' ? sovInsuranceHtml(p) : ''
+    }${byGroup[g].sort((a, b) => a[1].name.localeCompare(b[1].name)).map(([k, f]) => propFieldRow(f)).join('')}</div>`).join('');
 
   // Loan Data: group the property's loans by position (Primary / Seller Carry /
   // Secondary / PAC Due), each with a summary line, then the full editable record.
@@ -5207,7 +5337,7 @@ function renderPropDetailInOverlay(ov, ent) {
     <div class="prop-entity-modal-h prop-detail-head">
       <div>
         <button class="prop-back" type="button" onclick="backToEntityList()">‹ ${escHtml(ent.name)}</button>
-        <div class="prop-entity-modal-title">${escHtml(p.name)}</div>
+        <div class="prop-entity-modal-title">${escHtml(p.name)}${sovOwnBadge(p)}</div>
         <div class="prop-drawer-sub">${addr ? escHtml(addr) : ''}</div>
         ${lsPill(p.loanStatus)}
       </div>
@@ -5217,6 +5347,7 @@ function renderPropDetailInOverlay(ov, ent) {
       </div>
     </div>
     <div class="prop-entity-modal-body">
+      ${sovSummaryHtml(p)}
       <div class="prop-open-section">
         <div class="prop-section-title">Ownership</div>
         ${ownershipBlock(p, 'property', p.taskId)}
@@ -5258,8 +5389,23 @@ function renderLoanDataSection(p) {
     const rows = Object.values(loan.fields || {}).map(f => propFieldRow(f)).join('');
     const bal = loan.currentDebt != null ? money(loan.currentDebt) : '—';
     const rate = loan.interestRatePct != null ? (Math.round(loan.interestRatePct * 10000) / 100) + '%' : (fmtPropField(loan.fields[propNorm('Interest Rate')]) || '—');
-    const summary = `<div class="prop-loan-summary">${escHtml(loan.lender || 'Lender —')} · Balance ${bal} · Rate ${escHtml(String(rate))} · Matures ${escHtml(loan.maturityDate || '—')}</div>`;
-    return `<div class="prop-loan"><div class="prop-loan-h">${escHtml(loan.name)}</div>${summary}${collateralLine(loan)}${rows || '<div class="prop-empty">No data entered.</div>'}</div>`;
+    const dscrV = fmtPropField(loan.fields[propNorm('DSCR')]);
+    const summary = `<div class="prop-loan-summary">${escHtml(loan.lender || 'Lender —')} · Balance ${bal} · Rate ${escHtml(String(rate))} · Matures ${escHtml(loan.maturityDate || '—')}${dscrV ? ` · DSCR ${escHtml(dscrV)}` : ''}</div>`;
+    /* Escrow as three tri-state chips. Green true, muted explicit-false, dashed
+       outline for never-stated - because "we do not escrow taxes" and "nobody has
+       said" are different answers and the loan documents distinguish them. The note
+       underneath keeps the original wording, which often carries the conditions. */
+    const escNote = propFDisp(loan, 'Escrow Note');
+    const escrow = `<div class="sov-chiprow" style="margin:6px 0">
+      ${sovTriChip(loan, 'Escrow - Taxes', 'Taxes')}
+      ${sovTriChip(loan, 'Escrow - Insurance', 'Insurance')}
+      ${sovTriChip(loan, 'Escrow - Replacement Reserve', 'Replacement reserve')}
+    </div>${escNote ? `<div class="sov-note">${escHtml(escNote)}</div>` : ''}`;
+    /* The mortgagee clause is what a carrier asks for by name at renewal, so it is
+       shown verbatim rather than summarised. Only 6 loans carry a lender_id today. */
+    const mort = loan.lenderRecord && loan.lenderRecord.mortgagee_clause
+      ? `<div class="sov-mortgagee"><em>Mortgagee clause</em><pre>${escHtml(loan.lenderRecord.mortgagee_clause)}</pre></div>` : '';
+    return `<div class="prop-loan"><div class="prop-loan-h">${escHtml(loan.name)}</div>${summary}${escrow}${mort}${collateralLine(loan)}${rows || '<div class="prop-empty">No data entered.</div>'}</div>`;
   };
   let html = actions;
   const groups = [...ORDER, ['other', 'Other']];

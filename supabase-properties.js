@@ -200,6 +200,13 @@ async function getPropertiesPayload() {
   const ins = (await q(`select * from public.insurance_policy`, [])).rows;
   // Ownership is the source of truth for who owns what (co-ownership, no percentages).
   const ownership = (await q(`select id, entity_id, property_id, unit_id, is_primary from public.ownership`, [])).rows;
+  /* The lender RECORD behind loan.lender_id. `loan.lender` is free text kept for the
+     old label; this is the normalised row, and the mortgagee clause is the part
+     carriers ask for by name at renewal. Left-joined in code rather than embedded so
+     a loan with no lender_id (most of them today) still renders. */
+  const lenderRows = (await q(
+    `select id, name, mortgagee_clause, contact_name, contact_email, phone from public.lender`, [])).rows;
+  const lenderById = new Map(lenderRows.map(r => [String(r.id), r]));
   const balRows = (await q(`
     select distinct on (loan_id) loan_id, balance from public.loan_balance
     order by loan_id, as_of_date desc`, [])).rows;
@@ -291,6 +298,7 @@ async function getPropertiesPayload() {
       clickupTaskId: l.clickup_task_id || null,
       maturityDate: l.maturity_date ? new Date(l.maturity_date).toISOString().slice(0, 10) : null,
       lender: l.lender || null,
+      lenderRecord: l.lender_id ? (lenderById.get(String(l.lender_id)) || null) : null,
       loanNumber: l.loan_number || null,
       originationAmount: (l.origination_amount == null || l.origination_amount === '') ? null : Number(l.origination_amount),
       status: STATUS_LABEL[(l.status || 'none').toLowerCase()] || 'None',

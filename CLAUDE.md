@@ -311,6 +311,72 @@ be refused is not a rollback. `test/test-invite.js` forces the failure and asser
 both that the Auth user is gone and that no half-configured staff row remains; its
 fake enforces the foreign key, and one check proves that enforcement is live.
 
+## Properties + the SOV data model (imported Aug 2026)
+
+**The vocabulary changed and the old table names lie.** Read this before touching
+`/ops#tab=properties`.
+
+| Concept | Lives in | Trap |
+|---|---|---|
+| Property | `property` | 168 rows, only **79 held**. 84 sold, 4 demolished, 1 not owned. |
+| Building | `unit` (badly named) | `unit_identifier` = "Building 1". **268 rows.** |
+| Apartment | `unit.current_total_units` | **2,434 total.** Counting `unit` ROWS as apartments is wrong. |
+| Parcel | `property_parcel` | Many per property (one has 47). `property.parcel_id` was DROPPED. |
+| Offering | `deal` (42 rows) | The old pipeline table was renamed to `acquisition`. |
+
+Verify UI work against: **Copperleaf** 5 buildings / 87 apartments (incl. a garage and
+a street shed at 0), **Sierra Gardens** 235 + 0, **Bancroft Place** 8 + 8 garages,
+**Boulder Pointe** 13 + 13. `test/test-sov-properties.js` pins all four.
+
+### Ownership status defaults to `held`
+84 of 168 properties are sold. Without the default, every list, count and roll-up is
+dominated by assets the group no longer owns. **Clear returns to `held`**, not to all
+168, and the default deliberately does NOT count as an active filter — otherwise the
+screen looks filtered the moment it loads and people clear it without knowing why.
+
+`property.status` (Under Development / Stabilized) is **operational** and unrelated to
+`ownership_status`; a sold property can still read Stabilized. Both are shown, labelled
+distinctly.
+
+### "Residential only" is defined by EXCLUSION
+`SOV_OUTBUILDING` lists garage, street shed, flood insurance, vacant land, clubhouse,
+corporate office, HOA unit. **56 buildings have a NULL `structure_type` and hold 123
+apartments between them**, so an inclusion list would silently drop them from exactly
+the unit maths the toggle exists to serve. Unknown stays visible.
+Dropdowns are built from the data, never a constant — the live set contains a bare
+`Residential` value that no hand-written list had.
+
+### Rendering rules that are easy to get wrong
+- **Apartments = SUM(`current_total_units`)**, never the building count.
+- **Buildings sort residential-first with a NATURAL comparator.** Plain string order
+  puts "Building 10" before "Building 2" — visible across Boulder Pointe's 13.
+- **`0` units on a garage is COMPLETE data**, not missing. Null is different, and the
+  sheet usually carries `unit_count_note` ("Industrial", "2 Bed / 1 Bath") instead.
+- **Outbuildings have `location_street = NULL` on purpose** — they share the parent's
+  address. Fall back to it and say so; never render blank.
+- **Insurance limits are a BASIS plus sometimes a number.** 142 of 262 Business Income
+  rows are `actual_loss_sustained` (uncapped). Render the number alone and a fully
+  populated policy looks like an empty form. The composed fields are suppressed from
+  the generic grid via `SOV_RAW` so they are not printed twice.
+- **Wind/hail is a percentage with a floor**, often per building: `3% / $25,000 min
+  (per building)` from the structured columns.
+- **Tri-state flags** (fire alarm, sprinklered, escrow): true / explicitly-false /
+  never-stated are three different answers. A dashed outline carries the third.
+- **`unit_count_verified` leads**; `unit_count_reported` shows as a secondary only when
+  it disagrees — it is often just the first building's count.
+- Parcel numbers keep their dashes and periods (`216-13-0-10-01-007.00-0`) and render
+  verbatim in a mono chip.
+
+### Known data quirks — do NOT "fix" these in the UI
+- `property.dog_park` is CORRUPTED in the source (contains addresses). Do not display
+  it; use `dog_park_count` once the sheet is realigned.
+- `Flood Insurance` structure types are insurance lines, not physical buildings.
+- **`unit.year_renovated` does not exist** — only `property.year_renovated`. The
+  original brief asked for it per building; there is no column to read.
+- Only **6 loans** carry `lender_id`, so the mortgagee clause is rare. `loan.lender` is
+  free text kept for the old label; `lenderRecord` is the normalised row and is joined
+  in code (not embedded) so a loan without one still renders.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
@@ -583,6 +649,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
     node test/test-task-cache.js # task cache patching after a write (no network needed)
+    node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
