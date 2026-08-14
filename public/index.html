@@ -1902,6 +1902,44 @@
   .prop-entity-wrap.prop-entity-sub > .prop-entity-row .prop-entity-name { font-size: 12.5px; }
   .prop-entity-wrap.prop-entity-sub > .prop-entity-row .prop-entity-fig strong { font-size: 12px; }
   .prop-coowner-badge { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border)); border-radius: 999px; vertical-align: middle; }
+  /* ---- SOV model (Aug 2026): ownership, structure, tri-state flags ----
+     Held carries NO badge - it is the normal state and badging it would put a label
+     on 79 of 79 visible rows, which tells nobody anything. */
+  .sov-own { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; border-radius: 999px; vertical-align: middle; color: var(--text3); background: var(--surface-2, var(--panel-2)); border: 1px solid var(--border); }
+  .sov-own-sold, .sov-own-demolished, .sov-own-transferred { opacity: 0.75; }
+  .sov-own-not_owned { background: transparent; border-style: dashed; }
+  .sov-count { font-variant-numeric: tabular-nums; color: var(--text3); }
+  /* Structure badge on a building heading. */
+  .sov-struct { display: inline-block; margin-left: 8px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: 0.3px; border-radius: 999px; color: var(--text2); background: var(--surface-2, var(--panel-2)); border: 1px solid var(--border); vertical-align: middle; }
+  .sov-struct.sov-out { color: var(--text3); opacity: 0.85; }
+  /* Tri-state chip: yes / explicitly-no / never-stated. The outline carries the third
+     state so "not stated" cannot be mistaken for "No". */
+  .sov-chip { display: inline-block; padding: 2px 9px; font-size: 10.5px; font-weight: 700; border-radius: 999px; border: 1px solid transparent; }
+  .sov-chip.sov-yes { color: var(--good, #12a150); background: color-mix(in srgb, var(--good, #12a150) 14%, transparent); }
+  .sov-chip.sov-no { color: var(--text3); background: var(--surface-2, var(--panel-2)); }
+  .sov-chip.sov-unset { color: var(--text3); background: transparent; border-color: var(--border); border-style: dashed; }
+  .sov-chiprow { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .sov-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; user-select: none; }
+  .sov-toggle input { cursor: pointer; }
+  /* "reported: N" sits under the verified figure, never instead of it. */
+  .sov-secondary { font-size: 11px; color: var(--text3); }
+  .sov-note { font-size: 11.5px; color: var(--text3); font-style: italic; }
+  .sov-parcels { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sov-parcel { font-family: var(--mono, ui-monospace, monospace); font-size: 11.5px; padding: 1px 7px; border-radius: 6px; background: var(--surface-2, var(--panel-2)); border: 1px solid var(--border); white-space: nowrap; }
+  /* Buildings section. */
+  .sov-bld-summary { font-size: 11.5px; color: var(--text3); padding: 2px 0 8px; }
+  .sov-bld-addr { font-size: 11.5px; color: var(--text3); margin: 2px 0 4px; }
+  .sov-bld-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11.5px; color: var(--text2); margin-bottom: 6px; }
+  .sov-meta em { font-style: normal; color: var(--text3); font-weight: 600; margin-right: 4px; }
+  /* A zero-unit garage is COMPLETE data. It is muted, not flagged as missing. */
+  .sov-units { font-size: 11.5px; font-weight: 700; color: var(--accent); }
+  .sov-units-zero { color: var(--text3); font-weight: 600; }
+  /* Insurance limits: a basis word sits where a number would, so the eye can tell
+     "uncapped cover" from "nobody filled this in". */
+  .sov-basis { font-style: italic; color: var(--text2); }
+  .sov-kv { display: grid; grid-template-columns: minmax(140px, 34%) 1fr; gap: 4px 14px; font-size: 12.5px; }
+  .sov-kv dt { color: var(--text3); font-weight: 600; }
+  .sov-kv dd { margin: 0; color: var(--text); }
   /* Ownership block: primary dropdown + co-owner chips. */
   .prop-owner-block { display: flex; flex-direction: column; gap: 10px; }
   .prop-owner-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -2575,11 +2613,26 @@
         <span class="filter-label">Filter</span>
         <input type="search" id="prop-search" class="filter-select prop-search" placeholder="Search property, DBA, address, lender…" oninput="propApply()"/>
         <div class="prop-filter-panel">
+          <!-- Ownership status DEFAULTS to held. 84 of 168 properties are sold and 4
+               demolished; without this default every list, count and roll-up on the
+               screen is dominated by assets the group no longer owns. -->
+          <select class="filter-select" id="prop-f-own"     onchange="propApply()"></select>
           <select class="filter-select" id="prop-f-entity"  onchange="propApply()"><option value="">All Entities</option></select>
+          <select class="filter-select" id="prop-f-deal"    onchange="propApply()"><option value="">All Offerings</option></select>
           <select class="filter-select" id="prop-f-manager" onchange="propApply()"><option value="">All Managers</option></select>
           <select class="filter-select" id="prop-f-lender"  onchange="propApply()"><option value="">All Lenders</option></select>
           <select class="filter-select" id="prop-f-state"   onchange="propApply()"><option value="">All States</option></select>
+          <select class="filter-select" id="prop-f-struct"  onchange="propApply()"><option value="">All Structures</option></select>
+          <select class="filter-select" id="prop-f-carrier" onchange="propApply()"><option value="">All Carriers</option></select>
           <select class="filter-select" id="prop-f-loan"    onchange="propApply()"><option value="">All Loan Status</option><option value="Active">Active</option><option value="Pending">Pending</option><option value="None">None</option><option value="Closed">Closed</option></select>
+          <select class="filter-select" id="prop-f-hasloan" onchange="propApply()"><option value="">Loan: any</option><option value="yes">Has a loan</option><option value="no">No loan</option></select>
+          <select class="filter-select" id="prop-f-escrow"  onchange="propApply()"><option value="">Escrow: any</option><option value="any">Any escrow</option><option value="taxes">Taxes</option><option value="insurance">Insurance</option><option value="reserve">Replacement reserve</option></select>
+          <select class="filter-select" id="prop-f-mat"     onchange="propApply()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option></select>
+          <!-- Turns the view into a worklist: what has to be chased, not what exists. -->
+          <select class="filter-select" id="prop-f-missing" onchange="propApply()"><option value="">Missing: any</option><option value="parcel">No parcel</option><option value="insurance">No insurance</option><option value="units">No unit count</option><option value="any">Missing anything</option></select>
+          <!-- Hides garages, sheds, flood lines, vacant land. Buildings with NO stated
+               type are kept: 56 of them hold 123 apartments between them. -->
+          <label class="filter-select sov-toggle" title="Hide garages, sheds, flood-insurance lines and vacant land"><input type="checkbox" id="prop-f-resonly" onchange="propApply()"> Residential only</label>
           <button class="sync-btn" type="button" onclick="clearPropFilters()">Clear</button>
           <div class="prop-export">
             <button class="sync-btn" type="button" onclick="toggleExportMenu(event)">Export ▾</button>
@@ -4248,6 +4301,104 @@ function propNum(p, name) { const f = propF(p, name); if (!f) return 0; let n = 
 function findPropByTask(taskId) { return propFlat().find(p => String(p.taskId) === String(taskId)); }
 const money = n => '$' + Math.round(n || 0).toLocaleString();
 
+/* ===========================================================================
+   SOV MODEL HELPERS (Aug 2026 import)
+
+   The vocabulary changed and the old names lie, so read this before touching the
+   Properties UI:
+
+     property  168 rows, only 79 HELD. 84 sold, 4 demolished, 1 not owned. Anything
+               that does not default to held is dominated by disposed assets.
+     unit      is a BUILDING, not an apartment. 268 rows.
+     apartments live in unit.current_total_units and total 2,434. Counting `unit`
+               ROWS as apartments overstates by ~10x on some properties.
+   =========================================================================== */
+
+/* Types that are NOT residential. Defined by EXCLUSION on purpose: 56 buildings have
+   a null structure_type and hold 123 apartments between them, so an inclusion list
+   would silently drop them from exactly the unit maths this toggle exists to serve.
+   Unknown stays visible; only the things we positively know are not homes are hidden.
+   `Flood Insurance` is an insurance line rather than a physical building, and is
+   excluded for the same reason a garage is. */
+const SOV_OUTBUILDING = new Set([
+  'garage', 'street shed', 'flood insurance', 'vacant land', 'clubhouse',
+  'corporate office location', 'privately owned unit - included in hoa',
+]);
+const sovType = b => String(propFDisp(b, 'Occupancy / Type of Asset') || '').trim();
+const sovIsOutbuilding = b => SOV_OUTBUILDING.has(sovType(b).toLowerCase());
+const sovBuildings = p => (p.buildings || []);
+/* Apartments = the SUM of current_total_units, never the building count. A garage
+   legitimately reports 0; that is complete data, not a gap. */
+function sovApartments(p) {
+  return sovBuildings(p).reduce((n, b) => {
+    const v = Number(propF(b, 'Current Total Units')?.value);
+    return n + (isFinite(v) ? v : 0);
+  }, 0);
+}
+/* Residential first, outbuildings last, and NATURAL order within each group -
+   plain string sort puts "Building 10" before "Building 2", which is how Boulder
+   Pointe's 13 buildings currently read. */
+const sovNatural = (a, b) => String(a).localeCompare(String(b), undefined, { numeric: true, sensitivity: 'base' });
+function sovSortBuildings(list) {
+  return list.slice().sort((a, b) =>
+    (sovIsOutbuilding(a) - sovIsOutbuilding(b)) || sovNatural(a.name, b.name));
+}
+
+/* A limit is a BASIS plus (sometimes) a number. 142 of 262 Business Income rows are
+   actual_loss_sustained, which is uncapped cover - rendering only the number leaves
+   most of the insurance panel looking empty when it is actually fully populated. */
+const SOV_BASIS_LABEL = {
+  actual_loss_sustained: '12 Mo. Actual Loss Sustained',
+  included_above: 'Included above',
+  included_in_blanket: 'Included in blanket',
+  none: '$0',
+  varies_by_location: 'Varies by location',
+  not_applicable: 'N/A',
+};
+function sovLimit(p, amountLabel, basisLabel) {
+  const basis = String(propFDisp(p, basisLabel) || '').trim().toLowerCase();
+  if (basis && basis !== 'amount') return SOV_BASIS_LABEL[basis] || basis.replace(/_/g, ' ');
+  const f = propF(p, amountLabel);
+  const n = Number(f?.value);
+  if (isFinite(n) && f?.value != null && f.value !== '') return money(n);
+  return basis === 'amount' ? '—' : '';
+}
+
+/* Three states, three meanings: true, explicitly false, and never stated. Collapsing
+   null into "No" invents a fact the sheet does not contain. */
+function sovTri(p, label) {
+  const f = propF(p, label);
+  const v = f ? f.value : null;
+  if (v == null || v === '') return { k: 'unset', t: 'not stated' };
+  const yes = v === true || v === 'true' || v === 'Yes';
+  return yes ? { k: 'yes', t: 'Yes' } : { k: 'no', t: 'No' };
+}
+const sovTriChip = (p, label, name) => {
+  const s = sovTri(p, label);
+  return `<span class="sov-chip sov-${s.k}" title="${escHtml(name)}: ${escHtml(s.t)}">${escHtml(name)}</span>`;
+};
+
+/* Wind/hail is usually a PERCENTAGE with a floor, sometimes applied per building.
+   Rendered from the structured columns so it reads "3% / $25,000 min (per building)"
+   rather than a bare number that hides the basis. */
+function sovDeductible(p, pctLabel, amtLabel, minLabel, perLabel) {
+  const pct = propF(p, pctLabel)?.value, amt = propF(p, amtLabel)?.value;
+  const min = propF(p, minLabel)?.value, per = perLabel ? propFDisp(p, perLabel) : '';
+  const bits = [];
+  if (pct != null && pct !== '' && isFinite(Number(pct))) bits.push(Number(pct) + '%');
+  else if (amt != null && amt !== '' && isFinite(Number(amt))) bits.push(money(Number(amt)));
+  if (min != null && min !== '' && isFinite(Number(min))) bits.push(money(Number(min)) + ' min');
+  let s = bits.join(' / ');
+  if (s && per) s += ` (${String(per).replace(/_/g, ' ')})`;
+  return s;
+}
+
+const SOV_OWNERSHIP_LABEL = {
+  held: 'Held', sold: 'Sold', demolished: 'Demolished', not_owned: 'Not owned',
+  under_contract: 'Under contract', transferred: 'Transferred', unknown: 'Unknown',
+};
+const sovOwnership = p => String(p.ownership_status || 'unknown').toLowerCase();
+
 function fmtPropField(f) {
   if (!f) return '';
   const v = f.value, d = f.display;
@@ -4546,11 +4697,65 @@ function populatePropFilters() {
   fill('prop-f-manager', uniq(flat.map(p => propFDisp(p, 'Management Company'))));
   fill('prop-f-lender', uniq(flat.map(p => propFDisp(p, 'Lender'))));
   fill('prop-f-state', uniq(flat.map(p => propFDisp(p, 'Location State'))));
+  fill('prop-f-deal', uniq(flat.map(p => p.deal && p.deal.name)));
+  fill('prop-f-carrier', uniq(flat.map(p => propFDisp(p, 'Insurance Carrier'))));
+  /* Structure types come from the BUILDINGS, not the properties, and from the data
+     rather than a constant: the live set includes a bare "Residential" that no
+     hand-written list had, and a constant would drift on the next SOV import. */
+  fill('prop-f-struct', uniq(flat.flatMap(p => sovBuildings(p).map(sovType))));
+
+  /* Ownership status is built with its counts visible, because the whole point of
+     defaulting to `held` is that the other buckets are large enough to distort the
+     view. Seeing "Sold (84)" makes the default self-explanatory. */
+  const own = document.getElementById('prop-f-own');
+  if (own) {
+    const counts = new Map();
+    flat.forEach(p => { const k = sovOwnership(p); counts.set(k, (counts.get(k) || 0) + 1); });
+    const order = ['held', 'under_contract', 'sold', 'demolished', 'transferred', 'not_owned', 'unknown'];
+    const keys = [...counts.keys()].sort((a, b) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+    const cur = own.value || 'held';
+    own.innerHTML = `<option value="">All statuses (${flat.length})</option>` + keys.map(k =>
+      `<option value="${escHtml(k)}">${escHtml(SOV_OWNERSHIP_LABEL[k] || k)} (${counts.get(k)})</option>`).join('');
+    /* Only default when the user has not chosen: re-filling on every refresh must
+       not quietly reset a deliberate "show me the sold ones". */
+    own.value = [...keys, ''].includes(cur) ? cur : 'held';
+  }
   // PM (property manager) dropdown — cross-view filter, from distinct management companies.
   fill('prop-pm', (propData && propData.managementCompanies) || uniq(flat.map(p => propFDisp(p, 'Management Company'))));
 }
 
-function propAnyFilter() { return ['prop-search', 'prop-f-entity', 'prop-f-manager', 'prop-f-lender', 'prop-f-state', 'prop-f-loan', 'prop-pm'].some(id => propVal(id)); }
+const PROP_FILTER_IDS = ['prop-search', 'prop-f-own', 'prop-f-entity', 'prop-f-deal', 'prop-f-manager',
+  'prop-f-lender', 'prop-f-state', 'prop-f-struct', 'prop-f-carrier', 'prop-f-loan', 'prop-f-hasloan',
+  'prop-f-escrow', 'prop-f-mat', 'prop-f-missing', 'prop-pm'];
+/* The ownership default is NOT "a filter the user applied", so it does not light up
+   the Filters button or the "clear" affordance - otherwise the screen looks filtered
+   from the moment it loads and people clear it without understanding what it did. */
+function propAnyFilter() {
+  return PROP_FILTER_IDS.some(id => id === 'prop-f-own' ? (propVal(id) && propVal(id) !== 'held') : propVal(id))
+    || !!document.getElementById('prop-f-resonly')?.checked;
+}
+
+/* A loan is escrowing X when the flag is explicitly true. Null means "not stated",
+   which is not the same as false and must not satisfy an escrow filter. */
+const sovLoanEscrow = (l, label) => propF(l, label)?.value === 'true';
+function sovMonthsToMaturity(l) {
+  if (!l.maturityDate) return null;
+  const ms = new Date(l.maturityDate + 'T00:00:00').getTime();
+  if (!isFinite(ms)) return null;
+  return (ms - Date.now()) / (1000 * 60 * 60 * 24 * 30.44);
+}
+/* Worklist predicates. "No unit count" means neither the verified nor the reported
+   figure is present - a property with only a reported count is thin, not missing. */
+function sovMissing(p, which) {
+  const noParcel = !(p.parcels || []).length;
+  const noIns = !propFDisp(p, 'Insurance Carrier');
+  const noUnits = !propF(p, 'Total Units (Verified)')?.value && !propF(p, 'Total Units')?.value;
+  if (which === 'parcel') return noParcel;
+  if (which === 'insurance') return noIns;
+  if (which === 'units') return noUnits;
+  if (which === 'any') return noParcel || noIns || noUnits;
+  return true;
+}
 function propSearchText(p) {
   return [p.name, propFDisp(p, 'DBA Name / Name of Apartment Complex'), propFDisp(p, 'Location Street Address'), propFDisp(p, 'Location City'), propFDisp(p, 'Location State'), propFDisp(p, 'Lender')].filter(Boolean).join(' ').toLowerCase();
 }
@@ -4558,14 +4763,46 @@ function propFilteredList() {
   const q = propVal('prop-search').toLowerCase().trim();
   const fe = propVal('prop-f-entity'), fm = propVal('prop-f-manager'), fl = propVal('prop-f-lender'), fs = propVal('prop-f-state'), floan = propVal('prop-f-loan');
   const pm = propPmValue();
+  /* Unset means the default, not "everything". "All statuses" is the explicit ''
+     option, which is why this reads the raw element rather than propVal(). */
+  const ownEl = document.getElementById('prop-f-own');
+  const fown = ownEl ? ownEl.value : 'held';
+  const fdeal = propVal('prop-f-deal'), fstruct = propVal('prop-f-struct'), fcar = propVal('prop-f-carrier');
+  const fhas = propVal('prop-f-hasloan'), fesc = propVal('prop-f-escrow');
+  const fmat = Number(propVal('prop-f-mat')) || 0, fmiss = propVal('prop-f-missing');
+  const resOnly = !!document.getElementById('prop-f-resonly')?.checked;
+
   return propFlat().filter(p => {
     if (q && !propSearchText(p).includes(q)) return false;
+    if (fown && sovOwnership(p) !== fown) return false;
     if (fe && p.entityName !== fe) return false;
+    if (fdeal && (p.deal && p.deal.name) !== fdeal) return false;
     if (pm && propFDisp(p, 'Management Company') !== pm) return false;
     if (fm && propFDisp(p, 'Management Company') !== fm) return false;
     if (fl && propFDisp(p, 'Lender') !== fl) return false;
     if (fs && propFDisp(p, 'Location State') !== fs) return false;
+    if (fcar && propFDisp(p, 'Insurance Carrier') !== fcar) return false;
     if (floan && (p.loanStatus || 'None') !== floan) return false;
+    /* Structure and Residential-only are BUILDING tests: a property qualifies when
+       any of its buildings does, so filtering by Garage keeps the whole property and
+       the buildings list below narrows to match. */
+    if (fstruct && !sovBuildings(p).some(b => sovType(b) === fstruct)) return false;
+    if (resOnly && !sovBuildings(p).some(b => !sovIsOutbuilding(b))) return false;
+    if (fhas === 'yes' && !(p.loans || []).length) return false;
+    if (fhas === 'no' && (p.loans || []).length) return false;
+    if (fesc) {
+      const ok = (p.loans || []).some(l => fesc === 'any'
+        ? (sovLoanEscrow(l, 'Escrow - Taxes') || sovLoanEscrow(l, 'Escrow - Insurance') || sovLoanEscrow(l, 'Escrow - Replacement Reserve'))
+        : sovLoanEscrow(l, fesc === 'taxes' ? 'Escrow - Taxes' : fesc === 'insurance' ? 'Escrow - Insurance' : 'Escrow - Replacement Reserve'));
+      if (!ok) return false;
+    }
+    /* Already-matured loans are excluded: "within 12 months" is a diary, and a loan
+       that matured last year is a different problem shown on the Maturities view. */
+    if (fmat) {
+      const ok = (p.loans || []).some(l => { const m = sovMonthsToMaturity(l); return m != null && m >= 0 && m <= fmat; });
+      if (!ok) return false;
+    }
+    if (fmiss && !sovMissing(p, fmiss)) return false;
     return true;
   });
 }
@@ -4823,13 +5060,31 @@ function toggleEntity(entityId, rowEl) {
     body.hidden = true; wrap.classList.remove('open'); forget(wrap);
   }
 }
+/* held reads as neutral because it is the normal state; a disposed property is muted
+   and carries its disposition date, because the date is the first thing anyone asks
+   when they find one in a list. not_owned is outlined - present for reference, never
+   part of the portfolio. */
+function sovOwnBadge(p) {
+  const k = sovOwnership(p);
+  if (k === 'held') return '';
+  const when = p.disposition_date ? ' ' + String(p.disposition_date).slice(0, 10) : '';
+  return `<span class="sov-own sov-own-${escHtml(k)}">${escHtml(SOV_OWNERSHIP_LABEL[k] || k)}${escHtml(when)}</span>`;
+}
 function propChildRow(p, mode) {
   const loc = [propFDisp(p, 'Location City'), propFDisp(p, 'Location State')].filter(Boolean).join(', ');
   const coBadge = mode === 'co' ? `<span class="prop-coowner-badge">co-owner</span>` : '';
+  /* Buildings AND apartments, because they are different numbers and the row used to
+     imply the building count was the unit count. Copperleaf is 5 buildings / 87
+     apartments; showing "5" alone is wrong by 82. */
+  const nb = sovBuildings(p).length, na = sovApartments(p);
+  const counts = nb
+    ? `<span class="prop-child-fig sov-count" title="${nb} building${nb === 1 ? '' : 's'} holding ${na} apartment${na === 1 ? '' : 's'}">${nb} bldg · ${na} apt</span>`
+    : '';
   return `<div class="prop-child" onclick="openPropDetail('${escHtml(p.taskId)}')" title="Open property details">
-    <span class="prop-child-name">${escHtml(p.name)}${coBadge}</span>
+    <span class="prop-child-name">${escHtml(p.name)}${coBadge}${sovOwnBadge(p)}</span>
     <span class="prop-child-loc">${escHtml(loc)}</span>
     ${lsPill(p.loanStatus)}
+    ${counts}
     <span class="prop-child-fig">MV ${money(propNum(p, 'Current Market Value'))}</span>
     <span class="prop-child-fig">Debt ${money(propNum(p, 'Current Debt as of (09/30/24)'))}</span>
     <span class="prop-child-open">Open ›</span>
@@ -5382,7 +5637,12 @@ async function refreshProperties() {
   await renderProperties();
 }
 function clearPropFilters() {
-  ['prop-search', 'prop-f-entity', 'prop-f-manager', 'prop-f-lender', 'prop-f-state', 'prop-f-loan'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  PROP_FILTER_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  const r = document.getElementById('prop-f-resonly'); if (r) r.checked = false;
+  /* Clear returns to the DEFAULT view, not to "all 168 including the sold ones".
+     Clearing filters should leave a usable screen, and 84 disposed properties is not
+     one - "All statuses" stays available as a deliberate choice. */
+  const own = document.getElementById('prop-f-own'); if (own) own.value = 'held';
   propApply();
 }
 function clearPTFilters() {
@@ -5819,12 +6079,52 @@ function propOpenTasksHtml(p) {
   if (!list.length) return '<div class="prop-empty">No open tasks for this property.</div>';
   return list.map(ptTaskRow).join('');
 }
+/* One "Label value" pair, dropped entirely when there is nothing to say. */
+const sovMeta = (label, value) => (value === '' || value == null) ? ''
+  : `<span class="sov-meta"><em>${escHtml(label)}</em> ${escHtml(String(value))}</span>`;
+
+/* Apartments in ONE building. 0 is a real answer for a garage; null is not, and when
+   null the sheet often carries a note ("Industrial", "2 Bed / 1 Bath") that says more
+   than a blank would. */
+function sovUnitCell(b) {
+  const f = propF(b, 'Current Total Units');
+  const v = f ? f.value : null;
+  if (v != null && v !== '' && isFinite(Number(v))) {
+    const n = Number(v);
+    return `<span class="sov-units${n === 0 ? ' sov-units-zero' : ''}">${n} apt${n === 1 ? '' : 's'}</span>`;
+  }
+  const note = propFDisp(b, 'Unit Count Note');
+  return note ? `<span class="sov-note">${escHtml(note)}</span>`
+              : `<span class="sov-note">no unit count</span>`;
+}
+
 function propBuildingsHtml(p) {
   // "+ Add building/unit" lives INSIDE the Buildings section (not the modal header).
   const addBtn = `<div class="prop-bld-actions"><button class="sync-btn" type="button" onclick="addBuilding('${escHtml(p.taskId)}')">+ Add building / unit</button></div>`;
   if (!p.buildings.length) return addBtn + '<div class="prop-empty">No building sub-records.</div>';
   ensurePropTasksData();
-  const rows = p.buildings.map(b => {
+
+  /* The buildings list obeys the same two building-level filters as the list behind
+     it, or filtering by Garage would open a property and show everything again. */
+  const fstruct = propVal('prop-f-struct');
+  const resOnly = !!document.getElementById('prop-f-resonly')?.checked;
+  let shown = sovBuildings(p);
+  if (fstruct) shown = shown.filter(b => sovType(b) === fstruct);
+  if (resOnly) shown = shown.filter(b => !sovIsOutbuilding(b));
+  const hidden = sovBuildings(p).length - shown.length;
+
+  /* Outbuildings share the parent's address - location_street is NULL on purpose, so
+     falling back is correct rather than papering over a gap. */
+  const propAddr = [propFDisp(p, 'Location Street Address'), propFDisp(p, 'Location City'),
+                    propFDisp(p, 'Location State')].filter(Boolean).join(', ');
+
+  const totalApts = shown.reduce((n, b) => {
+    const v = Number(propF(b, 'Current Total Units')?.value); return n + (isFinite(v) ? v : 0);
+  }, 0);
+  const summary = `<div class="sov-bld-summary">${shown.length} building${shown.length === 1 ? '' : 's'}
+    · ${totalApts} apartment${totalApts === 1 ? '' : 's'}${hidden ? ` <span class="sov-note">(${hidden} hidden by filters)</span>` : ''}</div>`;
+
+  const rows = sovSortBuildings(shown).map(b => {
     const tasks = ptTasksLinkedTo([{ id: b.id, name: b.name }], false);
     let inner;
     if (tasks === null) inner = '<div class="prop-empty">Loading tasks…</div>';
@@ -5833,11 +6133,36 @@ function propBuildingsHtml(p) {
     const loanBadge = (b.loans && b.loans.length) ? `<span class="card-count">${b.loans.length} loan${b.loans.length === 1 ? '' : 's'}</span>` : '';
     // Tag a building whose primary owner differs from the property's primary owner.
     const ownedByTag = b.ownedByOther ? `<span class="prop-ownedby-tag">owned by ${escHtml(b.ownedByOther.name)}</span>` : '';
+
+    const type = sovType(b);
+    const out = sovIsOutbuilding(b);
+    const typeBadge = type ? `<span class="sov-struct${out ? ' sov-out' : ''}">${escHtml(type)}</span>`
+                           : `<span class="sov-struct sov-out" title="No structure type recorded">type not stated</span>`;
+    /* Its own address, or the parent's. Never blank - a blank line reads as broken
+       data when it is actually an outbuilding behaving exactly as designed. */
+    const own = [propFDisp(b, 'Location Street Address'), propFDisp(b, 'Location City'),
+                 propFDisp(b, 'Location State')].filter(Boolean).join(', ');
+    const addr = own || (propAddr ? `${propAddr} <span class="sov-note">(shares property address)</span>` : '');
+
+    const meta = [
+      sovMeta('Sq ft', propF(b, 'Square Feet')?.value ? Number(propF(b, 'Square Feet').value).toLocaleString() : ''),
+      sovMeta('Built', propFDisp(b, 'Year Built')),
+      sovMeta('Stories', propFDisp(b, '# of Stories')),
+      sovMeta('Construction', propFDisp(b, 'Building Construction')),
+      sovMeta('Roof', propFDisp(b, 'Roofing Year')),
+      sovMeta('Wiring', propFDisp(b, 'Wiring Year')),
+      sovMeta('Plumbing', propFDisp(b, 'Plumbing Year')),
+      sovMeta('Heating', propFDisp(b, 'Heating Year')),
+    ].filter(Boolean).join('');
+
     return `<div class="prop-bld">
-      <div class="prop-bld-name prop-bld-link" onclick="openUnitDetail('${escHtml(b.id)}')" title="Open unit details">${escHtml(shortBuildingName(b.name))} ${loanBadge}${ownedByTag} <span class="prop-bld-open">›</span></div>
+      <div class="prop-bld-name prop-bld-link" onclick="openUnitDetail('${escHtml(b.id)}')" title="Open unit details">${escHtml(shortBuildingName(b.name))}${typeBadge} ${sovUnitCell(b)} ${loanBadge}${ownedByTag} <span class="prop-bld-open">›</span></div>
+      ${addr ? `<div class="sov-bld-addr">${addr}</div>` : ''}
+      ${meta ? `<div class="sov-bld-meta">${meta}</div>` : ''}
+      <div class="sov-chiprow">${sovTriChip(b, 'Fire Alarm', 'Fire alarm')}${sovTriChip(b, 'Sprinklered', 'Sprinklered')}</div>
       <div class="prop-bld-tasks">${inner}</div></div>`;
   }).join('');
-  return addBtn + rows;
+  return addBtn + summary + rows;
 }
 // Task detail drawer for a property task — reuses the shared #modalOverlay (the
 // "Marketing Strategy"-style modal): details + comments thread.
