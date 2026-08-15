@@ -475,6 +475,69 @@ mechanism nearly matched here, it was wrong; check the mechanism, not the proxim
   free text kept for the old label; `lenderRecord` is the normalised row and is joined
   in code (not embedded) so a loan without one still renders.
 
+## Three screens specified but NOT built (database layers done)
+
+Data Tracker, Cash & Debt quarterly, and the SOV editor. Every view exists and every
+figure below was verified live before any UI work started.
+
+| Object | Rows |
+|---|---|
+| `v_tracker_megan` | 36 |
+| `v_tracker_mitch` | 10 |
+| `v_sov` | 268 (one per building) |
+| `v_sov_tax_filers` / `v_sov_entities` / `v_sov_properties` / `v_sov_buildings` | 34 / 110 / 168 / 268 |
+| `v_cash_debt_summary` | 2026 Q1 cash $6,291,363.69 debt $229,329,779.11 (168/58); Q2 $5,073,105.35 / $225,424,320.06 (160/55) |
+| `account_balance` unverified | **441 of 441** |
+
+### The tracker badges count OUTSTANDING work, not rows
+The spec asked for badges of 36 and 10 "from `v_tracker_counts`". Those are different
+numbers, and the view is the correct one:
+
+```
+Megan  36 rows = 32 open + 4 resolved                    -> megan_open = 32
+Mitch  10 rows = 3 open + 4 blocked + 1 waiting + 2 done -> 8 outstanding
+```
+
+`v_tracker_counts` excludes finished items; the list views return everything. A badge is
+a workload signal, so it must count what needs doing — building to the row totals puts
+resolved and done items in it. Use `megan_open` and `mitch_exceptions + mitch_tasks`,
+and expect the badge to be SMALLER than the list it opens. That is correct, not a bug.
+
+### Cash & Debt: every balance is a draft
+All 441 rows are `is_verified = false`, from a source marked "DRAFT REQUIRES MITCH
+HAGEN VERIFICATION". The screen must say so. `v_cash_debt_summary` exposes
+`all_verified` (currently false) so the badge can be driven from data rather than
+hard-coded.
+
+Only 2026 Q1 and Q2 exist. Offer only quarters present in the data — rendering an empty
+Q3 as zeroes states a fact nobody has.
+
+`cash_source` is Bank (192), Buildium (42), PM-Bank (17), AppFolio (5). Buildium and
+AppFolio are property-management systems, so those accounts legitimately have no
+institution or last4; that is not missing data.
+
+### SOV editor: `v_sov` is a VIEW — never write to it
+It returns `building_id`, `property_id` and `entity_id` on every row so each column can
+be routed to its own table: entity (tax filer, quarterly reports, tax projection),
+property (name, purchase, market value, manager, ownership), unit (address, units,
+occupancy type, sqft, year built, stories, alarms, construction, counts),
+insurance_policy (carrier, renewal, deductibles, premium, limits, TIV), loan (lender,
+escrow, DSCR), property_parcel (parcel id).
+
+**Never write `property.unit_count_reported`** — it is the immutable source-document
+figure, and it is the column that produced the wrong 1,355 unit total. Corrected counts
+go to `unit_count_verified` with `_by`, `_at` and `unit_count_note`.
+
+Every cell change logs to `sov_edit_log` (target_table, target_id, column_name,
+old_value, new_value, edited_by).
+
+Insert conventions, all recorded in `schema_changelog`: a building is identified by
+`(property_id, unit_identifier)` and never by address, because several buildings share
+one address and outbuildings have none; outbuildings get `location_street = NULL` and 0
+apartments rather than a copy of the parent's address; parcels split on `A / B` into
+separate rows keeping dashes and periods; insurance limits carry a basis, and where
+there is no number the basis IS the value.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
