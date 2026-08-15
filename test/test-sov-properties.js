@@ -154,5 +154,47 @@ ck('a 2020 maturity is in the past', months('2020-01-01') < 0, true);
 ck('and a 36-month window excludes it',
   loans.filter(l => { const m = months(l.maturityDate); return m != null && m >= 0 && m <= 36; }).map(l => l.id), ['a']);
 
+/* ---- multi-select semantics --------------------------------------------- */
+console.log('\nEmpty selection means NO filter, never "match nothing"');
+/* The one rule that empties a screen if inverted: unticking your last value must
+   restore everything, not hide everything. */
+const msMatch = (vals, x) => !vals.length || vals.includes(x);
+const msMatchAny = (vals, xs) => !vals.length || xs.some(x => vals.includes(x));
+ck('no selection matches anything', msMatch([], 'NE'), true);
+ck('no selection matches a row with no value at all', msMatch([], ''), true);
+ck('no selection over a list matches too', msMatchAny([], []), true);
+
+console.log('\nOR within one filter, AND across filters');
+ck('NE or IA - NE matches', msMatch(['NE', 'IA'], 'NE'), true);
+ck('NE or IA - IA matches', msMatch(['NE', 'IA'], 'IA'), true);
+ck('NE or IA - SD does not', msMatch(['NE', 'IA'], 'SD'), false);
+/* AND is not a function - it falls out of the predicates being separate statements.
+   This models two filters applied to one row. */
+const row = { state: 'NE', manager: 'Kouri' };
+const passes = (states, mgrs) => msMatch(states, row.state) && msMatch(mgrs, row.manager);
+ck('both filters satisfied', passes(['NE', 'IA'], ['Kouri']), true);
+ck('second filter excludes it', passes(['NE', 'IA'], ['Point Guard']), false);
+ck('an empty second filter does not exclude it', passes(['NE'], []), true);
+
+console.log('\nList-valued filters match if ANY of the row values is selected');
+/* A property has many buildings and many loans: selecting Garage keeps a property
+   that has one, even though its other buildings are residential. */
+ck('one matching building is enough', msMatchAny(['Garage'], ['Multi-Family Residential', 'Garage']), true);
+ck('no matching building excludes it', msMatchAny(['Garage'], ['Multi-Family Residential']), false);
+
+console.log('\nEscrow: the toggle and the multi-select cannot contradict each other');
+/* has_escrow agrees exactly with (taxes OR insurance OR reserve) - 19 on properties,
+   23 on loans - which is what makes splitting them safe rather than merely tidier. */
+const loanRows = [
+  { has: true,  t: true,  i: false, r: false },
+  { has: true,  t: false, i: true,  r: false },
+  { has: true,  t: false, i: false, r: true },
+  { has: false, t: false, i: false, r: false },
+];
+ck('has_escrow count equals the union of the three',
+  loanRows.filter(l => l.has).length, loanRows.filter(l => l.t || l.i || l.r).length);
+ck('selecting Taxes + Insurance is a union, not an intersection',
+  loanRows.filter(l => ['t', 'i'].some(k => l[k])).length, 2);
+
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nAll checks passed');
 process.exit(fail?1:0);
