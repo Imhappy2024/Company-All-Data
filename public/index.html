@@ -1964,7 +1964,8 @@
   .ms { position: relative; padding: 0; display: inline-block; }
   .ms-btn { all: unset; cursor: pointer; display: block; width: 100%; box-sizing: border-box; padding: 0 8px; line-height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ms-btn.ms-on { font-weight: 700; color: var(--accent); }
-  .ms-panel { position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 320px; max-height: 280px; overflow-y: auto; padding: 6px; background: var(--surface, var(--panel)); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  .ms-panel { display: none; position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 320px; max-height: 280px; overflow-y: auto; padding: 6px; background: var(--surface, var(--panel)); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  .ms-panel.ms-open { display: block; }
   .ms-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12.5px; white-space: nowrap; cursor: pointer; border-radius: 6px; }
   .ms-opt:hover { background: var(--surface-2, var(--panel-2)); }
   .ms-empty { padding: 6px; font-size: 12px; color: var(--text3); }
@@ -2648,17 +2649,17 @@
                in the moment before populatePropFilters() runs. -->
           <select class="filter-select" id="prop-f-own"     onchange="propApply()"><option value="held">Held</option></select>
           <select class="filter-select" id="prop-f-entity"  onchange="propApply()"><option value="">All Entities</option></select>
-          <div class="ms filter-select" data-ms="prop-f-deal" data-label="Deals" data-placeholder="All Deals" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Deals</button><div class="ms-panel" hidden></div></div>
+          <div class="ms filter-select" data-ms="prop-f-deal" data-label="Deals" data-placeholder="All Deals" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Deals</button><div class="ms-panel"></div></div>
           <select class="filter-select" id="prop-f-manager" onchange="propApply()"><option value="">All Managers</option></select>
-          <div class="ms filter-select" data-ms="prop-f-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel" hidden></div></div>
-          <div class="ms filter-select" data-ms="prop-f-state" data-label="States" data-placeholder="All States" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All States</button><div class="ms-panel" hidden></div></div>
-          <div class="ms filter-select" data-ms="prop-f-struct" data-label="Structures" data-placeholder="All Structures" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Structures</button><div class="ms-panel" hidden></div></div>
-          <div class="ms filter-select" data-ms="prop-f-carrier" data-label="Carriers" data-placeholder="All Carriers" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Carriers</button><div class="ms-panel" hidden></div></div>
+          <div class="ms filter-select" data-ms="prop-f-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel"></div></div>
+          <div class="ms filter-select" data-ms="prop-f-state" data-label="States" data-placeholder="All States" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All States</button><div class="ms-panel"></div></div>
+          <div class="ms filter-select" data-ms="prop-f-struct" data-label="Structures" data-placeholder="All Structures" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Structures</button><div class="ms-panel"></div></div>
+          <div class="ms filter-select" data-ms="prop-f-carrier" data-label="Carriers" data-placeholder="All Carriers" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Carriers</button><div class="ms-panel"></div></div>
           <!-- "All Loan Status" removed: it duplicated "Has a loan", and loan status is
                a per-loan attribute that cannot answer a property-level question when a
                property carries several loans in different states. -->
           <select class="filter-select" id="prop-f-hasloan" onchange="propApply()"><option value="">Loan: any</option><option value="yes">Has a loan</option><option value="no">No loan</option></select>
-          <div class="ms filter-select" data-ms="prop-f-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel" hidden></div></div>
+          <div class="ms filter-select" data-ms="prop-f-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
           <!-- has_escrow is a DIFFERENT question from "escrows taxes", so it is a
                separate toggle. Safe to sit beside the multi-select: has_escrow and
                (taxes OR insurance OR reserve) agree exactly - 19 on properties,
@@ -2677,6 +2678,30 @@
           </div>
         </div>
       </div>
+      <!-- INSIDE the frozen block. Out here it scrolled while the filter bar stayed
+           put, so the sticky bar rode over the sub-nav and the actions - which is
+           what made the Properties toggle look dead: it was covered, not broken. -->
+      <div class="prop-topbar">
+      <div class="prop-subnav">
+        <button class="prop-subnav-btn active" data-sub="properties" onclick="propSetSub('properties')">Properties</button>
+        <button class="prop-subnav-btn" data-sub="tasks" onclick="propSetSub('tasks')">Property Tasks</button>
+      </div>
+      <!-- ACTIONS live out here, not among the selects: the filter block should hold
+           only things that narrow the list. The dead "Properties" button that sat here
+           did nothing and is gone. -->
+      <div class="prop-export">
+        <button class="sync-btn" type="button" onclick="toggleExportMenu(event)">Export &#9662;</button>
+        <div class="prop-export-menu" id="prop-export-menu" hidden>
+          <div class="prop-export-item" onclick="exportProperties('csv')">Properties (CSV)</div>
+          <div class="prop-export-item" onclick="exportProperties('xlsx')">Properties (Excel)</div>
+          <div class="prop-export-sep"></div>
+          <div class="prop-export-item" onclick="exportLoans('csv')">Loans (CSV)</div>
+          <div class="prop-export-item" onclick="exportLoans('xlsx')">Loans (Excel)</div>
+        </div>
+      </div>
+      <button class="sync-btn" type="button" id="prop-add-entity" onclick="addEntity()">+ Add entity</button>
+      <span class="prop-asof" id="prop-asof" title="Data freshness"></span>
+    </div>
       <div class="prop-toolbar" id="prop-toolbar-tasks" hidden>
         <button type="button" class="pf-toggle" onclick="togglePropFilters(this)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg> Filters <span class="pf-count" id="pf-count-tasks"></span></button>
         <span class="filter-label">Filter</span>
@@ -2711,27 +2736,7 @@
     </div>
 
     <!-- Selector band: sits below the (frozen) filters. -->
-    <div class="prop-topbar">
-      <div class="prop-subnav">
-        <button class="prop-subnav-btn active" data-sub="properties" onclick="propSetSub('properties')">Properties</button>
-        <button class="prop-subnav-btn" data-sub="tasks" onclick="propSetSub('tasks')">Property Tasks</button>
-      </div>
-      <!-- ACTIONS live out here, not among the selects: the filter block should hold
-           only things that narrow the list. The dead "Properties" button that sat here
-           did nothing and is gone. -->
-      <div class="prop-export">
-        <button class="sync-btn" type="button" onclick="toggleExportMenu(event)">Export &#9662;</button>
-        <div class="prop-export-menu" id="prop-export-menu" hidden>
-          <div class="prop-export-item" onclick="exportProperties('csv')">Properties (CSV)</div>
-          <div class="prop-export-item" onclick="exportProperties('xlsx')">Properties (Excel)</div>
-          <div class="prop-export-sep"></div>
-          <div class="prop-export-item" onclick="exportLoans('csv')">Loans (CSV)</div>
-          <div class="prop-export-item" onclick="exportLoans('xlsx')">Loans (Excel)</div>
-        </div>
-      </div>
-      <button class="sync-btn" type="button" id="prop-add-entity" onclick="addEntity()">+ Add entity</button>
-      <span class="prop-asof" id="prop-asof" title="Data freshness"></span>
-    </div>
+    
 
     <!-- SUB-VIEW: Properties (entity list) -->
     <div id="prop-sub-properties">
@@ -2777,13 +2782,12 @@
     </div>
     <div class="prop-view-head">
       <div class="prop-view-actions" style="flex-wrap:wrap;gap:8px">
-        <div class="ms filter-select" data-ms="lf-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel" hidden></div></div>
-        <div class="ms filter-select" data-ms="lf-position" data-label="Positions" data-placeholder="All Positions" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Positions</button><div class="ms-panel" hidden></div></div>
+        <div class="ms filter-select" data-ms="lf-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel"></div></div>
+        <div class="ms filter-select" data-ms="lf-position" data-label="Positions" data-placeholder="All Positions" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Positions</button><div class="ms-panel"></div></div>
         <select class="filter-select" id="lf-mat"     onchange="renderLoansTable()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option><option value="past">Already matured</option></select>
         <select class="filter-select" id="lf-bal"     onchange="renderLoansTable()"><option value="">Balance: any</option><option value="yes">Has a balance</option><option value="no">No balance recorded</option></select>
-        <div class="ms filter-select" data-ms="lf-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel" hidden></div></div>
+        <div class="ms filter-select" data-ms="lf-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
         <label class="filter-select sov-toggle" title="Loans with has_escrow = true"><input type="checkbox" id="lf-anyescrow" onchange="renderLoansTable()"> Any escrow</label>
-        <label class="filter-select sov-toggle" title="Loans with no escrow flag set true"><input type="checkbox" id="lf-noescrow" onchange="renderLoansTable()"> No escrow</label>
         <!-- Rate type comes from `index`, not interest_type: that column is set on 3 of
              75 rows and every one says "fixed", so it cannot tell the two apart. -->
         <select class="filter-select" id="lf-rate"    onchange="renderLoansTable()"><option value="">Rate: any</option><option value="var">Variable (indexed)</option><option value="fix">Not indexed</option></select>
@@ -4382,9 +4386,9 @@ const msMatchAny = (vals, xs) => !vals.length || xs.some(x => vals.includes(x));
 
 function msToggle(btn) {
   const panel = btn.parentElement.querySelector('.ms-panel');
-  const open = panel.hidden;
-  document.querySelectorAll('.ms-panel').forEach(p => { p.hidden = true; });
-  panel.hidden = !open;
+  const open = !panel.classList.contains('ms-open');
+  document.querySelectorAll('.ms-panel').forEach(p => p.classList.remove('ms-open'));
+  panel.classList.toggle('ms-open', open);
   if (open) setTimeout(() => document.addEventListener('click', msCloseAll, { once: true }), 0);
 }
 function msCloseAll(ev) {
@@ -4394,7 +4398,7 @@ function msCloseAll(ev) {
     document.addEventListener('click', msCloseAll, { once: true });
     return;
   }
-  document.querySelectorAll('.ms-panel').forEach(p => { p.hidden = true; });
+  document.querySelectorAll('.ms-panel').forEach(p => p.classList.remove('ms-open'));
 }
 /* Populate a control, preserving whatever was already ticked. */
 function msFill(id, label, vals) {
@@ -4753,7 +4757,6 @@ function loansFiltered() {
   const lender = msSel('lf-lender'), pos = msSel('lf-position'), esc = msSel('lf-escrow');
   const mat = v('lf-mat'), bal = v('lf-bal'), rate = v('lf-rate'), tif = v('lf-tif');
   const anyEsc = !!document.getElementById('lf-anyescrow')?.checked;
-  const noEsc = !!document.getElementById('lf-noescrow')?.checked;
   return (loansAll || []).filter(l => {
     if (q && ![l.name, l.lender, l.borrower, loanProp(l)].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
     if (!msMatch(lender, l.lender)) return false;
@@ -4772,7 +4775,6 @@ function loansFiltered() {
     /* has_escrow is the separate question. Verified to agree with the union of the
        three booleans (23 either way), so it cannot contradict the list above it. */
     if (anyEsc && propF(l, 'Has Escrow')?.value !== 'true') return false;
-    if (noEsc && loanHasAnyEscrow(l)) return false;
     if (rate === 'var' && !l.rateIndex) return false;
     if (rate === 'fix' && l.rateIndex) return false;
     if (tif === 'yes' && !l.isTif) return false;
@@ -4861,7 +4863,7 @@ function renderLoansTable() {
 }
 const LOAN_MS_IDS = ['lf-lender', 'lf-position', 'lf-escrow'];
 const LOAN_SEL_IDS = ['lf-mat', 'lf-bal', 'lf-rate', 'lf-tif', 'loanview-search'];
-const LOAN_TOGGLES = ['lf-anyescrow', 'lf-noescrow'];
+const LOAN_TOGGLES = ['lf-anyescrow'];
 function clearLoanFilters() {
   LOAN_SEL_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   LOAN_MS_IDS.forEach(id => msClear(id));
@@ -4888,7 +4890,6 @@ function renderLoanActiveFilters() {
   msSel('lf-position').forEach(v => add('lf-position', 'Position', v, v));
   msSel('lf-escrow').forEach(v => add('lf-escrow', 'Escrow', v, v));
   if (document.getElementById('lf-anyescrow')?.checked) add('lf-anyescrow', 'Escrow', 'Any');
-  if (document.getElementById('lf-noescrow')?.checked) add('lf-noescrow', 'Escrow', 'None');
   sel('lf-mat', 'Maturity'); sel('lf-bal', 'Balance'); sel('lf-rate', 'Rate'); sel('lf-tif', 'TIF');
   const on = loansAnyFilter();
   bar.hidden = !on;
