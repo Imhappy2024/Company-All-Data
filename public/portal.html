@@ -248,6 +248,28 @@ tbody tr:hover{background:var(--panel-2)}
 .dr-av img,.pav img,.avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 20%;border-radius:inherit}
 .bio-none{font-size:13.5px;color:var(--faint);font-style:italic}
 .ph-sub{font-size:12px;margin-top:6px;color:var(--faint)}
+/* ---- Data Tracker -------------------------------------------------------
+   Green is Megan, blue is Mitch. Two colours for two QUESTIONS - "is this value
+   right?" against "where is this value?" - not two priority levels. */
+.trk-b{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:999px;font-size:10.5px;font-weight:700;line-height:16px;text-align:center;color:#fff}
+.trk-g{background:#12a150}.trk-bl{background:#2a78d6}
+.trk-people{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
+.trk-person{display:flex;flex-direction:column;gap:3px;text-align:left;padding:14px 16px;border-radius:var(--radius);border:1.5px solid var(--border);background:var(--panel);cursor:pointer;font:inherit;transition:.12s}
+.trk-person:hover{border-color:var(--border-2)}
+.trk-person.on.trk-g{border-color:#12a150;background:rgba(18,161,80,.07)}
+.trk-person.on.trk-bl{border-color:#2a78d6;background:rgba(42,120,214,.07)}
+.trk-p-n{font-size:14px;font-weight:700;color:var(--text)}
+.trk-p-q{font-size:11.5px;color:var(--faint)}
+.trk-p-v{font-size:26px;font-weight:700;color:var(--text);margin-top:4px;line-height:1.1}
+.trk-p-of{font-size:12px;font-weight:600;color:var(--faint)}
+.trk-t{font-size:13px;font-weight:600;color:var(--text)}
+.trk-s{font-size:11.5px;color:var(--faint);margin-top:2px}
+.trk-raw{font-family:var(--mono,ui-monospace,monospace);font-size:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:1px 7px}
+.trk-arrow{color:var(--faint);margin:0 6px}
+.trk-sug{font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:#12a150;background:rgba(18,161,80,.12);border-radius:6px;padding:1px 7px}
+.trk-block{color:#c67c11;font-weight:600;font-size:12px}
+.trk-sel{padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font:inherit;font-size:11.5px;cursor:pointer}
+@media(max-width:900px){.trk-people{grid-template-columns:1fr}}
 .person.skel{opacity:.45;pointer-events:none}
 .person.skel .pav{background:var(--panel-2)}
 .person.skel .pn,.person.skel .pr{background:var(--panel-2);border-radius:4px}
@@ -552,51 +574,56 @@ function fetchTeam(){
 }
 const TRK_MEGAN_STATUS=['open','in_progress','resolved','wont_fix'];
 const TRK_MITCH_STATUS=['open','in_progress','blocked','waiting_on_doc','done'];
+const TRK_STATUS_PILL={open:'gray',in_progress:'blue',blocked:'rose',waiting_on_doc:'amber',resolved:'green',done:'green',wont_fix:'gray'};
 const trkDate=d=>d?String(d).slice(0,10):'';
+const trkWords=x=>String(x||'').replace(/_/g,' ');
+
+/* The person card doubles as the tab. It shows open OVER total, because those differ
+   and the gap is the work already closed - stating both stops the smaller number
+   reading as a miscount. */
+function trkPersonCard(id,name,question,open,total,tone){
+  return `<button class="trk-person trk-${tone} ${trkWho===id?'on':''}" onclick="setTrkWho('${id}')">
+    <span class="trk-p-n">${esc(name)}</span>
+    <span class="trk-p-q">${esc(question)}</span>
+    <span class="trk-p-v">${open}<span class="trk-p-of"> open of ${total}</span></span>
+  </button>`;
+}
 function trkStatusSel(r,opts){
-  return `<select class="trk-sel trk-${esc(r.status||'open')}" onchange="trkSetStatus('${esc(r.id)}','${esc(r.kind||'')}',this.value)">`
-    + opts.map(o=>`<option value="${o}"${r.status===o?' selected':''}>${o.replace(/_/g,' ')}</option>`).join('')
+  return `<select class="trk-sel" onchange="trkSetStatus('${esc(r.id)}','${esc(r.kind||'')}',this.value)">`
+    + opts.map(o=>`<option value="${o}"${String(r.status||'open')===o?' selected':''}>${trkWords(o)}</option>`).join('')
     + `</select>`;
 }
-/* Megan: a value exists but cannot be used as-is. raw_value next to suggested_value is
-   the whole point - she is judging a substitution, not hunting for the record. */
+const trkPill=st=>pill(trkWords(st||'open'),TRK_STATUS_PILL[st||'open']||'gray');
+
+/* MEGAN - a value exists but cannot be used as-is. She is answering "should this
+   become that?", so the two values sit side by side and everything else is context. */
 function trkMegan(rows){
-  const byType={};rows.forEach(r=>{(byType[r.issue_type||'other']=byType[r.issue_type||'other']||[]).push(r);});
-  return Object.keys(byType).sort().map(t=>`
-    <div class="trk-group"><div class="trk-group-h">${esc(String(t).replace(/_/g,' '))} <span class="trk-n">${byType[t].length}</span></div>
-    <div class="trk-table">${byType[t].map(r=>`
-      <div class="trk-row">
-        <div class="trk-main"><div class="trk-rec">${esc(r.record||'')}<span class="trk-field">${esc(r.field_name||'')}</span></div>
-          <div class="trk-desc">${esc(r.description||'')}</div>
-          <div class="trk-vals"><span class="trk-raw" title="raw_value">${esc(r.raw_value==null?'—':r.raw_value)}</span>
-            <span class="trk-arrow">&rarr;</span>
-            <span class="trk-sug" title="suggested_value">${esc(r.suggested_value==null?'—':r.suggested_value)}</span></div></div>
-        <div class="trk-meta"><span>${esc(r.area||'')}</span><span>${esc(r.source_document||'')}</span><span>${esc(trkDate(r.raised))}</span></div>
-        <div class="trk-act">${trkStatusSel(r,TRK_MEGAN_STATUS)}</div>
-      </div>`).join('')}</div></div>`).join('');
+  const body=rows.map(r=>`<tr>
+    <td><div class="trk-t">${esc(r.record||'')}</div><div class="trk-s">${esc(r.field_name||'')} &middot; ${esc(trkWords(r.issue_type))}</div></td>
+    <td><span class="trk-raw">${esc(r.raw_value==null||r.raw_value===''?'\u2014':r.raw_value)}</span><span class="trk-arrow">&rarr;</span><span class="trk-sug">${esc(r.suggested_value==null||r.suggested_value===''?'\u2014':r.suggested_value)}</span>${r.description?`<div class="trk-s">${esc(r.description)}</div>`:''}</td>
+    <td>${esc(r.source_document||'')}<div class="trk-s">${esc(trkDate(r.raised))}</div></td>
+    <td>${trkPill(r.status)}</td>
+    <td class="r">${trkStatusSel(r,TRK_MEGAN_STATUS)}</td>
+  </tr>`).join('');
+  return card('check','Values that need a decision',rows.length,
+    tbl([{t:'Record'},{t:'Current \u2192 suggested'},{t:'Source'},{t:'Status'},{t:'Set',r:1}],body),true);
 }
-/* Mitch: the value is absent. blocked_reason leads when set, because a blocked item
-   needs the blocker read before anything else. */
+
+/* MITCH - the value is absent. Blocked first: a blocker has to clear before the work
+   can start at all, so it is the only ordering that matches how the list gets used. */
 function trkMitch(rows){
-  return `<div class="trk-table">${rows.map(r=>`
-    <div class="trk-row">
-      <div class="trk-main"><div class="trk-rec">${esc(r.title||r.record||'')}<span class="trk-kind">${esc(r.kind||'')}</span></div>
-        <div class="trk-desc">${esc(r.record||'')}</div>
-        ${r.blocked_reason?`<div class="trk-blocked">Blocked: ${esc(r.blocked_reason)}</div>`:''}
-        ${r.notes?`<div class="trk-desc">${esc(r.notes)}</div>`:''}</div>
-      <div class="trk-meta"><span>${esc(r.area||'')}</span><span>${esc(r.source_document||'')}</span>
-        <span>${esc(trkDate(r.raised))}</span>${r.due_date?`<span>due ${esc(trkDate(r.due_date))}</span>`:''}</div>
-      <div class="trk-act">${trkStatusSel(r,TRK_MITCH_STATUS)}</div>
-    </div>`).join('')}</div>`;
-}
-/* The Data Tracker item carries TWO counters: green = Megan's open exceptions,
-   blue = Mitch's open backfill items. Both come from v_tracker_counts, which counts
-   OUTSTANDING work - so each badge reads smaller than the list it opens. */
-function trkNavBadges(){
-  if(!trkData){ fetchTracker(); return ''; }
-  const c=trkData.counts||{};
-  return `<span class="trk-b trk-g" title="Megan — open exceptions">${c.megan||0}</span>`
-       + `<span class="trk-b trk-bl" title="Mitch — open backfill items">${c.mitch||0}</span>`;
+  const rank={blocked:0,waiting_on_doc:1,open:2,in_progress:3,done:4};
+  const sorted=rows.slice().sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9));
+  const body=sorted.map(r=>`<tr>
+    <td><div class="trk-t">${esc(r.title||r.record||'')}</div><div class="trk-s">${esc(r.record||'')}</div></td>
+    <td>${esc(r.area||'')}<div class="trk-s">${esc(r.kind||'')}</div></td>
+    <td>${r.blocked_reason?`<span class="trk-block">${esc(r.blocked_reason)}</span>`:(r.notes?esc(r.notes):'<span class="trk-s">\u2014</span>')}</td>
+    <td>${esc(r.source_document||'')}<div class="trk-s">${r.due_date?'due '+esc(trkDate(r.due_date)):esc(trkDate(r.raised))}</div></td>
+    <td>${trkPill(r.status)}</td>
+    <td class="r">${trkStatusSel(r,TRK_MITCH_STATUS)}</td>
+  </tr>`).join('');
+  return card('check','Data that is missing',rows.length,
+    tbl([{t:'What'},{t:'Area'},{t:'Blocker / notes'},{t:'Source'},{t:'Status'},{t:'Set',r:1}],body),true);
 }
 function initialsOf(n){
   const p=String(n||'').trim().split(/\s+/).filter(Boolean);
@@ -786,18 +813,26 @@ const V={
     if(trkErr) return `<div class="placeholder">${I.check}<div>Could not load the tracker<div class="ph-sub">${esc(trkErr)}</div></div></div>`;
     if(!trkData){ fetchTracker(); return `<div class="placeholder">${I.check}<div>Loading tracker&hellip;</div></div>`; }
     const c=trkData.counts||{};
-    const seg=`<div class="seg">
-      <button class="segbtn ${trkWho==='megan'?'on':''}" onclick="setTrkWho('megan')">Megan <span class="trk-b trk-g">${c.megan||0}</span></button>
-      <button class="segbtn ${trkWho==='mitch'?'on':''}" onclick="setTrkWho('mitch')">Mitch <span class="trk-b trk-bl">${c.mitch||0}</span></button>
-    </div>`;
     const rows=(trkData[trkWho]||[]);
-    /* The badge counts OUTSTANDING work and the list shows everything, so the two
-       differ on purpose - 32 against 36, 8 against 10. Said out loud here so it does
-       not read as a miscount. */
-    const open=trkWho==='megan'?(c.megan||0):(c.mitch||0);
-    const note=`<div class="trk-note">${rows.length} item${rows.length===1?'':'s'} &middot; <b>${open} still open</b> &mdash; the rest are closed and kept for the record.</div>`;
-    if(!rows.length) return seg+note+`<div class="placeholder">${I.check}<div>Nothing here.</div></div>`;
-    return seg+note+(trkWho==='megan'?trkMegan(rows):trkMitch(rows));
+    const by=k=>rows.filter(r=>String(r.status||'open')===k).length;
+    const openN = trkWho==='megan' ? (c.megan||0) : (c.mitch||0);
+
+    /* The two cards ARE the switch. A segmented control plus a separate pair of
+       counters was two controls saying the same thing; this is one that also
+       explains what each person is being asked. */
+    const who=`<div class="trk-people">
+      ${trkPersonCard('megan','Megan','Is this value right?',c.megan||0,c.megan_total||0,'g')}
+      ${trkPersonCard('mitch','Mitch','Where is this value?',c.mitch||0,c.mitch_total||0,'bl')}
+    </div>`;
+
+    const kpis = trkWho==='megan'
+      ? `<div class="kpis">${kpi('check','Needs a decision',openN,'still open')}${kpi('cal','In progress',by('in_progress'),'')}${kpi('check','Closed',by('resolved')+by('wont_fix'),'resolved or won\u2019t fix')}${kpi('grid','Raised in total',rows.length,'open and closed')}</div>`
+      : `<div class="kpis">${kpi('check','To do',by('open'),'not started')}${kpi('cal','In progress',by('in_progress'),'')}${kpi('shield','Blocked',by('blocked')+by('waiting_on_doc'),'needs something first')}${kpi('check','Done',by('done'),'')}</div>`;
+
+    const body = rows.length
+      ? (trkWho==='megan'?trkMegan(rows):trkMitch(rows))
+      : `<div class="placeholder">${I.check}<div>Nothing here.</div></div>`;
+    return who + kpis + body;
   },
   team(){
     if(teamErr) return `<div class="placeholder">${I.users}<div>Could not load the team<div class="ph-sub">${esc(teamErr)}</div></div></div>`;

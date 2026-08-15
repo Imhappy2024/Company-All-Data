@@ -4841,7 +4841,7 @@ function renderLoansTable() {
     return String(av).localeCompare(String(bv)) * sgn;
   });
 
-  if (loansAll && document.querySelector('[data-ms^="lf-"] .fms-panel:empty')) {
+  if (loansAll) {
     const uniq = v => [...new Set(v.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
     msFill('lf-lender', 'Lenders', uniq(loansAll.map(l => l.lender)));
     msFill('lf-position', 'Positions', uniq(loansAll.map(l => l.positionLabel)));
@@ -5318,7 +5318,12 @@ function propApply() {
      empty panel looks identical to a broken control. If any panel has no options,
      fill them now. msFill preserves whatever is already ticked, so this is safe to
      run repeatedly and cheap when there is nothing to do. */
-  if (document.querySelector('[data-ms] .fms-panel:empty')) populatePropFilters();
+  /* Populate EVERY repaint, unconditionally. The :empty guard it replaces did not
+     fire reliably, and an empty panel is what the "very thin dropdown" is - the
+     control opens, there is simply nothing in it. msFill preserves ticked values and
+     leaves the panel element itself in place, so re-running is invisible even with a
+     panel open. Nine small innerHTML writes is not a cost worth a race condition. */
+  populatePropFilters();
   msLabelAll();
   renderActiveFilters();
   renderEntityList(list);
