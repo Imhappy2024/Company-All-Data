@@ -537,7 +537,11 @@ let teamRows=null, teamErr=null, teamFetching=false;
    absent". Two lists, one screen, deliberately not merged. */
 let trkData=null, trkErr=null, trkFetching=false, trkWho='megan';
 function fetchTracker(force){
-  if(trkFetching) return; if(trkData && !force) return;
+  if(trkFetching) return;
+  if(trkData && !force) return;
+  /* Do not retry after a failure unless asked: fetchTracker() calls render() on error,
+     and anything that re-enters render() from here can spin. */
+  if(trkErr && !force) return;
   trkFetching=true;
   fetch('/api/tracker',{headers:authHeadersPortal()})
     .then(r=>r.text().then(t=>{let b=null;try{b=t?JSON.parse(t):null;}catch(e){b={error:t};}
@@ -571,6 +575,22 @@ function fetchTeam(){
     return b;
   })).then(d=>{teamRows=d.people||[];teamErr=null;teamFetching=false;render();})
     .catch(e=>{teamErr=e.message;teamFetching=false;render();});
+}
+/* Nav badges: green = Megan's open exceptions, blue = Mitch's open backfill items.
+
+   It must NEVER fetch. The nav is painted by render(); anything here that can call
+   render() again closes a loop, and a loop here takes the whole page down including
+   the auth gate - which presents as sign-in bouncing rather than as a broken nav.
+   The Data Tracker screen loads its own data when opened; the badges wait for it.
+
+   This function is called from the nav template, so deleting it is not a no-op: it is
+   a ReferenceError on every render. That is exactly what happened when the tracker
+   block was rebuilt around it. */
+function trkNavBadges(){
+  if(!trkData) return '';
+  const c=trkData.counts||{};
+  return `<span class="trk-b trk-g" title="Megan — open exceptions">${c.megan||0}</span>`
+       + `<span class="trk-b trk-bl" title="Mitch — open backfill items">${c.mitch||0}</span>`;
 }
 const TRK_MEGAN_STATUS=['open','in_progress','resolved','wont_fix'];
 const TRK_MITCH_STATUS=['open','in_progress','blocked','waiting_on_doc','done'];
