@@ -2754,28 +2754,35 @@
 <div class="view" id="view-loanviews">
   <div class="main">
     <div class="prop-topbar">
-      <div class="prop-subnav" id="loanview-subnav">
-        <button class="prop-subnav-btn pv-capex active" data-sub="capex" onclick="loanSetSub('capex')">CapEx Funding</button>
-        <button class="prop-subnav-btn pv-asset-fees" data-sub="asset-fees" onclick="loanSetSub('asset-fees')">Asset Fees</button>
-        <button class="prop-subnav-btn pv-escrows" data-sub="escrows" onclick="loanSetSub('escrows')">Escrows</button>
-        <button class="prop-subnav-btn pv-tif" data-sub="tif" onclick="loanSetSub('tif')">TIF</button>
-        <button class="prop-subnav-btn pv-variable" data-sub="variable-rate" onclick="loanSetSub('variable-rate')">Variable Rate</button>
-        <button class="prop-subnav-btn pv-maturities" data-sub="maturities" onclick="loanSetSub('maturities')">Maturities</button>
-      </div>
-      <select class="filter-select prop-pm" id="loanview-pm" title="Filter by property manager" onchange="renderLoanViewTable()"><option value="">All Managers</option></select>
+      <!-- The six tabs (CapEx Funding / Asset Fees / Escrows / TIF / Variable Rate /
+           Maturities) are gone. Three of them were backed by columns that are empty
+           across the whole table - construction_budget_amount and loc_* are 0 of 75,
+           is_tif is 1 of 75 - so they rendered a full page of em-dashes, which reads
+           as a broken screen rather than as "no such loans". They are filters now:
+           a filter that matches nothing says "0 of 75", which is an answer. -->
+      <span class="prop-view-title">Loans</span>
     </div>
     <div class="prop-view-head">
-      <span class="prop-view-title" id="loanview-title"></span>
-      <div class="prop-view-actions">
-        <span class="prop-view-count" id="loanview-count"></span>
-        <span class="prop-view-asof" id="loanview-asof"></span>
-        <button class="sync-btn" type="button" onclick="exportLoanView('csv')">Export CSV</button>
-        <button class="sync-btn" type="button" onclick="exportLoanView('xlsx')">Export Excel</button>
+      <div class="prop-view-actions" style="flex-wrap:wrap;gap:8px">
+        <select class="filter-select" id="lf-lender"  onchange="renderLoansTable()"><option value="">All Lenders</option></select>
+        <select class="filter-select" id="lf-position" onchange="renderLoansTable()"><option value="">All Positions</option></select>
+        <select class="filter-select" id="lf-mat"     onchange="renderLoansTable()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option><option value="past">Already matured</option></select>
+        <select class="filter-select" id="lf-bal"     onchange="renderLoansTable()"><option value="">Balance: any</option><option value="yes">Has a balance</option><option value="no">No balance recorded</option></select>
+        <select class="filter-select" id="lf-escrow"  onchange="renderLoansTable()"><option value="">Escrow: any</option><option value="any">Any escrow</option><option value="taxes">Taxes</option><option value="insurance">Insurance</option><option value="reserve">Replacement reserve</option><option value="none">No escrow</option></select>
+        <!-- Rate type comes from `index`, not interest_type: that column is set on 3 of
+             75 rows and every one says "fixed", so it cannot tell the two apart. -->
+        <select class="filter-select" id="lf-rate"    onchange="renderLoansTable()"><option value="">Rate: any</option><option value="var">Variable (indexed)</option><option value="fix">Not indexed</option></select>
+        <select class="filter-select" id="lf-tif"     onchange="renderLoansTable()"><option value="">TIF: any</option><option value="yes">TIF only</option><option value="no">Not TIF</option></select>
       </div>
     </div>
     <div class="prop-view-controls">
-      <input type="search" class="filter-select" id="loanview-search" placeholder="Search property or lender…" oninput="renderLoanViewTable()"/>
-      <label class="prop-view-hideempty"><input type="checkbox" id="loanview-hideempty" onchange="renderLoanViewTable()"/> Hide empty columns</label>
+      <input type="search" class="filter-select" id="loanview-search" placeholder="Search property, borrower or lender…" oninput="renderLoansTable()"/>
+      <!-- Off by default: origination_amount is 7 of 75 and loan_number 3 of 75, so
+           these columns are dashes unless you have specifically gone looking. -->
+      <label class="prop-view-hideempty"><input type="checkbox" id="loanview-showempty" onchange="renderLoansTable()"/> Show sparse columns</label>
+      <span class="prop-view-count" id="loanview-count"></span>
+      <button class="sync-btn" type="button" onclick="exportLoansTable('csv')">Export CSV</button>
+      <button class="sync-btn" type="button" onclick="exportLoansTable('xlsx')">Export Excel</button>
     </div>
     <div class="prop-view-scroll" id="loanview-scroll"><div class="prop-loading">Loading…</div></div>
   </div>
@@ -4599,6 +4606,174 @@ const LOAN_PURPOSE_LABELS = {
   primary_plus_construction_note: 'Primary + Construction', seller_carry: 'Seller Carry',
   pace_equity: 'PACE Equity', bridge: 'Bridge', pac_due: 'PAC DUE',
 };
+/* ===========================================================================
+   LOANS — one table, filtered. Replaces the six tabs.
+
+   What the data actually supports (verified live, 75 loans):
+     lender 17 distinct · rate 65 · maturity 64 · balance 54 · escrow flags 36 · DSCR 39
+   What it does not:
+     origination_amount 7 · loan_number 3 · construction/LOC 0 · is_tif 1 · interest_type 3
+   The second list is why three tabs rendered nothing but em-dashes. Those fields are
+   still reachable behind "Show sparse columns"; they are just not the default view.
+   =========================================================================== */
+let loansAll = null, loansFetchedAt = 0;
+let loansSort = { col: 'maturity', dir: 'asc' };   /* "Maturities" is now a sort */
+
+const loanProp = l => (l.collateral || []).map(c => c.property_name).filter(Boolean)[0] || l.borrower || '—';
+const loanEsc = (l, label) => (l.fields?.[propNorm(label)]?.value) === 'true';
+const loanHasAnyEscrow = l => loanEsc(l, 'Escrow - Taxes') || loanEsc(l, 'Escrow - Insurance') || loanEsc(l, 'Escrow - Replacement Reserve');
+function loanMonths(l) {
+  if (!l.maturityDate) return null;
+  const ms = new Date(l.maturityDate + 'T00:00:00').getTime();
+  return isFinite(ms) ? (ms - Date.now()) / (1000 * 60 * 60 * 24 * 30.44) : null;
+}
+
+async function loadLoansTable() {
+  const scroll = document.getElementById('loanview-scroll'); if (!scroll) return;
+  if (loansAll) { renderLoansTable(); return; }
+  scroll.innerHTML = '<div class="prop-loading">Loading…</div>';
+  try {
+    const res = await fetch('/api/loans', { headers: authHeaders(), credentials: 'include' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    loansAll = data.loans || [];
+    loansFetchedAt = Date.now();
+    /* Options from the FULL set, for the same reason as the property filters. */
+    const uniq = v => [...new Set(v.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+    const fill = (id, ph, vals) => document.querySelectorAll('#' + id).forEach(sel => {
+      const cur = sel.value;
+      sel.innerHTML = `<option value="">${escHtml(ph)}</option>` + vals.map(v => `<option value="${escHtml(v)}">${escHtml(v)}</option>`).join('');
+      if (vals.includes(cur)) sel.value = cur;
+    });
+    fill('lf-lender', 'All Lenders', uniq(loansAll.map(l => l.lender)));
+    fill('lf-position', 'All Positions', uniq(loansAll.map(l => l.positionLabel)));
+    renderLoansTable();
+  } catch (e) {
+    scroll.innerHTML = `<div class="prop-loading" style="color:var(--red)">Could not load loans: ${escHtml(e.message)}</div>`;
+  }
+}
+
+function loansFiltered() {
+  const v = id => document.getElementById(id)?.value || '';
+  const q = (document.getElementById('loanview-search')?.value || '').toLowerCase().trim();
+  const lender = v('lf-lender'), pos = v('lf-position'), mat = v('lf-mat');
+  const bal = v('lf-bal'), esc = v('lf-escrow'), rate = v('lf-rate'), tif = v('lf-tif');
+  return (loansAll || []).filter(l => {
+    if (q && ![l.name, l.lender, l.borrower, loanProp(l)].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
+    if (lender && l.lender !== lender) return false;
+    if (pos && l.positionLabel !== pos) return false;
+    if (mat) {
+      const m = loanMonths(l);
+      if (mat === 'past') { if (m == null || m >= 0) return false; }
+      else if (m == null || m < 0 || m > Number(mat)) return false;
+    }
+    if (bal === 'yes' && l.currentDebt == null) return false;
+    if (bal === 'no' && l.currentDebt != null) return false;
+    if (esc === 'none' && loanHasAnyEscrow(l)) return false;
+    if (esc === 'any' && !loanHasAnyEscrow(l)) return false;
+    if (esc === 'taxes' && !loanEsc(l, 'Escrow - Taxes')) return false;
+    if (esc === 'insurance' && !loanEsc(l, 'Escrow - Insurance')) return false;
+    if (esc === 'reserve' && !loanEsc(l, 'Escrow - Replacement Reserve')) return false;
+    if (rate === 'var' && !l.rateIndex) return false;
+    if (rate === 'fix' && l.rateIndex) return false;
+    if (tif === 'yes' && !l.isTif) return false;
+    if (tif === 'no' && l.isTif) return false;
+    return true;
+  });
+}
+
+const LOAN_COLS = [
+  { k: 'property', h: 'Property / borrower', get: l => escHtml(loanProp(l)) },
+  { k: 'lender',   h: 'Lender',   get: l => escHtml(l.lender || '—') },
+  /* The balance carries its as_of date: these snapshots are months apart, and a
+     "current" figure with no date is one nobody can act on. */
+  { k: 'balance',  h: 'Current balance', num: true, get: l => l.currentDebt == null ? '—'
+      : `${money(l.currentDebt)}${l.currentDebtAsOf ? `<span class="sov-secondary"> as of ${escHtml(l.currentDebtAsOf)}</span>` : ''}` },
+  { k: 'rate',     h: 'Rate', num: true, get: l => l.interestRatePct == null ? '—'
+      : `${(Math.round(l.interestRatePct * 10000) / 100)}%${l.rateIndex ? `<span class="sov-secondary"> ${escHtml(l.rateIndex)}</span>` : ''}` },
+  { k: 'maturity', h: 'Maturity', get: l => l.maturityDate ? escHtml(l.maturityDate) : '—' },
+  { k: 'dscr',     h: 'DSCR', num: true, get: l => l.dscr == null ? '—' : String(Math.round(l.dscr * 100) / 100) },
+  { k: 'escrow',   h: 'Escrow', get: l => `<span class="sov-chiprow">${
+      ['Escrow - Taxes:T', 'Escrow - Insurance:I', 'Escrow - Replacement Reserve:R'].map(s => {
+        const [lab, ab] = s.split(':');
+        const f = l.fields?.[propNorm(lab)];
+        const val = f ? f.value : null;
+        const k = (val == null || val === '') ? 'unset' : (val === 'true' ? 'yes' : 'no');
+        return `<span class="sov-chip sov-${k}" title="${escHtml(lab)}">${ab}</span>`;
+      }).join('')}</span>` },
+  { k: 'position', h: 'Position', get: l => escHtml(l.positionLabel || '—') },
+  /* Sparse: hidden unless asked for. */
+  { k: 'origination', h: 'Origination', num: true, sparse: true, get: l => l.originationAmount == null ? '—' : money(l.originationAmount) },
+  { k: 'number',   h: 'Loan #', sparse: true, get: l => escHtml(l.loanNumber || '—') },
+  { k: 'tif',      h: 'TIF', sparse: true, get: l => l.isTif ? 'Yes' : '—' },
+];
+
+function loansSortVal(l, col) {
+  switch (col) {
+    case 'balance': return l.currentDebt == null ? -Infinity : l.currentDebt;
+    case 'rate': return l.interestRatePct == null ? -Infinity : l.interestRatePct;
+    case 'dscr': return l.dscr == null ? -Infinity : l.dscr;
+    case 'origination': return l.originationAmount == null ? -Infinity : l.originationAmount;
+    /* Undated loans sort last in BOTH directions - "no maturity" is not "the earliest
+       maturity", and letting 11 undated rows head the list would bury the real ones. */
+    case 'maturity': return l.maturityDate || null;
+    default: return String(l[col] || loanProp(l) || '').toLowerCase();
+  }
+}
+function setLoansSort(col) {
+  loansSort = (loansSort.col === col) ? { col, dir: loansSort.dir === 'asc' ? 'desc' : 'asc' } : { col, dir: 'asc' };
+  renderLoansTable();
+}
+
+function renderLoansTable() {
+  const scroll = document.getElementById('loanview-scroll'); if (!scroll || !loansAll) return;
+  const showSparse = !!document.getElementById('loanview-showempty')?.checked;
+  const cols = LOAN_COLS.filter(c => showSparse || !c.sparse);
+  let rows = loansFiltered();
+
+  const { col, dir } = loansSort, sgn = dir === 'asc' ? 1 : -1;
+  rows = rows.slice().sort((a, b) => {
+    const av = loansSortVal(a, col), bv = loansSortVal(b, col);
+    if (col === 'maturity') {
+      if (!av && !bv) return 0;
+      if (!av) return 1; if (!bv) return -1;      /* undated last either way */
+      return av < bv ? -sgn : av > bv ? sgn : 0;
+    }
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * sgn;
+    return String(av).localeCompare(String(bv)) * sgn;
+  });
+
+  const cnt = document.getElementById('loanview-count');
+  if (cnt) cnt.textContent = `${rows.length} of ${loansAll.length} loans`;
+
+  if (!rows.length) {
+    scroll.innerHTML = `<div class="prop-loading">0 of ${loansAll.length} loans match these filters.
+      <button class="sync-btn" type="button" onclick="clearLoanFilters()">Clear filters</button></div>`;
+    return;
+  }
+  const head = cols.map(c => {
+    const on = loansSort.col === c.k;
+    return `<th class="${c.num ? 'num' : ''}${on ? ' sorted' : ''}" onclick="setLoansSort('${c.k}')" title="Sort by ${escHtml(c.h)}">${escHtml(c.h)}${on ? (loansSort.dir === 'asc' ? ' ▲' : ' ▼') : ''}</th>`;
+  }).join('');
+  const body = rows.map(l => `<tr>${cols.map(c => `<td class="${c.num ? 'num' : ''}">${c.get(l)}</td>`).join('')}</tr>`).join('');
+  scroll.innerHTML = `<table class="prop-view-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+function clearLoanFilters() {
+  ['lf-lender', 'lf-position', 'lf-mat', 'lf-bal', 'lf-escrow', 'lf-rate', 'lf-tif', 'loanview-search']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  renderLoansTable();
+}
+function exportLoansTable(kind) {
+  const showSparse = !!document.getElementById('loanview-showempty')?.checked;
+  const cols = LOAN_COLS.filter(c => showSparse || !c.sparse);
+  const strip = h => String(h).replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+  const columns = cols.map(c => c.h);
+  const rows = loansFiltered().map(l => cols.map(c => strip(c.get(l))));
+  const fn = `loans_${exportToday()}.${kind === 'xlsx' ? 'xlsx' : 'csv'}`;
+  if (kind === 'xlsx') downloadXLSX(fn, 'Loans', columns, rows).then(() => showToast('Exported')).catch(e => showToast(e.message, true));
+  else { downloadCSV(fn, columns, rows); showToast('Exported'); }
+}
+
 const LOAN_VIEW_DEFS = {
   capex: { title: 'CapEx Funding Data', endpoint: 'capex', hideEmptyDefault: false, cols: [
     ['property_name','Property','text'], ['loan_number','Loan #','text'], ['position','Position','pos'], ['lender','Lender','text'],
@@ -4659,7 +4834,10 @@ const LOAN_VIEW_DEFS = {
 };
 let loanSub = 'capex';
 let loanViewCache = {}, loanViewCurrent = null, loanViewRendered = null, loanSort = null;
-function renderLoanViews() { loanSetSub(loanSub || 'capex'); }
+/* The Loans tab opens the single filtered table. loanSetSub / renderLoanView and
+   LOAN_VIEW_DEFS remain for the six /api/views endpoints, which the portal still
+   deep-links to; nothing on this screen calls them. */
+function renderLoanViews() { loadLoansTable(); }
 function loanSetSub(sub) {
   if (!LOAN_VIEW_DEFS[sub]) sub = 'capex';
   loanSub = sub;

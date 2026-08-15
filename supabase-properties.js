@@ -207,9 +207,13 @@ async function getPropertiesPayload() {
   const lenderRows = (await q(
     `select id, name, mortgagee_clause, contact_name, contact_email, phone from public.lender`, [])).rows;
   const lenderById = new Map(lenderRows.map(r => [String(r.id), r]));
+  /* as_of_date comes with the balance: "current debt" without the date it was current
+     is a number nobody can act on, and these snapshots are months apart. */
   const balRows = (await q(`
-    select distinct on (loan_id) loan_id, balance from public.loan_balance
+    select distinct on (loan_id) loan_id, balance, as_of_date from public.loan_balance
     order by loan_id, as_of_date desc`, [])).rows;
+  const balanceAsOf = new Map(balRows.map(b => [String(b.loan_id),
+    b.as_of_date ? new Date(b.as_of_date).toISOString().slice(0, 10) : null]));
   // Dated financial snapshots per property (newest first).
   const finRows = (await q(`
     select property_id, as_of_date, egi, operating_expenses, noi, current_market_value, occupancy,
@@ -294,6 +298,12 @@ async function getPropertiesPayload() {
       collateral: collatByLoan.get(String(l.id)) || [],
       borrower: l.borrower_entity_id ? (entityName.get(String(l.borrower_entity_id)) || null) : null,
       currentDebt: latestBalance.has(String(l.id)) ? latestBalance.get(String(l.id)) : null,
+      currentDebtAsOf: balanceAsOf.get(String(l.id)) || null,
+      /* Variable is detected from `index` (21 loans), NOT interest_type - that column
+         is set on 3 of 75 rows and every one of them says "fixed", so a fixed/variable
+         filter built on it would be another control that matches nothing. */
+      rateIndex: l.index || null,
+      dscr: (l.dscr == null || l.dscr === '') ? null : Number(l.dscr),
       sourceListName: l.source_list_name || null,     // originating ClickUp list (address)
       clickupTaskId: l.clickup_task_id || null,
       maturityDate: l.maturity_date ? new Date(l.maturity_date).toISOString().slice(0, 10) : null,

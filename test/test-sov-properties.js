@@ -118,5 +118,41 @@ ck('no borrower', unl.filter(l => !l.borrower).length, 2);
 ck('no collateral', unl.filter(l => !l.collateral.length).length, 2);
 ck('neither count alone equals the row count', unl.length, 3);
 
+/* ---- Loans: filters replacing the six tabs ------------------------------- */
+console.log('\nRate type comes from `index`, not interest_type');
+/* interest_type is set on 3 of 75 loans and every one of them says "fixed" - there is
+   no `variable` value in the column at all, so a fixed/variable filter built on it
+   would be exactly the kind of always-empty control this task exists to remove.
+   21 loans carry a rate index, and v_variable_rate_loans returns 20. */
+const loans = [
+  { id: 'a', lender: 'Bank One', rateIndex: 'SOFR', currentDebt: 100, maturityDate: '2027-01-01', isTif: false },
+  { id: 'b', lender: 'Bank One', rateIndex: null,   currentDebt: null, maturityDate: null,        isTif: false },
+  { id: 'c', lender: 'Bank Two', rateIndex: 'Prime', currentDebt: 0,   maturityDate: '2020-01-01', isTif: true },
+];
+ck('variable = carries an index', loans.filter(l => l.rateIndex).map(l => l.id), ['a', 'c']);
+ck('not-indexed is the complement', loans.filter(l => !l.rateIndex).map(l => l.id), ['b']);
+/* A zero balance is a recorded fact; a null is an absent record. */
+ck('has-balance excludes null but keeps zero',
+  loans.filter(l => l.currentDebt != null).map(l => l.id), ['a', 'c']);
+
+console.log('\nUndated loans sort LAST in both directions');
+/* "No maturity" is not "the earliest maturity". 11 of 75 have no date, and letting
+   them head the list would bury every loan that actually matures. */
+const bySort = dir => loans.slice().sort((x, y) => {
+  const a = x.maturityDate, b = y.maturityDate, sgn = dir === 'asc' ? 1 : -1;
+  if (!a && !b) return 0;
+  if (!a) return 1;
+  if (!b) return -1;
+  return a < b ? -sgn : a > b ? sgn : 0;
+}).map(l => l.id);
+ck('ascending', bySort('asc'), ['c', 'a', 'b']);
+ck('descending still puts the undated last', bySort('desc'), ['a', 'c', 'b']);
+
+console.log('\nAlready-matured is its own option, not part of a forward window');
+const months = d => d ? (new Date(d + 'T00:00:00').getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30.44) : null;
+ck('a 2020 maturity is in the past', months('2020-01-01') < 0, true);
+ck('and a 36-month window excludes it',
+  loans.filter(l => { const m = months(l.maturityDate); return m != null && m >= 0 && m <= 36; }).map(l => l.id), ['a']);
+
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nAll checks passed');
 process.exit(fail?1:0);
