@@ -1050,7 +1050,15 @@ function buildBrandMenu(){
    beneath them - a heading with an empty body reads as a bug, not as a permission. */
 /* `access` is the ONE id exempt from the permission check - see canSeeAccess for
    why it has to be, and why the missing per-brand catalog rows must not be added. */
-function itemVisible(b,id){ return id==='access' ? canSeeAccess() : !!navLevel(b,id); }
+/* `access` and `tracker` are ROLE-gated, not permission-gated: neither has a row in
+   dashboard_module, so navLevel() returns null and the generic test would hide them
+   from everyone including the owner. Both sit under Admin and both are screens that
+   fix data rather than read it, so owner/admin is the right gate.
+
+   This is the ONLY place that exception lives. Adding a catalog row instead would make
+   them grantable, and "grantable" for the screen that fixes everyone's access is a
+   different decision - see the Users & Roles notes in CLAUDE.md. */
+function itemVisible(b,id){ return (id==='access'||id==='tracker') ? canSeeAccess() : !!navLevel(b,id); }
 function visibleMenu(b){
   const items=MENUS[b]||[];
   const out=[];
