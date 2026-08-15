@@ -311,6 +311,48 @@ be refused is not a rollback. `test/test-invite.js` forces the failure and asser
 both that the Auth user is gone and that no half-configured staff row remains; its
 fake enforces the foreign key, and one check proves that enforcement is live.
 
+## Verify the DEPLOYED artifact, never a local copy of it
+
+This cost two days, from both directions, and it is the single most useful habit in
+this repo.
+
+**What happened.** A patched `supabase-properties.js` existed in a sandbox and was
+described in a brief as "the data layer already exposes the new fields". The pushes
+carrying it had 403'd, so the repo still had the pre-SOV version. Three commits of
+correct Properties UI were built against payload keys the server has never emitted.
+They rendered empty and read as filter bugs, so two further rounds were spent
+diagnosing the filters — "options built from filtered rows", then "a loan attribute
+looked up at property level". Both were plausible. Both were wrong.
+
+**What settled it in one command:**
+
+```js
+fetch('/api/properties').then(r => r.json()).then(d => {
+  const p = d.entities.flatMap(e => e.properties)[0];
+  console.log(Object.keys(p));                       // no ownership_status/parcels/deal
+  console.log(Object.keys(p.buildings[0].fields));   // no 'occupancy / type of asset'
+});
+```
+
+**The rule.** When a screen is empty or wrong, read what the server actually returns
+before reasoning about the code that consumes it. A missing key fails SILENTLY as an
+empty string — it never throws — so it is indistinguishable from a logic bug by
+inspection, and reasoning will produce a confident wrong answer every time.
+
+The same rule caught two other faults this week: a `Cache-Control: no-store` header
+proved a build was current when reasoning said it could not be, and Supabase
+`edge_logs` showed a query returning 200 while the screen displayed its error, which
+turned out to be a cached HTTP 300 replayed from disk with no request reaching the
+server at all.
+
+**Corollaries.**
+- Fingerprint a deployment by something only the new build has — a header, a file, a
+  string — rather than by whether the fix "should" be live.
+- `query_logs` on `source = 'edge_logs'`, filtered by `log_attributes['request.path']`,
+  shows every request and status. Read it before touching a query.
+- If a payload label is renamed, move BOTH sides in one commit. `propNorm(label)` is
+  the key the UI reads; splitting the rename reproduces exactly this failure.
+
 ## Properties + the SOV data model (imported Aug 2026)
 
 **The vocabulary changed and the old table names lie.** Read this before touching
