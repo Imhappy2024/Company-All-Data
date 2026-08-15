@@ -1958,6 +1958,7 @@
   .sov-fchip:hover { border-color: var(--accent); color: var(--text); }
   .sov-fchip strong { color: var(--text); font-weight: 700; }
   .sov-fclear { margin-left: auto; }
+  .sov-listcount { font-size: 12.5px; font-weight: 650; color: var(--text); padding: 0 0 8px; }
   /* Ownership block: primary dropdown + co-owner chips. */
   .prop-owner-block { display: flex; flex-direction: column; gap: 10px; }
   .prop-owner-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -5445,10 +5446,22 @@ function renderEntityList(list) {
   /* A legitimate zero has to look different from a broken screen. The escrow filter in
      particular matches very little by design - only 35 of 75 loans carry escrow flags
      at all - so "0 properties match" plus the way back is the honest empty state. */
+  /* BOTH numbers, because this screen is an ENTITY TREE listing PROPERTIES and the
+     two counts differ. Escrow=Taxes matches 16 properties held by 13 entities, and
+     counting the visible rows gives 13 - which reads as a wrong property count when
+     it is a correct entity count. Saying which is which is the whole fix.
+
+     16 is the right property figure: p.loans attaches a loan collateralised by the
+     property OR by any building inside it, so a loan secured on one building escrows
+     for that property. Counting only loan_collateral.property_id gives 9 and misses
+     every unit-level security. */
+  const entityCount = new Set(list.map(p => String(p.entityId))).size;
+  const countLine = `<div class="sov-listcount">${list.length} ${list.length === 1 ? 'property' : 'properties'}`
+    + ` <span class="sov-secondary">in ${entityCount} ${entityCount === 1 ? 'entity' : 'entities'}</span></div>`;
   const empty = propAnyFilter()
     ? `<div class="prop-loading">0 properties match these filters. <button class="sync-btn" type="button" onclick="clearPropFilters()">Clear filters</button></div>`
     : '<div class="prop-loading">No properties.</div>';
-  document.getElementById('prop-entity-list').innerHTML = (rows ? `${unlinkedBanner}<div class="prop-entity-listwrap">${header}${rows}</div>` : unlinkedBanner + empty);
+  document.getElementById('prop-entity-list').innerHTML = (rows ? `${unlinkedBanner}${countLine}<div class="prop-entity-listwrap">${header}${rows}</div>` : unlinkedBanner + empty);
 }
 
 // Expand/collapse an entity (content is pre-rendered). Accordion: opening one collapses
