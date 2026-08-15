@@ -431,7 +431,7 @@ async function getPropertiesPayload() {
         primary.parcel_number + (propParcels.length > 1 ? ` (+${propParcels.length - 1} more)` : ''));
     }
     const propDeal = dealByEntity.get(String(p.entity_id || '')) || null;
-    if (propDeal) fields[propNorm('Deal / Offering')] = mkField(null, 'Deal / Offering', 'label', propDeal.deal_name);
+    if (propDeal) fields[propNorm('Deal')] = mkField(null, 'Deal', 'label', propDeal.deal_name);
 
     const P = {
       listId: pid, taskId: pid, name: propName.get(pid), url: '#',

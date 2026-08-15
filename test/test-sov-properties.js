@@ -93,17 +93,17 @@ console.log('\nDropdown options come from the FULL payload, never the filtered r
 /* Options describe what exists. Building them from the filtered list means choosing a
    value removes every other value, and the filter can never be widened again. */
 const payload = [
-  { entityName: 'E1', deal: { name: 'Offering A' }, fields: {}, loans: [{ lender: 'Bank One' }], buildings: [] },
+  { entityName: 'E1', deal: { name: 'Deal A' }, fields: {}, loans: [{ lender: 'Bank One' }], buildings: [] },
   { entityName: 'E2', deal: null, fields: {}, loans: [{ lender: 'Bank Two' }, { lender: 'Bank One' }], buildings: [] },
-  { entityName: 'E3', deal: { name: 'Offering B' }, fields: {}, loans: [], buildings: [] },
+  { entityName: 'E3', deal: { name: 'Deal B' }, fields: {}, loans: [], buildings: [] },
 ];
 const uniq = v => [...new Set(v.filter(Boolean))].sort();
 ck('lenders come off the LOANS, not the property (Lender is a loan label)',
   uniq(payload.flatMap(p => p.loans.map(l => l.lender))), ['Bank One', 'Bank Two']);
 ck('a property with no loans contributes no lender and is not dropped',
   payload.filter(p => !p.loans.length).length, 1);
-ck('offerings list the named ones', uniq(payload.map(p => p.deal && p.deal.name)), ['Offering A', 'Offering B']);
-ck('and properties with no offering are counted, not hidden',
+ck('deals list the named ones', uniq(payload.map(p => p.deal && p.deal.name)), ['Deal A', 'Deal B']);
+ck('and properties with no deal are counted, not hidden',
   payload.filter(p => !(p.deal && p.deal.name)).length, 1);
 
 console.log('\nThe unlinked-loans banner separates two different problems');

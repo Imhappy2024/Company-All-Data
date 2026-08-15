@@ -2638,7 +2638,7 @@
                in the moment before populatePropFilters() runs. -->
           <select class="filter-select" id="prop-f-own"     onchange="propApply()"><option value="held">Held</option></select>
           <select class="filter-select" id="prop-f-entity"  onchange="propApply()"><option value="">All Entities</option></select>
-          <select class="filter-select" id="prop-f-deal"    onchange="propApply()"><option value="">All Offerings</option></select>
+          <select class="filter-select" id="prop-f-deal"    onchange="propApply()"><option value="">All Deals</option></select>
           <select class="filter-select" id="prop-f-manager" onchange="propApply()"><option value="">All Managers</option></select>
           <select class="filter-select" id="prop-f-lender"  onchange="propApply()"><option value="">All Lenders</option></select>
           <select class="filter-select" id="prop-f-state"   onchange="propApply()"><option value="">All States</option></select>
@@ -2656,22 +2656,8 @@
           <!-- Hides garages, sheds, flood lines, vacant land. Buildings with NO stated
                type are kept: 56 of them hold 123 apartments between them. -->
           <label class="filter-select sov-toggle" title="Hide garages, sheds, flood-insurance lines and vacant land"><input type="checkbox" id="prop-f-resonly" onchange="propApply()"> Residential only</label>
-          <button class="sync-btn" type="button" onclick="clearPropFilters()">Clear</button>
-          <div class="prop-export">
-            <button class="sync-btn" type="button" onclick="toggleExportMenu(event)">Export ▾</button>
-            <div class="prop-export-menu" id="prop-export-menu" hidden>
-              <div class="prop-export-item" onclick="exportProperties('csv')">Properties (CSV)</div>
-              <div class="prop-export-item" onclick="exportProperties('xlsx')">Properties (Excel)</div>
-              <div class="prop-export-sep"></div>
-              <div class="prop-export-item" onclick="exportLoans('csv')">Loans (CSV)</div>
-              <div class="prop-export-item" onclick="exportLoans('xlsx')">Loans (Excel)</div>
-            </div>
-          </div>
-          <span class="prop-tb-spacer"></span>
-          <button class="sync-btn" type="button" id="prop-add-entity" onclick="addEntity()">+ Add entity</button>
           <div class="filter-actions pf-actions">
             <button type="button" class="filter-act-btn" onclick="closePropFiltersPanel()">Cancel</button>
-            <button type="button" class="filter-act-btn" onclick="clearPropFilters()">Clear</button>
             <button type="button" class="filter-act-btn primary" onclick="closePropFiltersPanel()">Save</button>
           </div>
         </div>
@@ -2715,8 +2701,20 @@
         <button class="prop-subnav-btn active" data-sub="properties" onclick="propSetSub('properties')">Properties</button>
         <button class="prop-subnav-btn" data-sub="tasks" onclick="propSetSub('tasks')">Property Tasks</button>
       </div>
-      <!-- The second "All Managers" lived here. Removed: one filter, in the filter bar,
-           where the active-filter chips and Clear can see it. -->
+      <!-- ACTIONS live out here, not among the selects: the filter block should hold
+           only things that narrow the list. The dead "Properties" button that sat here
+           did nothing and is gone. -->
+      <div class="prop-export">
+        <button class="sync-btn" type="button" onclick="toggleExportMenu(event)">Export &#9662;</button>
+        <div class="prop-export-menu" id="prop-export-menu" hidden>
+          <div class="prop-export-item" onclick="exportProperties('csv')">Properties (CSV)</div>
+          <div class="prop-export-item" onclick="exportProperties('xlsx')">Properties (Excel)</div>
+          <div class="prop-export-sep"></div>
+          <div class="prop-export-item" onclick="exportLoans('csv')">Loans (CSV)</div>
+          <div class="prop-export-item" onclick="exportLoans('xlsx')">Loans (Excel)</div>
+        </div>
+      </div>
+      <button class="sync-btn" type="button" id="prop-add-entity" onclick="addEntity()">+ Add entity</button>
       <span class="prop-asof" id="prop-asof" title="Data freshness"></span>
     </div>
 
@@ -4478,7 +4476,7 @@ function sovSummaryHtml(p) {
     ${bit('Ownership', escHtml(SOV_OWNERSHIP_LABEL[sovOwnership(p)] || sovOwnership(p))
       + (p.disposition_date ? ` <span class="sov-secondary">${escHtml(String(p.disposition_date).slice(0, 10))}</span>` : ''), 'ownership_status — whether the group still owns it')}
     ${bit('Operational', escHtml(propFDisp(p, 'Status')), 'property.status — operational state, unrelated to ownership')}
-    ${bit('Offering', p.deal ? escHtml(p.deal.name) : '')}
+    ${bit('Deal', p.deal ? escHtml(p.deal.name) : '')}
     ${bit('Buildings', nb ? String(nb) : '')}
     ${bit('Apartments', nb ? String(na) : '', 'Sum of current_total_units across all buildings')}
     ${bit('Units', units)}
@@ -4542,13 +4540,16 @@ function sovInsuranceHtml(p) {
   </div>`;
 }
 
-/* Offering, with the entity's deal as the fallback and an explicit bucket for none.
+/* The DEAL, with the entity's deal as the fallback and an explicit bucket for none.
+   "Offering" was never a word the business uses: the table is public.deal and the
+   Master Reference heads column A "Deal". (Historic note: `deal` once meant the
+   acquisition pipeline; that table is now `acquisition` and must not surface here.)
    Only 97 of 168 properties resolve one, so "no offering" has to be selectable rather
    than being an invisible 71-row hole in the list. */
-const SOV_NO_DEAL = 'No offering';
+const SOV_NO_DEAL = 'No deal';
 function sovDealName(p) {
   if (p.deal && p.deal.name) return p.deal.name;
-  const f = propF(p, 'Deal / Offering');
+  const f = propF(p, 'Deal');
   return (f && f.display) ? String(f.display) : '';
 }
 
@@ -5042,10 +5043,10 @@ function populatePropFilters() {
      and this dropdown has been empty since it was added. 17 distinct lenders exist. */
   fill('prop-f-lender', 'All Lenders', uniq(flat.flatMap(p => (p.loans || []).map(l => l.lender))));
   fill('prop-f-state', 'All States', uniq(flat.map(p => propFDisp(p, 'Location State'))));
-  /* Offering resolves through entity.deal_id, and only 97 of 168 properties have one.
-     The other 71 are not dropped - they group under "No offering", because a property
-     with no offering is a real answer and hiding it makes the list silently short. */
-  fill('prop-f-deal', 'All Offerings',
+  /* The deal resolves through entity.deal_id, and only 97 of 168 properties have one.
+     The other 71 are not dropped - they group under "No deal", because a property with
+     no deal is a real answer and hiding it makes the list silently short. */
+  fill('prop-f-deal', 'All Deals',
     uniq(flat.map(p => sovDealName(p))).concat(flat.some(p => !sovDealName(p)) ? [SOV_NO_DEAL] : []));
   fill('prop-f-carrier', 'All Carriers', uniq(flat.map(p => propFDisp(p, 'Insurance Carrier'))));
   /* Structure types come from the BUILDINGS, not the properties, and from the data
@@ -5310,7 +5311,7 @@ function renderActiveFilters() {
 
   const q = propVal('prop-search');
   if (q) add('prop-search', 'Search', q);
-  sel('prop-f-entity', 'Entity'); sel('prop-f-deal', 'Offering');
+  sel('prop-f-entity', 'Entity'); sel('prop-f-deal', 'Deal');
   sel('prop-f-manager', 'Manager'); sel('prop-f-lender', 'Lender');
   sel('prop-f-state', 'State'); sel('prop-f-struct', 'Structure');
   sel('prop-f-carrier', 'Carrier'); sel('prop-f-hasloan', 'Loan');
