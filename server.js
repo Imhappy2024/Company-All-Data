@@ -2262,6 +2262,37 @@ app.delete('/api/properties/:id/owners/:entityId', async (req, res) => {
 
 // Read-only SQL views for the extra Properties tables (capex / asset-fees / escrows /
 // tif). Optional ?pm=<management_company> filter. Supabase-only.
+/* ---------------------------------------------------------------------------
+   Data Tracker + Cash & Debt. Read paths follow /api/views/:key - server-side
+   connection, no ClickUp login - because they are the same class of data.
+
+   The WRITE path is gated behind requireAuth: setting a status is a real edit with a
+   name attached, and resolved_by is only meaningful if we know who resolved it.
+   --------------------------------------------------------------------------- */
+app.get('/api/tracker', async (req, res) => {
+  if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
+  try { res.json(await supaProps.getTrackerPayload()); }
+  catch (err) { console.error('tracker read:', err.message); res.status(500).json({ error: err.message }); }
+});
+
+app.patch('/api/tracker/:id', async (req, res) => {
+  if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
+  const auth = requireAuth(req, res); if (!auth) return;
+  try {
+    const body = { ...(req.body || {}) };
+    /* The actor comes from the signed-in session, never from the request body - an
+       audit column a caller can set is not an audit column. */
+    body.actor = auth.user?.username || auth.user?.email || auth.user?.id || null;
+    res.json(await supaProps.updateTrackerItem(req.params.id, body));
+  } catch (err) { console.error('tracker write:', err.message); res.status(400).json({ error: err.message }); }
+});
+
+app.get('/api/cash-debt', async (req, res) => {
+  if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
+  try { res.json(await supaProps.getCashDebtPayload(req.query.year, req.query.quarter)); }
+  catch (err) { console.error('cash-debt read:', err.message); res.status(500).json({ error: err.message }); }
+});
+
 app.get('/api/views/:key', async (req, res) => {
   // Read-only Supabase SQL views (loan/property financials). Served OPEN, matching
   // /api/properties and /api/loans (see the ACCESS-MODEL NOTE above): same data class,

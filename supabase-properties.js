@@ -490,6 +490,108 @@ async function getView(key, pm) {
   return { view: key, rows };
 }
 
+/* ---------------------------------------------------------------------------
+   DATA TRACKER — Megan's exceptions, Mitch's backfill gaps.
+
+   Megan's items are "this value exists but cannot be used as-is"; Mitch's are "this
+   value is absent". Two views, not one list with a column, because they are different
+   questions.
+
+   The COUNTS come from v_tracker_counts, which excludes finished work, while the list
+   views return everything including resolved/done. So a badge reads SMALLER than the
+   list it opens - 32 against 36 for Megan, 8 against 10 for Mitch. That is correct: a
+   badge is a workload signal, not a row count.
+   --------------------------------------------------------------------------- */
+async function getTrackerPayload() {
+  const [counts, megan, mitch] = await Promise.all([
+    q(`select * from public.v_tracker_counts limit 1`, []),
+    q(`select * from public.v_tracker_megan`, []),
+    q(`select * from public.v_tracker_mitch`, []),
+  ]);
+  const c = counts.rows[0] || {};
+  return {
+    generatedAt: new Date().toISOString(),
+    counts: {
+      megan: Number(c.megan_open || 0),
+      mitch: Number(c.mitch_exceptions || 0) + Number(c.mitch_tasks || 0),
+      megan_total: megan.rows.length,
+      mitch_total: mitch.rows.length,
+    },
+    megan: megan.rows,
+    mitch: mitch.rows,
+  };
+}
+
+/* Writes go to the BASE table, never the view. Mitch's list unions backfill_task with
+   any data_exception assigned to him, so `kind` on the row says where a change lands. */
+const TRACKER_STATUS = new Set(['open', 'in_progress', 'blocked', 'waiting_on_doc', 'done', 'resolved', 'wont_fix']);
+async function updateTrackerItem(id, body) {
+  if (!id) throw new Error('id required');
+  const status = body.status == null || body.status === '' ? null : String(body.status);
+  if (status && !TRACKER_STATUS.has(status)) throw new Error('Unknown status: ' + status);
+  const table = body.kind === 'backfill_task' ? 'backfill_task' : 'data_exception';
+  const sets = [], vals = [];
+  const put = (col, v) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+  if (status) put('status', status);
+  if (body.resolution != null && table === 'data_exception') put('resolution', String(body.resolution));
+  if (body.notes != null && table === 'backfill_task') put('notes', String(body.notes));
+  if (body.blocked_reason != null && table === 'backfill_task') put('blocked_reason', String(body.blocked_reason));
+  /* Stamped on the move to a finished state only. Stamping on every save would make
+     "when was this closed" change each time somebody edited a note. */
+  if ((status === 'resolved' || status === 'done') && table === 'data_exception') {
+    put('resolved_by', body.actor || null);
+    put('resolved_at', new Date().toISOString());
+  }
+  if (!sets.length) return { ok: true, changed: 0 };
+  vals.push(id);
+  const r = await q(`update public.${table} set ${sets.join(', ')} where id = $${vals.length} returning id`, vals);
+  return { ok: true, changed: r.rows.length, table };
+}
+
+/* ---------------------------------------------------------------------------
+   CASH & DEBT — per-quarter rollup plus the two detail lists.
+
+   EVERY balance is is_verified = false (441 of 441), from a source marked "DRAFT
+   REQUIRES MITCH HAGEN VERIFICATION". v_cash_debt_summary exposes all_verified so the
+   Draft badge is driven by data rather than hard-coded.
+
+   Only quarters that EXIST are returned. Rendering an empty Q3 as zeroes states a fact
+   nobody has.
+   --------------------------------------------------------------------------- */
+async function getCashDebtPayload(year, quarter) {
+  const summary = (await q(
+    `select * from public.v_cash_debt_summary order by year desc, quarter desc`, [])).rows;
+  if (!summary.length) return { quarters: [], selected: null, cash: [], debt: [] };
+  const pick = summary.find(r => Number(r.year) === Number(year) && Number(r.quarter) === Number(quarter))
+            || summary[0];
+  const [cash, debt] = await Promise.all([
+    q(`select * from public.v_cash_by_entity_quarter where year = $1 and quarter = $2`, [pick.year, pick.quarter]),
+    q(`select * from public.v_debt_by_account_quarter where year = $1 and quarter = $2`, [pick.year, pick.quarter]),
+  ]);
+  /* The prior quarter by position in the ordered list, so a gap in the data does not
+     produce a comparison against a quarter that does not exist. */
+  const i = summary.indexOf(pick);
+  const prior = summary[i + 1] || null;
+  return {
+    quarters: summary.map(r => ({
+      year: Number(r.year), quarter: Number(r.quarter),
+      total_cash: Number(r.total_cash), total_debt: Number(r.total_debt),
+      cash_accounts: Number(r.cash_accounts), loan_accounts: Number(r.loan_accounts),
+      all_verified: r.all_verified === true,
+    })),
+    selected: {
+      year: Number(pick.year), quarter: Number(pick.quarter),
+      total_cash: Number(pick.total_cash), total_debt: Number(pick.total_debt),
+      cash_accounts: Number(pick.cash_accounts), loan_accounts: Number(pick.loan_accounts),
+      all_verified: pick.all_verified === true,
+      prior: prior ? { year: Number(prior.year), quarter: Number(prior.quarter),
+                       total_cash: Number(prior.total_cash), total_debt: Number(prior.total_debt) } : null,
+    },
+    cash: cash.rows,
+    debt: debt.rows,
+  };
+}
+
 async function getLoansPayload() {
   const p = await getPropertiesPayload();
   const all = [];
@@ -748,6 +850,7 @@ async function selfCheck() {
 
 module.exports = {
   enabled, getPropertiesPayload, getLoansPayload, getView,
+  getTrackerPayload, updateTrackerItem, getCashDebtPayload,
   createEntity, createProperty, createBuilding, createLoan, assignLoan, patchField,
   addOwner, removeOwner,
   getComments, addComment, selfCheck,
