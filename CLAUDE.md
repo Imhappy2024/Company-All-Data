@@ -426,6 +426,45 @@ Dropdowns are built from the data, never a constant — the live set contains a 
 - Parcel numbers keep their dashes and periods (`216-13-0-10-01-007.00-0`) and render
   verbatim in a mono chip.
 
+### Escrow: the verification targets, and why the obvious query is wrong
+
+`loan_collateral` holds **both levels** — 42 rows keyed by `property_id`, 15 by
+`unit_id`. A loan can be secured against a property OR against a building inside it,
+so a property "has an escrowing loan" when either is true. `p.loans` unions both; that
+is the BUG-1 behaviour, and it is correct.
+
+Joining only `loan_collateral.property_id` under-counts and looks authoritative while
+doing it. **Bancroft Place settles it**: zero property-level collateral rows, one
+unit-level. The narrow query reports "Bancroft has no tax escrow" while its eight
+buildings demonstrably do.
+
+**Correct targets** (property → collateral at EITHER level → loan). Identical with or
+without the held filter, because every matching property is held:
+
+| Filter | Properties | Loans |
+|---|---|---|
+| Taxes | **16** | 20 |
+| Insurance | **3** | 4 |
+| Replacement reserve | **10** | 11 |
+| Any (`has_escrow`) | **19** | 23 |
+
+`has_escrow` and "any of the three booleans" agree at 19 (and at 23 on loans), so the
+separate Any toggle cannot disagree with the multi-select beneath it.
+
+Superseded figures — `Taxes 9 · Insurance 1 · Replacement 6 · Any 12` — are
+property-collateral-only. They are recorded here because they were circulated as
+expected values: **read against correct behaviour they look like failures.**
+
+Escrow lives ONLY on `public.loan`. Two decoys are empty and must not be read:
+`loan.escrow_types` (0 rows, deprecated) and `unit.tax_escrow` /
+`insurance_escrow` / `replacement_reserve` (0 rows each, legacy).
+
+**A near-matching count is disconfirmation, not confirmation.** Reaching loans through
+`borrower_entity_id` gives 13 properties against an observed 16 — close enough to look
+like the cause, and it was not. Seven of the sixteen have no escrowing loan naming
+their entity at all, which rules that path out entirely. Both times a plausible
+mechanism nearly matched here, it was wrong; check the mechanism, not the proximity.
+
 ### Known data quirks — do NOT "fix" these in the UI
 - `property.dog_park` is CORRUPTED in the source (contains addresses). Do not display
   it; use `dog_park_count` once the sheet is realigned.
