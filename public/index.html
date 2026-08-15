@@ -4841,6 +4841,12 @@ function renderLoansTable() {
     return String(av).localeCompare(String(bv)) * sgn;
   });
 
+  if (loansAll && document.querySelector('[data-ms^="lf-"] .fms-panel:empty')) {
+    const uniq = v => [...new Set(v.filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b)));
+    msFill('lf-lender', 'Lenders', uniq(loansAll.map(l => l.lender)));
+    msFill('lf-position', 'Positions', uniq(loansAll.map(l => l.positionLabel)));
+    msFill('lf-escrow', 'Escrow', ['Taxes', 'Insurance', 'Replacement reserve']);
+  }
   msLabelAll();
   renderLoanActiveFilters();
   const cnt = document.getElementById('loanview-count');
@@ -5307,6 +5313,12 @@ function propFilteredList() {
 function propApply() {
   if (!propData) return;
   const list = propFilteredList();
+  /* Self-healing population. populatePropFilters() runs when the payload lands, but
+     the panels are built from markup that may not exist yet at that moment - and an
+     empty panel looks identical to a broken control. If any panel has no options,
+     fill them now. msFill preserves whatever is already ticked, so this is safe to
+     run repeatedly and cheap when there is nothing to do. */
+  if (document.querySelector('[data-ms] .fms-panel:empty')) populatePropFilters();
   msLabelAll();
   renderActiveFilters();
   renderEntityList(list);
