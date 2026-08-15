@@ -345,6 +345,23 @@ proved a build was current when reasoning said it could not be, and Supabase
 turned out to be a cached HTTP 300 replayed from disk with no request reaching the
 server at all.
 
+**It is silent in BOTH directions, which is why it has to be reflexive.**
+
+| Described artifact | What you get instead of an error |
+|---|---|
+| A payload key that is not emitted | `''` — reads as an empty filter, a blank field, a short list |
+| A column that is null on 72 of 75 rows | a filter that matches nothing, forever |
+
+Neither throws. Both look exactly like a logic bug in the consuming code, so the
+instinct to "read the code more carefully" is precisely the wrong move — it produces a
+confident wrong answer, twice in a row, as it did here.
+
+This runs both ways between people too. One side asserted a file's contents from a
+local copy and the other built on it; the other side asserted a column's contents from
+memory and the first checked before building. Same failure, opposite directions, one
+rule: **do not build on a described artifact — query it.** A `select count(*)` or a
+`fetch()` costs one command and settles what an hour of reasoning cannot.
+
 **Corollaries.**
 - Fingerprint a deployment by something only the new build has — a header, a file, a
   string — rather than by whether the fix "should" be live.
