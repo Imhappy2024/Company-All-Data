@@ -1959,16 +1959,21 @@
   .sov-fchip strong { color: var(--text); font-weight: 700; }
   .sov-fclear { margin-left: auto; }
   .sov-listcount { font-size: 12.5px; font-weight: 650; color: var(--text); padding: 0 0 8px; }
-  /* Multi-select: a button that carries the count, over a checkbox panel. The panel is
+  /* Filter multi-select. PREFIXED fms- because this file ALREADY had a
+     multi-select component on .ms / .ms-btn / .ms-panel with its own
+     msToggle(). Two components sharing a function name means the later
+     definition silently handles every button on the page - which is exactly
+     what broke these panels. Do not shorten these names back to .ms.
+     A button that carries the count that carries the count, over a checkbox panel. The panel is
      absolutely positioned so opening one cannot reflow the filter row beneath it. */
-  .ms { position: relative; padding: 0; display: inline-block; }
-  .ms-btn { all: unset; cursor: pointer; display: block; width: 100%; box-sizing: border-box; padding: 0 8px; line-height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .ms-btn.ms-on { font-weight: 700; color: var(--accent); }
-  .ms-panel { display: none; position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 320px; max-height: 280px; overflow-y: auto; padding: 6px; background: var(--surface, var(--panel)); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
-  .ms-panel.ms-open { display: block; }
-  .ms-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12.5px; white-space: nowrap; cursor: pointer; border-radius: 6px; }
-  .ms-opt:hover { background: var(--surface-2, var(--panel-2)); }
-  .ms-empty { padding: 6px; font-size: 12px; color: var(--text3); }
+  .fms { position: relative; padding: 0; display: inline-block; }
+  .fms-btn { all: unset; cursor: pointer; display: block; width: 100%; box-sizing: border-box; padding: 0 8px; line-height: 30px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .fms-btn.fms-on { font-weight: 700; color: var(--accent); }
+  .fms-panel { display: none; position: absolute; z-index: 40; top: calc(100% + 4px); left: 0; min-width: 100%; max-width: 320px; max-height: 280px; overflow-y: auto; padding: 6px; background: var(--surface, var(--panel)); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.18); }
+  .fms-panel.fms-open { display: block; }
+  .fms-opt { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12.5px; white-space: nowrap; cursor: pointer; border-radius: 6px; }
+  .fms-opt:hover { background: var(--surface-2, var(--panel-2)); }
+  .fms-empty { padding: 6px; font-size: 12px; color: var(--text3); }
   /* Ownership block: primary dropdown + co-owner chips. */
   .prop-owner-block { display: flex; flex-direction: column; gap: 10px; }
   .prop-owner-line { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -2649,17 +2654,17 @@
                in the moment before populatePropFilters() runs. -->
           <select class="filter-select" id="prop-f-own"     onchange="propApply()"><option value="held">Held</option></select>
           <select class="filter-select" id="prop-f-entity"  onchange="propApply()"><option value="">All Entities</option></select>
-          <div class="ms filter-select" data-ms="prop-f-deal" data-label="Deals" data-placeholder="All Deals" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Deals</button><div class="ms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-deal" data-label="Deals" data-placeholder="All Deals" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Deals</button><div class="fms-panel"></div></div>
           <select class="filter-select" id="prop-f-manager" onchange="propApply()"><option value="">All Managers</option></select>
-          <div class="ms filter-select" data-ms="prop-f-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel"></div></div>
-          <div class="ms filter-select" data-ms="prop-f-state" data-label="States" data-placeholder="All States" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All States</button><div class="ms-panel"></div></div>
-          <div class="ms filter-select" data-ms="prop-f-struct" data-label="Structures" data-placeholder="All Structures" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Structures</button><div class="ms-panel"></div></div>
-          <div class="ms filter-select" data-ms="prop-f-carrier" data-label="Carriers" data-placeholder="All Carriers" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Carriers</button><div class="ms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Lenders</button><div class="fms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-state" data-label="States" data-placeholder="All States" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All States</button><div class="fms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-struct" data-label="Structures" data-placeholder="All Structures" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Structures</button><div class="fms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-carrier" data-label="Carriers" data-placeholder="All Carriers" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Carriers</button><div class="fms-panel"></div></div>
           <!-- "All Loan Status" removed: it duplicated "Has a loan", and loan status is
                a per-loan attribute that cannot answer a property-level question when a
                property carries several loans in different states. -->
           <select class="filter-select" id="prop-f-hasloan" onchange="propApply()"><option value="">Loan: any</option><option value="yes">Has a loan</option><option value="no">No loan</option></select>
-          <div class="ms filter-select" data-ms="prop-f-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
+          <div class="fms filter-select" data-ms="prop-f-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="propApply()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">Escrow: any</button><div class="fms-panel"></div></div>
           <select class="filter-select" id="prop-f-mat"     onchange="propApply()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option></select>
           <!-- Named for what it finds. "Missing: any" read as a state rather than a
                question; these are backfill gaps, and each option says which one. -->
@@ -2777,11 +2782,11 @@
     </div>
     <div class="prop-view-head">
       <div class="prop-view-actions" style="flex-wrap:wrap;gap:8px">
-        <div class="ms filter-select" data-ms="lf-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Lenders</button><div class="ms-panel"></div></div>
-        <div class="ms filter-select" data-ms="lf-position" data-label="Positions" data-placeholder="All Positions" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">All Positions</button><div class="ms-panel"></div></div>
+        <div class="fms filter-select" data-ms="lf-lender" data-label="Lenders" data-placeholder="All Lenders" data-onchange="renderLoansTable()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Lenders</button><div class="fms-panel"></div></div>
+        <div class="fms filter-select" data-ms="lf-position" data-label="Positions" data-placeholder="All Positions" data-onchange="renderLoansTable()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">All Positions</button><div class="fms-panel"></div></div>
         <select class="filter-select" id="lf-mat"     onchange="renderLoansTable()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option><option value="past">Already matured</option></select>
         <select class="filter-select" id="lf-bal"     onchange="renderLoansTable()"><option value="">Balance: any</option><option value="yes">Has a balance</option><option value="no">No balance recorded</option></select>
-        <div class="ms filter-select" data-ms="lf-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
+        <div class="fms filter-select" data-ms="lf-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="renderLoansTable()"><button type="button" class="fms-btn" onclick="fmsToggle(this)">Escrow: any</button><div class="fms-panel"></div></div>
         <!-- Rate type comes from `index`, not interest_type: that column is set on 3 of
              75 rows and every one says "fixed", so it cannot tell the two apart. -->
         <select class="filter-select" id="lf-rate"    onchange="renderLoansTable()"><option value="">Rate: any</option><option value="var">Variable (indexed)</option><option value="fix">Not indexed</option></select>
@@ -4378,31 +4383,31 @@ const msMatch = (vals, x) => !vals.length || vals.includes(x);
    (a property's buildings, a property's loans) rather than a scalar. */
 const msMatchAny = (vals, xs) => !vals.length || xs.some(x => vals.includes(x));
 
-function msToggle(btn) {
-  const panel = btn.parentElement.querySelector('.ms-panel');
-  const open = !panel.classList.contains('ms-open');
-  document.querySelectorAll('.ms-panel').forEach(p => p.classList.remove('ms-open'));
-  panel.classList.toggle('ms-open', open);
-  if (open) setTimeout(() => document.addEventListener('click', msCloseAll, { once: true }), 0);
+function fmsToggle(btn) {
+  const panel = btn.parentElement.querySelector('.fms-panel');
+  const open = !panel.classList.contains('fms-open');
+  document.querySelectorAll('.fms-panel').forEach(p => p.classList.remove('fms-open'));
+  panel.classList.toggle('fms-open', open);
+  if (open) setTimeout(() => document.addEventListener('click', fmsCloseAll, { once: true }), 0);
 }
-function msCloseAll(ev) {
-  if (ev && ev.target.closest && ev.target.closest('.ms')) {
+function fmsCloseAll(ev) {
+  if (ev && ev.target.closest && ev.target.closest('.fms')) {
     /* A click INSIDE the panel must not close it - ticking three boxes is one
        interaction, not three. Re-arm and leave it open. */
-    document.addEventListener('click', msCloseAll, { once: true });
+    document.addEventListener('click', fmsCloseAll, { once: true });
     return;
   }
-  document.querySelectorAll('.ms-panel').forEach(p => p.classList.remove('ms-open'));
+  document.querySelectorAll('.fms-panel').forEach(p => p.classList.remove('fms-open'));
 }
 /* Populate a control, preserving whatever was already ticked. */
 function msFill(id, label, vals) {
   document.querySelectorAll(`[data-ms="${id}"]`).forEach(wrap => {
     const keep = new Set(msSel(id));
-    const panel = wrap.querySelector('.ms-panel');
+    const panel = wrap.querySelector('.fms-panel');
     panel.innerHTML = vals.map((v, i) => {
       const vid = `${id}-o${i}`;
-      return `<label class="ms-opt"><input type="checkbox" id="${escHtml(vid)}" value="${escHtml(v)}"${keep.has(v) ? ' checked' : ''} onchange="${escHtml(wrap.dataset.onchange || 'propApply()')}"> ${escHtml(v)}</label>`;
-    }).join('') || '<div class="ms-empty">Nothing to choose from</div>';
+      return `<label class="fms-opt"><input type="checkbox" id="${escHtml(vid)}" value="${escHtml(v)}"${keep.has(v) ? ' checked' : ''} onchange="${escHtml(wrap.dataset.onchange || 'propApply()')}"> ${escHtml(v)}</label>`;
+    }).join('') || '<div class="fms-empty">Nothing to choose from</div>';
     msLabel(id, label);
   });
 }
@@ -4410,14 +4415,14 @@ function msFill(id, label, vals) {
 function msLabel(id, label) {
   document.querySelectorAll(`[data-ms="${id}"]`).forEach(wrap => {
     const n = msSel(id).length;
-    const btn = wrap.querySelector('.ms-btn');
+    const btn = wrap.querySelector('.fms-btn');
     const base = label || wrap.dataset.label || '';
     btn.textContent = n ? `${base} (${n})` : (wrap.dataset.placeholder || base);
-    btn.classList.toggle('ms-on', n > 0);
+    btn.classList.toggle('fms-on', n > 0);
   });
 }
 function msLabelAll() {
-  document.querySelectorAll('.ms').forEach(w => msLabel(w.dataset.ms, w.dataset.label));
+  document.querySelectorAll('.fms').forEach(w => msLabel(w.dataset.ms, w.dataset.label));
 }
 /* Remove ONE value (chip x), or every value when v is omitted. */
 function msClear(id, v) {
