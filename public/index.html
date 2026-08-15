@@ -2660,11 +2660,6 @@
                property carries several loans in different states. -->
           <select class="filter-select" id="prop-f-hasloan" onchange="propApply()"><option value="">Loan: any</option><option value="yes">Has a loan</option><option value="no">No loan</option></select>
           <div class="ms filter-select" data-ms="prop-f-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="propApply()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
-          <!-- has_escrow is a DIFFERENT question from "escrows taxes", so it is a
-               separate toggle. Safe to sit beside the multi-select: has_escrow and
-               (taxes OR insurance OR reserve) agree exactly - 19 on properties,
-               23 on loans - so the two can never contradict each other. -->
-          <label class="filter-select sov-toggle" title="Loans with has_escrow = true"><input type="checkbox" id="prop-f-anyescrow" onchange="propApply()"> Any escrow</label>
           <select class="filter-select" id="prop-f-mat"     onchange="propApply()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option></select>
           <!-- Named for what it finds. "Missing: any" read as a state rather than a
                question; these are backfill gaps, and each option says which one. -->
@@ -2787,7 +2782,6 @@
         <select class="filter-select" id="lf-mat"     onchange="renderLoansTable()"><option value="">Maturity: any</option><option value="12">Within 12 months</option><option value="24">Within 24 months</option><option value="36">Within 36 months</option><option value="past">Already matured</option></select>
         <select class="filter-select" id="lf-bal"     onchange="renderLoansTable()"><option value="">Balance: any</option><option value="yes">Has a balance</option><option value="no">No balance recorded</option></select>
         <div class="ms filter-select" data-ms="lf-escrow" data-label="Escrow" data-placeholder="Escrow: any" data-onchange="renderLoansTable()"><button type="button" class="ms-btn" onclick="msToggle(this)">Escrow: any</button><div class="ms-panel"></div></div>
-        <label class="filter-select sov-toggle" title="Loans with has_escrow = true"><input type="checkbox" id="lf-anyescrow" onchange="renderLoansTable()"> Any escrow</label>
         <!-- Rate type comes from `index`, not interest_type: that column is set on 3 of
              75 rows and every one says "fixed", so it cannot tell the two apart. -->
         <select class="filter-select" id="lf-rate"    onchange="renderLoansTable()"><option value="">Rate: any</option><option value="var">Variable (indexed)</option><option value="fix">Not indexed</option></select>
@@ -4718,7 +4712,9 @@ let loansSort = { col: 'maturity', dir: 'asc' };   /* "Maturities" is now a sort
 
 const loanProp = l => (l.collateral || []).map(c => c.property_name).filter(Boolean)[0] || l.borrower || '—';
 const loanEsc = (l, label) => (l.fields?.[propNorm(label)]?.value) === 'true';
-const loanHasAnyEscrow = l => loanEsc(l, 'Escrow - Taxes') || loanEsc(l, 'Escrow - Insurance') || loanEsc(l, 'Escrow - Replacement Reserve');
+/* loanHasAnyEscrow() lived here and is gone with the last control that used it. Its
+   job is now done by ticking all three types in the escrow multi-select, which returns
+   the same set: has_escrow and the union of the three booleans agree exactly. */
 function loanMonths(l) {
   if (!l.maturityDate) return null;
   const ms = new Date(l.maturityDate + 'T00:00:00').getTime();
@@ -4756,7 +4752,6 @@ function loansFiltered() {
   const q = (document.getElementById('loanview-search')?.value || '').toLowerCase().trim();
   const lender = msSel('lf-lender'), pos = msSel('lf-position'), esc = msSel('lf-escrow');
   const mat = v('lf-mat'), bal = v('lf-bal'), rate = v('lf-rate'), tif = v('lf-tif');
-  const anyEsc = !!document.getElementById('lf-anyescrow')?.checked;
   return (loansAll || []).filter(l => {
     if (q && ![l.name, l.lender, l.borrower, loanProp(l)].filter(Boolean).join(' ').toLowerCase().includes(q)) return false;
     if (!msMatch(lender, l.lender)) return false;
@@ -4772,9 +4767,6 @@ function loansFiltered() {
       const lbl = { 'Taxes': 'Escrow - Taxes', 'Insurance': 'Escrow - Insurance', 'Replacement reserve': 'Escrow - Replacement Reserve' };
       if (!esc.some(t => loanEsc(l, lbl[t]))) return false;
     }
-    /* has_escrow is the separate question. Verified to agree with the union of the
-       three booleans (23 either way), so it cannot contradict the list above it. */
-    if (anyEsc && propF(l, 'Has Escrow')?.value !== 'true') return false;
     if (rate === 'var' && !l.rateIndex) return false;
     if (rate === 'fix' && l.rateIndex) return false;
     if (tif === 'yes' && !l.isTif) return false;
@@ -4863,7 +4855,10 @@ function renderLoansTable() {
 }
 const LOAN_MS_IDS = ['lf-lender', 'lf-position', 'lf-escrow'];
 const LOAN_SEL_IDS = ['lf-mat', 'lf-bal', 'lf-rate', 'lf-tif', 'loanview-search'];
-const LOAN_TOGGLES = ['lf-anyescrow'];
+/* No toggles left: the escrow multi-select covers has_escrow on its own, since the
+   two agree exactly (19 properties, 23 loans). Kept as an array so a future toggle
+   needs no new plumbing. */
+const LOAN_TOGGLES = [];
 function clearLoanFilters() {
   LOAN_SEL_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   LOAN_MS_IDS.forEach(id => msClear(id));
@@ -4889,7 +4884,6 @@ function renderLoanActiveFilters() {
   msSel('lf-lender').forEach(v => add('lf-lender', 'Lender', v, v));
   msSel('lf-position').forEach(v => add('lf-position', 'Position', v, v));
   msSel('lf-escrow').forEach(v => add('lf-escrow', 'Escrow', v, v));
-  if (document.getElementById('lf-anyescrow')?.checked) add('lf-anyescrow', 'Escrow', 'Any');
   sel('lf-mat', 'Maturity'); sel('lf-bal', 'Balance'); sel('lf-rate', 'Rate'); sel('lf-tif', 'TIF');
   const on = loansAnyFilter();
   bar.hidden = !on;
@@ -5224,7 +5218,7 @@ function propAnyFilter() {
   return PROP_FILTER_IDS.some(id => id === 'prop-f-own' ? (propVal(id) && propVal(id) !== 'held') : propVal(id))
     || PROP_MS_IDS.some(id => msSel(id).length)
     || !!document.getElementById('prop-f-resonly')?.checked
-    || !!document.getElementById('prop-f-anyescrow')?.checked;
+;
 }
 
 /* A loan is escrowing X when the flag is explicitly true. Null means "not stated",
@@ -5263,7 +5257,6 @@ function propFilteredList() {
   const fdeal = msSel('prop-f-deal'), fstruct = msSel('prop-f-struct'), fcar = msSel('prop-f-carrier');
   const flenders = msSel('prop-f-lender'), fstates = msSel('prop-f-state'), fesc = msSel('prop-f-escrow');
   const fhas = propVal('prop-f-hasloan');
-  const fAnyEsc = !!document.getElementById('prop-f-anyescrow')?.checked;
   const fmat = Number(propVal('prop-f-mat')) || 0, fmiss = propVal('prop-f-missing');
   const resOnly = !!document.getElementById('prop-f-resonly')?.checked;
 
@@ -5286,12 +5279,15 @@ function propFilteredList() {
     if (fhas === 'yes' && !(p.loans || []).length) return false;
     if (fhas === 'no' && (p.loans || []).length) return false;
     /* p.loans already unions collateral at property AND unit level, which is what
-       makes these match 16 / 3 / 10 rather than the property-only 9 / 1 / 6. */
+       makes these match 16 / 3 / 10 rather than the property-only 9 / 1 / 6.
+
+       There is no separate has_escrow control: it agrees EXACTLY with the union of the
+       three booleans - 19 properties, 23 loans, verified both ways - so ticking all
+       three answers the same question and a fourth control only added ambiguity. */
     if (fesc.length) {
       const lbl = { 'Taxes': 'Escrow - Taxes', 'Insurance': 'Escrow - Insurance', 'Replacement reserve': 'Escrow - Replacement Reserve' };
       if (!(p.loans || []).some(l => fesc.some(t => sovLoanEscrow(l, lbl[t])))) return false;
     }
-    if (fAnyEsc && !(p.loans || []).some(l => propF(l, 'Has Escrow')?.value === 'true')) return false;
     /* Already-matured loans are excluded: "within 12 months" is a diary, and a loan
        that matured last year is a different problem shown on the Maturities view. */
     if (fmat) {
@@ -5466,7 +5462,6 @@ function renderActiveFilters() {
   multi('prop-f-deal', 'Deal'); multi('prop-f-lender', 'Lender');
   multi('prop-f-state', 'State'); multi('prop-f-struct', 'Structure');
   multi('prop-f-carrier', 'Carrier'); multi('prop-f-escrow', 'Escrow');
-  if (document.getElementById('prop-f-anyescrow')?.checked) add('prop-f-anyescrow', 'Escrow', 'Any');
   if (document.getElementById('prop-f-resonly')?.checked) add('prop-f-resonly', 'Buildings', 'Residential only');
 
   /* Hidden entirely when only the default is in play - a bar that is always on screen
@@ -5481,7 +5476,7 @@ function renderActiveFilters() {
 /* One control cleared, or - when a value is given - just that one value. */
 function sovClearFilter(id, value) {
   if (document.querySelector(`[data-ms="${id}"]`)) msClear(id, value);
-  else if (id === 'prop-f-resonly' || id === 'prop-f-anyescrow') { const r = document.getElementById(id); if (r) r.checked = false; }
+  else if (id === 'prop-f-resonly') { const r = document.getElementById(id); if (r) r.checked = false; }
   else if (id === 'prop-f-own') { const o = document.getElementById('prop-f-own'); if (o) o.value = 'held'; }
   else { const el = document.getElementById(id); if (el) el.value = ''; }
   propApply();
@@ -6239,7 +6234,7 @@ async function refreshProperties() {
 function clearPropFilters() {
   PROP_FILTER_IDS.forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   PROP_MS_IDS.forEach(id => msClear(id));
-  ['prop-f-resonly', 'prop-f-anyescrow'].forEach(id => { const r = document.getElementById(id); if (r) r.checked = false; });
+  const r = document.getElementById('prop-f-resonly'); if (r) r.checked = false;
   /* Clear returns to the DEFAULT view, not to "all 168 including the sold ones".
      Clearing filters should leave a usable screen, and 84 disposed properties is not
      one - "All statuses" stays available as a deliberate choice. */
