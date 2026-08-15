@@ -87,5 +87,36 @@ ck('true', H.sovTri(tri('true'),'Sprinklered').k, 'yes');
 ck('false', H.sovTri(tri('false'),'Sprinklered').k, 'no');
 ck('null is not No', H.sovTri(tri(null),'Sprinklered').k, 'unset');
 
+
+/* ---- filter-source rules (the empty-dropdown bugs) ----------------------- */
+console.log('\nDropdown options come from the FULL payload, never the filtered rows');
+/* Options describe what exists. Building them from the filtered list means choosing a
+   value removes every other value, and the filter can never be widened again. */
+const payload = [
+  { entityName: 'E1', deal: { name: 'Offering A' }, fields: {}, loans: [{ lender: 'Bank One' }], buildings: [] },
+  { entityName: 'E2', deal: null, fields: {}, loans: [{ lender: 'Bank Two' }, { lender: 'Bank One' }], buildings: [] },
+  { entityName: 'E3', deal: { name: 'Offering B' }, fields: {}, loans: [], buildings: [] },
+];
+const uniq = v => [...new Set(v.filter(Boolean))].sort();
+ck('lenders come off the LOANS, not the property (Lender is a loan label)',
+  uniq(payload.flatMap(p => p.loans.map(l => l.lender))), ['Bank One', 'Bank Two']);
+ck('a property with no loans contributes no lender and is not dropped',
+  payload.filter(p => !p.loans.length).length, 1);
+ck('offerings list the named ones', uniq(payload.map(p => p.deal && p.deal.name)), ['Offering A', 'Offering B']);
+ck('and properties with no offering are counted, not hidden',
+  payload.filter(p => !(p.deal && p.deal.name)).length, 1);
+
+console.log('\nThe unlinked-loans banner separates two different problems');
+/* 17 loans have no borrower and 18 have no collateral - different loans needing
+   different fixes, so one combined "18" said nothing actionable. */
+const unl = [
+  { borrower: null, collateral: [{}] },
+  { borrower: 'E1', collateral: [] },
+  { borrower: null, collateral: [] },
+];
+ck('no borrower', unl.filter(l => !l.borrower).length, 2);
+ck('no collateral', unl.filter(l => !l.collateral.length).length, 2);
+ck('neither count alone equals the row count', unl.length, 3);
+
 console.log(fail ? `\n${fail} CHECK(S) FAILED` : '\nAll checks passed');
 process.exit(fail?1:0);

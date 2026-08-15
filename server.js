@@ -2092,15 +2092,41 @@ app.get('/api/org/summary', async (req, res) => {
     return res.json({ ...orgSummaryCache, cached: true });
   }
   try {
-    const [t, c] = await Promise.all([
+    /* Portfolio counts, so the sidebar badges stop being hard-coded. They read
+       66 / 83 / 5 against an actual 168 (79 held) / 75 / 0 - the investor table is
+       empty, so that 5 came from nowhere at all.
+
+       Properties are returned BOTH ways because the honest label depends on which is
+       meant: 168 is every row, 79 is what the group still owns. Apartments come from
+       SUM(unit.current_total_units) and never from property.unit_count_reported,
+       which is the stale pre-import column holding only the first building's count. */
+    const [t, c, counts] = await Promise.all([
       db.q('select id, name from tenant where is_active is not false order by name'),
       db.q('select id, tenant_id, name from company where is_active is not false order by name'),
+      db.q(`select
+              (select count(*) from public.property)                          as properties_all,
+              (select count(*) from public.property where ownership_status = 'held') as properties_held,
+              (select coalesce(sum(current_total_units), 0) from public.unit) as apartments,
+              (select count(*) from public.unit)                              as buildings,
+              (select count(*) from public.loan)                              as loans,
+              (select count(*) from public.investor)                          as investors,
+              (select count(*) from public.insurance_policy)                  as policies`),
     ]);
+    const n = counts.rows[0] || {};
     orgSummaryCache = {
       tenants: t.rows,
       companies: c.rows,
       tenant_count: t.rows.length,
       company_count: c.rows.length,
+      counts: {
+        properties_all: Number(n.properties_all) || 0,
+        properties_held: Number(n.properties_held) || 0,
+        apartments: Number(n.apartments) || 0,
+        buildings: Number(n.buildings) || 0,
+        loans: Number(n.loans) || 0,
+        investors: Number(n.investors) || 0,
+        policies: Number(n.policies) || 0,
+      },
     };
     orgSummaryAt = Date.now();
     res.json({ ...orgSummaryCache, cached: false });
