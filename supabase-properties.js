@@ -32,7 +32,7 @@ const BOOL_OPTIONS = [{ id: 'true', name: 'Yes' }, { id: 'false', name: 'No' }];
 const PROP_LABELS_ORDERED = [
   ['dba_name', 'DBA Name / Name of Apartment Complex'], ['management_company', 'Management Company'],
   ['street', 'Location Street Address'], ['city', 'Location City'], ['state', 'Location State'], ['zip', 'Location Zip'],
-  ['parcel_id', 'Parcel ID'], ['county_assessor_url', 'County Assessor Website'], ['dropbox_url', 'Dropbox Link'],
+  ['county_assessor_url', 'County Assessor Website'], ['dropbox_url', 'Dropbox Link'],
   ['purchase_price', 'Purchase Price'], ['purchase_date', 'Purchase Date'],
   ['current_market_value', 'Current Market Value'], ['current_market_value_2023', "Current Market Value (23')"],
   ['year_built', 'Year Built'], ['square_feet', 'Square Feet'], ['stories', '# of Stories'], ['num_buildings', '# of Buildings'],
@@ -42,6 +42,18 @@ const PROP_LABELS_ORDERED = [
   // New property fields
   ['taxpayer', 'Taxpayer'], ['asset_type', 'Asset Type'], ['status', 'Status'],
   ['year_acquired', 'Year Acquired'], ['current_occupancy', 'Current Occupancy'],
+  // --- added 2026-08: SOV import + disposition tracking ---
+  ['ownership_status', 'Ownership Status'], ['disposition_date', 'Disposition Date'],
+  ['disposition_note', 'Disposition Note'],
+  ['unit_count_verified', 'Total Units (Verified)'], ['unit_count_verified_by', 'Verified By'],
+  ['unit_count_note', 'Unit Count Note'],
+  ['year_renovated', 'Year Renovated'], ['lot_size_acres', 'Lot Size (Acres)'],
+  ['purchase_price_note', 'Purchase Price Note'],
+  ['current_market_value_asof', 'Market Value As Of'],
+  ['fire_alarm', 'Fire Alarm'], ['sprinklered', 'Sprinklered'],
+  ['pool_count', 'Pools'], ['dog_park_count', 'Dog Parks'],
+  ['wiring_year', 'Wiring Year'], ['plumbing_year', 'Plumbing Year'],
+  ['roof_year', 'Roofing Year'], ['heating_year', 'Heating Year'],
 ];
 // UNIT labels per spec (unit_identifier is the read-only header; beds/baths/status
 // emitted only if the column exists live).
@@ -69,13 +81,33 @@ const UNIT_LABELS_ORDERED = [
   // Asset management
   ['asset_management_fee_pct', 'Asset Management Fee %'], ['asset_management_fee_vendor', 'Asset Mgmt Fee Vendor'],
   ['asset_management_fee_tracker_url', 'Asset Mgmt Fee Tracker'], ['attorney_vendor', 'Attorney Vendor'],
+  // --- added 2026-08: SOV building-level fields ---
+  ['structure_type', 'Occupancy / Type of Asset'], ['building_number', 'Building #'],
+  ['fire_alarm', 'Fire Alarm'], ['sprinklered', 'Sprinklered'],
+  ['roof_year', 'Roofing Year'], ['wiring_year', 'Wiring Year'],
+  ['plumbing_year', 'Plumbing Year'], ['heating_year', 'Heating Year'],
+  ['pool_count', 'Pools'], ['dog_park_count', 'Dog Parks'],
+  ['unit_count_note', 'Unit Count Note'],
+  ['escrow_taxes', 'Escrow - Taxes'], ['escrow_insurance', 'Escrow - Insurance'],
+  ['escrow_replacement_reserve', 'Escrow - Replacement Reserve'], ['escrow_note', 'Escrow Note'],
 ];
 const INSURANCE_LABELS_ORDERED = [
   ['carrier', 'Insurance Carrier'], ['annual_premium', 'Insurance Annual Premium'], ['renewal_date', 'Insurance Renewal Date'],
   ['tiv', 'TIV  (Total Insured Value)'], ['all_other_perils_deductible', 'All Other Perils Deductible'],
   ['wind_hail_deductible', 'Wind/Hail Deductible'], ['business_personal_property', 'Business Personal Property'],
   ['business_income_extra_expense_limit', 'Business Income & Extra Expense Limit'],
-  ['building_limit_replacement_cost', 'Building Limit (Replacement Cost)'],
+  ['building_limit_amount', 'Building Limit (Replacement Cost)'],
+  ['building_limit_basis', 'Building Limit Basis'],
+  ['business_income_amount', 'Business Income Limit'],
+  ['business_income_basis', 'Business Income Basis'],
+  ['business_personal_property_basis', 'BPP Basis'], ['tiv_basis', 'TIV Basis'],
+  ['water_damage_deductible', 'Water Damage Deductible'],
+  ['aop_deductible_amount', 'AOP Deductible ($)'], ['aop_deductible_pct', 'AOP Deductible (%)'],
+  ['wind_deductible_pct', 'Wind/Hail Deductible (%)'], ['wind_deductible_min', 'Wind/Hail Minimum ($)'],
+  ['wind_deductible_basis', 'Wind/Hail Basis'], ['wind_applies_per', 'Wind/Hail Applies Per'],
+  ['deductible_note', 'Deductible Note'],
+  ['broker', 'Broker'], ['broker_contact_name', 'Broker Contact'], ['broker_contact_email', 'Broker Email'],
+  ['policy_note', 'Policy Note'], ['limits_note', 'Limits Note'],
 ];
 const LOAN_LABELS_ORDERED = [
   ['lender', 'Lender'], ['loan_number', 'Loan Number'], ['loan_type', 'Loan Type'], ['amortizing_type', 'Amortizing Type'],
@@ -89,7 +121,9 @@ const LOAN_LABELS_ORDERED = [
   ['construction_note', 'Construction Note'], ['construction_budget_amount', 'Construction Budget'], ['pace_equity', 'PACE Equity'],
   ['seller_carry', 'Seller Carry/Financing'], ['repayment_fee', 'Repayment Fee'], ['prepayment_penalties', 'Prepayment Penalties'],
   ['payment_frequency', 'Payment Frequency'], ['extension_available', 'Extension Available'], ['extension_requirements', 'Extension Requirements'],
-  ['dscr', 'DSCR'], ['debt_paid_by', 'Debt Paid By'], ['loc_beginning', 'Beginning LOC'], ['loc_available', 'Available LOC'],
+  ['dscr', 'DSCR'], ['has_escrow', 'Has Escrow'], ['escrow_taxes', 'Escrow - Taxes'],
+  ['escrow_insurance', 'Escrow - Insurance'], ['escrow_replacement_reserve', 'Escrow - Replacement Reserve'],
+  ['escrow_note', 'Escrow Note'], ['debt_paid_by', 'Debt Paid By'], ['loc_beginning', 'Beginning LOC'], ['loc_available', 'Available LOC'],
   ['avail_escrow_reserve', 'Avail Escrow/Reserve'], ['loc_draws_process', 'LOC Draws Process'], ['lender_held_cash_reserve', 'Lender Held Cash Reserve'],
   ['distribution_frequency_restrictions', 'Distribution Frequency Restrictions'], ['pac_due', 'PAC DUE'],
   ['covenant_lender_operating_account', 'Covenants - Lender Operating Account'], ['covenant_audit', 'Covenant - Audit'],
@@ -198,6 +232,17 @@ async function getPropertiesPayload() {
   const loans = (await q(`select * from public.loan`, [])).rows;
   const collat = (await q(`select id, loan_id, property_id, unit_id from public.loan_collateral`, [])).rows;
   const ins = (await q(`select * from public.insurance_policy`, [])).rows;
+  // Parcels moved out of property.parcel_id into their own table (a property can have MANY).
+  const parcels = (await q(`
+    select property_id, parcel_number, county, is_primary
+    from public.property_parcel order by is_primary desc, parcel_number`, [])).rows;
+  const parcelsByProp = new Map();
+  parcels.forEach(r => { const k=String(r.property_id); if(!parcelsByProp.has(k)) parcelsByProp.set(k,[]); parcelsByProp.get(k).push(r); });
+  // Investor offering ("Deal") that the owning entity belongs to.
+  const dealRows = (await q(`
+    select e.id as entity_id, d.id as deal_id, d.name as deal_name
+    from public.entity e join public.deal d on d.id = e.deal_id`, [])).rows;
+  const dealByEntity = new Map(dealRows.map(r => [String(r.entity_id), r]));
   // Ownership is the source of truth for who owns what (co-ownership, no percentages).
   const ownership = (await q(`select id, entity_id, property_id, unit_id, is_primary from public.ownership`, [])).rows;
   /* The lender RECORD behind loan.lender_id. `loan.lender` is free text kept for the
@@ -379,9 +424,22 @@ async function getPropertiesPayload() {
       };
     });
 
+    const propParcels = parcelsByProp.get(pid) || [];
+    if (propParcels.length) {
+      const primary = propParcels.find(x => x.is_primary) || propParcels[0];
+      fields[propNorm('Parcel ID')] = mkField(null, 'Parcel ID', 'label',
+        primary.parcel_number + (propParcels.length > 1 ? ` (+${propParcels.length - 1} more)` : ''));
+    }
+    const propDeal = dealByEntity.get(String(p.entity_id || '')) || null;
+    if (propDeal) fields[propNorm('Deal / Offering')] = mkField(null, 'Deal / Offering', 'label', propDeal.deal_name);
+
     const P = {
       listId: pid, taskId: pid, name: propName.get(pid), url: '#',
       loanStatus, fields, loans: buildLoanCards(propLoans), buildings,
+      parcels: propParcels.map(x => ({ parcel_number: x.parcel_number, county: x.county, is_primary: !!x.is_primary })),
+      deal: propDeal ? { id: String(propDeal.deal_id), name: propDeal.deal_name } : null,
+      ownership_status: p.ownership_status || 'held',
+      disposition_date: p.disposition_date || null,
       owner_primary: { id: propPrimary.id, name: propPrimary.name },
       owners: propOwners.length ? propOwners : [{ ...propPrimary }],
       financials: finList.map(r => ({
