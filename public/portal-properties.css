@@ -28,7 +28,7 @@
 :root{
   --brass: var(--accent);
   --cream: var(--ink);
-  --dimmer: var(--text3);
+  --dimmer: var(--ink-4);
   --jade: var(--good);
   --rust: var(--crit);
   --panel2: var(--panel-2);
@@ -36,9 +36,8 @@
   --edge: var(--border);
   --edge2: var(--border-strong);
   --ink2: var(--bg);
-  --ff-display: var(--font);
+  --ff-display: var(--font-display);
   --ff-mono: var(--mono);
-  --ease: cubic-bezier(.22,.68,.36,1);
 }
 
 /* ---------- PROPERTIES ----------

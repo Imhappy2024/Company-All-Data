@@ -538,6 +538,81 @@ apartments rather than a copy of the parent's address; parcels split on `A / B` 
 separate rows keeping dashes and periods; insurance limits carry a basis, and where
 there is no number the basis IS the value.
 
+## The design, and where it came from
+
+The whole service now wears command-center's design: indigo on a near-black indigo
+ground, Space Grotesk / Instrument Sans / JetBrains Mono, 8/11/16 radii, and mono
+uppercase micro-labels on every chip, pill and small button.
+
+All of it lives in `public/tokens.css`. That is the point of the file — one edit
+re-themes the portal, `/ops`, `login`, `invite` and `portal-properties.css`
+together, and nothing downstream needs to know a colour changed.
+
+| | |
+|---|---|
+| Ground / card / raised | `#0E1120` / `#161A2C` / `#1D2238` |
+| Accent (was `--brass`) | `#7C6CFF` |
+| Good / bad / warn | jade `#35D0A5` / rust `#FF5A45` / amber `#FFB020` |
+| Ink, four levels | `#EDEFF8` `#C7CCE4` `#9BA2C2` `#828AB0` |
+| Radii | `--r-sm 8` `--r-md 11` `--r-lg 16` |
+
+### Four levels of ink, not three
+The source design has `--cream --text --dim --dimmer` and uses all four; this file
+had three. `--ink-4` was added rather than collapsing dimmer into `--ink-3`,
+because every label/value pair on the page relies on that fourth step and
+flattening it makes labels compete with their own values.
+
+### Status and series share hues here — that has a cost
+command-center uses ONE colour set for both, so `--s3` and `--good` are both jade,
+`--s2` and `--crit` are both rust. That contradicts this file's older rule that
+status colours are never reused as series colours, and it was adopted knowingly:
+a chart in this palette **must not lean on colour alone** to say good or bad,
+because the same jade means "category three" two panels over. Label the series.
+
+The four series hues do still separate under colour-vision deficiency, which was
+checked rather than assumed — violet / red-orange / green-cyan / yellow. Under
+deuteranopia the last three collapse toward the yellow band, so they separate by
+lightness instead: rust dark, jade mid, amber bright. Swapping a hue means
+re-checking that.
+
+### The light theme is derived, not inverted
+command-center is dark-only, so there was nothing to copy. The light block keeps
+the same indigo and the same status hues, re-stepped for a light ground. Inverting
+the dark values instead would make one theme a photographic negative of the other
+rather than two members of one family.
+
+Dark is the portal's default (`theme='dark'` in portal.html), so the adopted
+palette is what loads.
+
+### `--shadow` stayed a hairline ring
+The source design's shadow carries an inset top highlight and a deep drop. Plenty
+of surfaces here use `--shadow` **instead of** a border, and giving them a drop
+shadow alone strips their outline and adds a glow. Depth went into `--shadow-pop`,
+which is the token that carries the inset highlight. Do not "finish the job" by
+moving it into `--shadow`.
+
+### Typography is applied in portal.html, not in tokens.css
+A variable can carry a typeface; it cannot carry how the type is used, and that is
+most of what makes the design recognisable. The adoption block at the end of
+portal.html's `<style>` is where headings take `--font-display`, micro-labels take
+tracked uppercase mono, and the active nav row becomes an indigo edge plus a tint
+rather than a solid fill. It **layers over** the existing component rules instead
+of rewriting them, so the diff says exactly what changed and a rule that was
+already right is left alone.
+
+Space Grotesk is wider-set than Inter, so the display sizes carry less negative
+tracking (`-.006em` where Inter had `-.012em`). Keep Inter's value and the
+counters close up at 19px.
+
+### login.html and invite.html are surfaces too
+Both load `tokens.css` and both had their own hard-coded Inter link and
+`font-family:Inter`, so they inherited the new palette but kept the old typeface —
+a half-adopted look that is easy to miss because nothing errors. They were found
+by measuring, not by reading: a headless check of `/` kept reporting Inter, which
+turned out to be the **login page**, because `/` bounces there without a session.
+If a design change looks like it did not land, check which document you are
+actually measuring before touching the CSS.
+
 ## Properties: the command-center port
 
 Portal Properties is the implementation from `Imhappy2024/command-center`, running
@@ -662,9 +737,11 @@ a wrong debt figure rather than a slow one.
 
 ## Conventions
 - No framework, no bundler. One self-contained HTML file per surface.
-- **Design system: `public/tokens.css`** — the shared palette, geometry and dark theme,
-  loaded by BOTH `/` (portal.html) and `/ops` (index.html) so the two surfaces read as one
-  product. Theme via `data-theme` on `<html>` (ops also honours `body.dark-mode`). Use the
+- **Design system: `public/tokens.css`** — the shared palette, geometry, type and dark
+  theme, loaded by ALL FOUR surfaces (`portal.html`, `index.html`, `login.html`,
+  `invite.html`) so they read as one product. **The palette, the three faces and the
+  radius steps are adopted from command-center** (see "The design, and where it came
+  from" below). Theme via `data-theme` on `<html>` (ops also honours `body.dark-mode`). Use the
   token names (`--bg`, `--panel`, `--accent`, `--radius`, `--shadow`, series `--s1..s4`,
   status `--good/--warn/--crit`, etc.); tokens.css has a shim block mapping the old names.
   Don't re-add hard-coded colour blocks in the HTML files. (`migrations/` = review-only SQL,

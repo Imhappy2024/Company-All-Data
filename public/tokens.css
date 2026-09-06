@@ -1,14 +1,35 @@
 /* ===========================================================================
    tokens.css — the single design system for this service.
    Loaded by BOTH public/portal.html (/) and public/index.html (/ops) so the
-   two surfaces stop reading as different products.
+   two surfaces read as one product.
 
-   Light and dark are separately selected, not inverted: the dark series
-   colours are re-stepped for the dark surface rather than flipped.
+   The palette, type and geometry are adopted from Imhappy2024/command-center,
+   which is where Properties came from. Doing it here rather than in each
+   surface is the whole point of this file: one edit re-themes the portal, the
+   ops dashboard and portal-properties.css together, and nothing downstream
+   needs to know a colour changed.
 
-   Series colours are validated for colour-vision deficiency separation,
-   lightness band, chroma floor and contrast against both surfaces. Do not
-   substitute a hue here without re-validating the set.
+   Two things about that source are worth stating, because they are not
+   accidents and reversing them undoes the adoption:
+
+   1. command-center is DARK-ONLY. Its palette is the dark block below,
+      verbatim. The light block is derived — same indigo, same jade/rust/amber
+      status hues, re-stepped for a light ground rather than inverted, so the
+      two themes read as one family instead of one being a negative of the
+      other.
+
+   2. It uses ONE colour set for status and for categorical series. So --s3
+      and --good are both jade, --s2 and --crit are both rust. That is a
+      deliberate deviation from this file's older rule that status colours are
+      never reused as series colours, and it carries a cost: a chart in this
+      palette must not lean on colour alone to say "good" or "bad", because
+      the same jade means "category three" two panels over. Label the series.
+
+   The four series hues still separate under colour-vision deficiency, which
+   is the part that was checked rather than assumed: violet / red-orange /
+   green-cyan / yellow. Under deuteranopia the last three collapse toward the
+   yellow band, so they are separated by lightness instead — rust dark, jade
+   mid, amber bright. Substituting a hue here means re-checking that.
 
    Theme is set by `data-theme` on <html>. The ops dashboard also honours
    `body.dark-mode` for backwards compatibility with its existing toggle.
@@ -16,94 +37,107 @@
 
 :root,
 [data-theme='light'] {
-  /* surfaces */
-  --page: #f4f4f1;
-  --surface: #fcfcfb;
-  --surface-2: #f3f2ef;
-  --surface-3: #eceae5;
-  --border: #e4e3dd;
-  --border-strong: #d3d2ca;
-  --grid: #e6e5df;
+  /* surfaces — cool near-whites, the light counterpart of the indigo ground */
+  --page: #f1f2f8;
+  --surface: #ffffff;
+  --surface-2: #f6f7fc;
+  --surface-3: #eaecf6;
+  --border: #e0e3f0;
+  --border-strong: #c9cee4;
+  --grid: rgba(18, 21, 42, .055);
 
-  /* ink */
-  --ink: #0b0b0b;
-  --ink-2: #52514e;
-  --ink-3: #8b8983;
+  /* ink — four levels, because the source design uses four and collapsing
+     them to three flattens every label/value pair on the page */
+  --ink: #12152a;
+  --ink-2: #414868;
+  --ink-3: #6b7290;
+  --ink-4: #8b91ad;
 
-  /* series (categorical, validated set) */
-  --s1: #2a78d6;
-  --s2: #eb6834;
-  --s3: #1baf7a;
-  --s4: #eda100;
-  --s1-soft: #e6effb;
-  --s2-soft: #fdeee7;
-  --s3-soft: #e4f5ee;
+  /* series (categorical) */
+  --s1: #5b4be0;
+  --s2: #de4327;
+  --s3: #12a37c;
+  --s4: #c07d00;
+  --s1-soft: #ecebfd;
+  --s2-soft: #fdeae6;
+  --s3-soft: #e4f5f0;
 
-  /* status — reserved, never reused as a series colour */
-  --good: #0ca30c;
-  --warn: #fab219;
-  --serious: #ec835a;
-  --crit: #d03b3b;
-  --good-ink: #006300;
-  --warn-ink: #8a5a00;
-  --crit-ink: #a52222;
-  --good-soft: #e3f4e3;
-  --warn-soft: #fdf2da;
-  --crit-soft: #fae6e6;
+  /* status — same hues as the series in this palette, see the note above */
+  --good: #12a37c;
+  --warn: #f0a500;
+  --serious: #e8703f;
+  --crit: #de4327;
+  --good-ink: #0a7a5c;
+  --warn-ink: #8a5f00;
+  --crit-ink: #b3301a;
+  --good-soft: #e4f5f0;
+  --warn-soft: #fdf1d9;
+  --crit-soft: #fdeae6;
 
-  --focus: #2a78d6;
+  --focus: #5b4be0;
   --accent: var(--s1);
+  --glass: rgba(255, 255, 255, .82);
+  --scope: rgba(91, 75, 224, .08);
 
-  /* geometry */
-  --r-sm: 6px;
-  --r-md: 8px;
-  --r-lg: 11px;
+  /* geometry — command-center's steps */
+  --r-sm: 8px;
+  --r-md: 11px;
+  --r-lg: 16px;
   --row-h: 38px;
-  --sidebar-w: 236px;
+  --sidebar-w: 252px;
 
-  /* depth: hairline borders do the work; shadow is for true overlays only */
-  --shadow-pop: 0 0 0 1px rgba(11, 11, 11, .07), 0 6px 20px -6px rgba(11, 11, 11, .16);
+  --shadow-pop: 0 0 0 1px rgba(18, 21, 42, .07), 0 10px 30px -8px rgba(18, 21, 42, .22);
 
-  --font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --ease: cubic-bezier(.22, .68, .36, 1);
 
   color-scheme: light;
 }
 
+/* command-center's palette, verbatim. Its own names are in the comments so a
+   change here can be traced back to the source. */
 [data-theme='dark'] {
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-2: #232322;
-  --surface-3: #2b2b29;
-  --border: #2c2c2a;
-  --border-strong: #3a3a37;
-  --grid: #262625;
+  --page: #0e1120;          /* --ink    page ground */
+  --surface: #161a2c;       /* --panel  card surface */
+  --surface-2: #1d2238;     /* --panel2 raised / hover */
+  --surface-3: #252b44;     /* --panel3 tooltip, popover */
+  --border: #262c46;        /* --edge  */
+  --border-strong: #333a59; /* --edge2 */
+  --grid: rgba(255, 255, 255, .045);
 
-  --ink: #f2f2ef;
-  --ink-2: #c3c2b7;
-  --ink-3: #8b8983;
+  --ink: #edeff8;           /* --cream  */
+  --ink-2: #c7cce4;         /* --text   */
+  --ink-3: #9ba2c2;         /* --dim    */
+  --ink-4: #828ab0;         /* --dimmer */
 
-  --s1: #3987e5;
-  --s2: #d95926;
-  --s3: #199e70;
-  --s4: #c98500;
-  --s1-soft: #16283f;
-  --s2-soft: #33201a;
-  --s3-soft: #142b24;
+  --s1: #7c6cff;            /* --brass */
+  --s2: #ff5a45;            /* --rust  */
+  --s3: #35d0a5;            /* --jade  */
+  --s4: #ffb020;            /* --amber */
+  --s1-soft: #211f4a;
+  --s2-soft: #3a1f1c;
+  --s3-soft: #12332b;
 
-  --good: #0ca30c;
-  --warn: #fab219;
-  --serious: #ec835a;
-  --crit: #d03b3b;
-  --good-ink: #3fc23f;
-  --warn-ink: #fab219;
-  --crit-ink: #f07070;
-  --good-soft: #142b16;
-  --warn-soft: #332a12;
-  --crit-soft: #331a1a;
+  --good: #35d0a5;
+  --warn: #ffb020;
+  --serious: #ff8a5c;
+  --crit: #ff5a45;
+  --good-ink: #35d0a5;
+  --warn-ink: #ffb020;
+  --crit-ink: #ff7a68;
+  --good-soft: #12332b;
+  --warn-soft: #3a2e14;
+  --crit-soft: #3a1f1c;
 
-  --focus: #3987e5;
-  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, .08), 0 8px 24px -6px rgba(0, 0, 0, .6);
+  --focus: #7c6cff;
+  --glass: rgba(22, 26, 44, .82);
+  --scope: rgba(124, 108, 255, .10);
+
+  --shadow-pop: 0 1px 0 rgba(255, 255, 255, .035) inset,
+                0 0 0 1px rgba(255, 255, 255, .06),
+                0 18px 40px -24px rgba(0, 0, 0, .9);
 
   color-scheme: dark;
 }
@@ -115,6 +149,14 @@
    The ops dashboard (public/index.html) was written against its own variable
    names. Rather than rewrite ~8,000 lines of markup, its names are remapped
    onto the tokens above. No JavaScript in that file changes.
+
+   portal-properties.css carries a second, smaller shim for command-center's
+   own names (--brass, --cream, --jade, --edge…) for exactly the same reason.
+
+   --shadow stays a hairline ring rather than becoming the source design's drop
+   shadow: plenty of surfaces here use it INSTEAD of a border, and they would
+   lose their outline and gain a glow. Depth lives in --shadow-pop, which is
+   the one that carries command-center's inset top highlight.
 --------------------------------------------------------------------------- */
 :root {
   --bg: var(--page);
@@ -126,6 +168,7 @@
   --text2: var(--ink-2);
   --text3: var(--ink-3);
   --dim: var(--ink-2);
+  --dimmer: var(--ink-4);
   --faint: var(--ink-3);
   --surface2: var(--surface-2);
   --accent2: var(--s1);
@@ -133,56 +176,67 @@
   --accent-line: var(--border-strong);
   --green: var(--good);
   --green-soft: var(--good-soft);
-  --amber: var(--warn-ink);
+  --amber: var(--warn);
   --amber-soft: var(--warn-soft);
   --rose: var(--crit);
   --rose-soft: var(--crit-soft);
   --red: var(--crit);
   --yellow: var(--warn);
   --orange: var(--s2);
-  --purple: #4a3aa7;
+  --purple: #7c6cff;
   --teal: var(--s3);
   --mint: var(--good-soft);
   --header-bg: var(--surface);
   --header-text: var(--ink);
   --radius: var(--r-lg);
   --radius-sm: var(--r-sm);
-  --font: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
   --shadow: 0 0 0 1px var(--border);
   --shadow-sm: 0 0 0 1px var(--border);
   --shadow-md: var(--shadow-pop);
   --rock-color: var(--s3);
   --ids-color: var(--s2);
   --refi-color: var(--good);
-  --wins-color: #4a3aa7;
+  --wins-color: var(--s1);
 }
 
 /* The ops dashboard toggles dark with a body class; when the portal iframes it,
    the head script sets html.embed-dark instead. Both map onto the same tokens. */
 body.dark-mode,
 html.embed-dark body {
-  --page: #0d0d0d;
-  --surface: #1a1a19;
-  --surface-2: #232322;
-  --surface-3: #2b2b29;
-  --border: #2c2c2a;
-  --border-strong: #3a3a37;
-  --grid: #262625;
-  --ink: #f2f2ef;
-  --ink-2: #c3c2b7;
-  --ink-3: #8b8983;
-  --s1: #3987e5;
-  --s2: #d95926;
-  --s3: #199e70;
-  --s4: #c98500;
-  --s1-soft: #16283f;
-  --good-ink: #3fc23f;
-  --crit-ink: #f07070;
-  --good-soft: #142b16;
-  --warn-soft: #332a12;
-  --crit-soft: #331a1a;
-  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, .08), 0 8px 24px -6px rgba(0, 0, 0, .6);
+  --page: #0e1120;
+  --surface: #161a2c;
+  --surface-2: #1d2238;
+  --surface-3: #252b44;
+  --border: #262c46;
+  --border-strong: #333a59;
+  --grid: rgba(255, 255, 255, .045);
+  --ink: #edeff8;
+  --ink-2: #c7cce4;
+  --ink-3: #9ba2c2;
+  --ink-4: #828ab0;
+  --s1: #7c6cff;
+  --s2: #ff5a45;
+  --s3: #35d0a5;
+  --s4: #ffb020;
+  --s1-soft: #211f4a;
+  --s2-soft: #3a1f1c;
+  --s3-soft: #12332b;
+  --good: #35d0a5;
+  --warn: #ffb020;
+  --serious: #ff8a5c;
+  --crit: #ff5a45;
+  --good-ink: #35d0a5;
+  --warn-ink: #ffb020;
+  --crit-ink: #ff7a68;
+  --good-soft: #12332b;
+  --warn-soft: #3a2e14;
+  --crit-soft: #3a1f1c;
+  --focus: #7c6cff;
+  --glass: rgba(22, 26, 44, .82);
+  --scope: rgba(124, 108, 255, .10);
+  --shadow-pop: 0 1px 0 rgba(255, 255, 255, .035) inset,
+                0 0 0 1px rgba(255, 255, 255, .06),
+                0 18px 40px -24px rgba(0, 0, 0, .9);
   color-scheme: dark;
 
   --bg: var(--page);
@@ -194,26 +248,26 @@ html.embed-dark body {
   --text2: var(--ink-2);
   --text3: var(--ink-3);
   --dim: var(--ink-2);
+  --dimmer: var(--ink-4);
   --faint: var(--ink-3);
   --header-bg: var(--surface);
   --header-text: var(--ink);
   --accent: var(--s1);
   --accent2: var(--s1);
+  --accent-soft: var(--s1-soft);
   --green: var(--good);
   --mint: var(--good-soft);
   --red: var(--crit);
   --rose: var(--crit);
   --yellow: var(--warn);
+  --amber: var(--warn);
   --orange: var(--s2);
   --teal: var(--s3);
+  --purple: #7c6cff;
   --shadow: 0 0 0 1px var(--border);
   --shadow-sm: 0 0 0 1px var(--border);
   --shadow-md: var(--shadow-pop);
 }
-
-/* --purple gets a lighter step on dark surfaces (the compat-shim value #4a3aa7 is too
-   dark to read on the dark palette). Covers portal (data-theme) + ops embed/standalone. */
-[data-theme='dark'], body.dark-mode, html.embed-dark body { --purple: #8b7cf0; }
 
 /* --------------------------------------------------------------------------
    Primitives shared by both surfaces.
@@ -236,6 +290,17 @@ html.embed-dark body {
 .badge.good { background: var(--good-soft); color: var(--good-ink); border-color: color-mix(in srgb, var(--good) 28%, transparent); }
 .badge.info { background: var(--s1-soft); color: var(--s1); border-color: color-mix(in srgb, var(--s1) 25%, transparent); }
 .badge.mute { background: var(--surface-2); color: var(--ink-3); border-color: var(--border); }
+
+/* command-center's micro-label: mono, uppercase, wide-tracked. It is on every
+   chip, pill and small button there, and after the indigo it is the most
+   recognisable thing about the design — so it gets a primitive here rather
+   than being re-declared per component on each surface. */
+.microlabel {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { transition: none !important; animation: none !important; }
