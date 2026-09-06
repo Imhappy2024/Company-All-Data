@@ -90,11 +90,26 @@ const fakeDb = {
       }
       return Promise.resolve({ rows });
     }
-    if (/count\(\*\)::int as n/.test(sql)) return Promise.resolve({ rows: [{ n: CASH_ROWS.length }] });
-    if (/from public\.v_cash_debt_summary/.test(sql)) {
-      return Promise.resolve({ rows: [{ year: 2026, quarter: 2, total_cash: '5073105.35',
-        total_debt: '225424320.06', cash_accounts: 160, loan_accounts: 55, all_verified: false }] });
+    /* Ordered most-specific first. The tile aggregate also selects
+       `count(*)::int as n`, so a looser branch above it would swallow it. */
+    if (/from public\.company where tenant_id = \$1 and name ~\*/.test(sql)) {
+      return Promise.resolve({ rows: [
+        { id: 'c0000000-0000-4000-8000-000000000001', name: 'Leadli AI' },
+        { id: 'c0000000-0000-4000-8000-000000000002', name: 'Folio Excel' },
+      ] });
     }
+    if (/select distinct as_of_date from public\.account_balance/.test(sql)) {
+      return Promise.resolve({ rows: [{ as_of_date: '2026-06-30' }, { as_of_date: '2026-03-31' }] });
+    }
+    if (/coalesce\(sum\(v\.balance\), 0\)/.test(sql)) {
+      const isCash = /v_cash_by_entity_quarter/.test(sql);
+      return Promise.resolve({ rows: [{
+        total: isCash ? '4900000.00' : '210000000.00',
+        n: isCash ? 152 : 51,
+        all_verified: false,
+      }] });
+    }
+    if (/count\(\*\)::int as n/.test(sql)) return Promise.resolve({ rows: [{ n: CASH_ROWS.length }] });
     if (/from public\.loan\b|count\(distinct loan_id\)/.test(sql)) {
       return Promise.resolve({ rows: [{ loans: 75, with_balance: 54 }] });
     }
@@ -287,6 +302,120 @@ function req(server, method, url) {
       'both figures are present and separate');
     const c = Number(j.current.total_cash), d = Number(j.current.total_debt);
     assert.ok(!Object.values(j.current).some(v => Number(v) === c + d), 'no field equals cash + debt');
+  });
+
+  /* 8b. Brand exclusion. Leadli and Folio are out everywhere, and the match is
+         on a word boundary — a plain %folio% also matches "Portfolio Reserve"
+         and would drop real LeavenWealth money out of every total with nothing
+         on screen to say so. */
+  for (const tab of ['cash', 'debt', 'loans', 'accounts']) {
+    await checkAsync('the ' + tab + ' listing excludes leadli and folio', async () => {
+      seen.length = 0;
+      await get('/api/financials/' + tab + '?as_of=2026-06-30');
+      const s = seen.find(x => /select v\.\* from/.test(x.sql));
+      assert.ok(s, 'the listing ran');
+      assert.ok(/!~\*/.test(s.sql), 'no name exclusion in: ' + s.sql.slice(0, 300));
+      const re = s.params.find(p => typeof p === 'string' && p.indexOf('leadli') >= 0);
+      assert.ok(re, 'the exclusion pattern was not bound');
+      assert.ok(re.indexOf('\\y') === 0 && /\\y$/.test(re),
+        'the pattern is not word-bounded: ' + JSON.stringify(re));
+    });
+  }
+
+  check('the exclusion pattern keeps Portfolio and drops Folio', () => {
+    /* Postgres \y is a word boundary; the JS equivalent is \b. Same semantics,
+       and this is the assertion that would have caught a naive %folio%. */
+    const js = new RegExp('\\b(leadli|folio)\\b', 'i');
+    assert.strictEqual(js.test('Portfolio Reserve'), false, 'Portfolio Reserve must survive');
+    assert.strictEqual(js.test('Portfolio Loan Escrow'), false, 'Portfolio Loan Escrow must survive');
+    assert.strictEqual(js.test('Folio Excel Ops'), true, 'Folio Excel must be excluded');
+    assert.strictEqual(js.test('Leadli AI Operating'), true, 'Leadli must be excluded');
+  });
+
+  await checkAsync('a NULL company survives the company test rather than being dropped', async () => {
+    seen.length = 0;
+    await get('/api/financials/accounts');
+    const s = seen.find(x => /select v\.\* from/.test(x.sql));
+    assert.ok(/company_id is null or not \(/.test(s.sql),
+      'expected "is null or not in", got: ' + s.sql.slice(0, 400));
+  });
+
+  await checkAsync('the filter option lists exclude the same brands as the rows', async () => {
+    seen.length = 0;
+    await get('/api/financials/filters?force=1');
+    const deals = seen.find(x => /from public\.deal d\b/.test(x.sql));
+    assert.ok(deals, 'the deals option query ran');
+    assert.ok(/d\.name !~\*/.test(deals.sql), 'deals are not brand-filtered');
+    const inst = seen.find(x => /coalesce\(fa\.institution/.test(x.sql));
+    assert.ok(/!~\*/.test(inst.sql), 'institutions are not brand-filtered');
+  });
+
+  /* 8c. The removed controls. */
+  await checkAsync('there is no verified filter: passing one changes nothing', async () => {
+    seen.length = 0;
+    await get('/api/financials/cash?as_of=2026-06-30&verified[]=true');
+    const s = seen.find(x => /select v\.\* from/.test(x.sql));
+    assert.ok(!/v\.is_verified\s*=\s*any/.test(s.sql), 'a verified filter reached the SQL');
+  });
+
+  await checkAsync('there is no brand filter: passing one changes nothing', async () => {
+    seen.length = 0;
+    await get('/api/financials/cash?as_of=2026-06-30&company[]=c0000000-0000-4000-8000-000000000003');
+    const s = seen.find(x => /select v\.\* from/.test(x.sql));
+    assert.ok(!/company_id = any/.test(s.sql) || /is null or not/.test(s.sql),
+      'a brand filter reached the SQL: ' + s.sql.slice(0, 300));
+  });
+
+  check('no tab still lists a Verified column', () => {
+    for (const key of Object.keys(fin.TABS)) {
+      for (const [col] of fin.TABS[key].columns) {
+        assert.notStrictEqual(col, 'is_verified', key + ' still shows the Verified column');
+      }
+    }
+  });
+
+  await checkAsync('is_verified still rides on every export as provenance', async () => {
+    /* Removed from the screen, kept in the file. A figure that leaves the
+       system without its draft flag gets quoted back as fact. */
+    const r = await get('/api/financials/export?tab=cash&format=csv&as_of=2026-06-30');
+    const header = r.body.toString('utf8').split('\n').find(l => l && l[0] !== '#');
+    assert.ok(header.indexOf('Verified') >= 0, 'the export dropped its draft flag: ' + header);
+  });
+
+  /* 8d. The custom date control resolves onto a real snapshot. */
+  await checkAsync('an arbitrary date resolves to the latest snapshot on or before it', async () => {
+    const r = await get('/api/financials/summary?as_of=2026-08-15');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.ok(j.current, 'a snapshot was resolved');
+    assert.strictEqual(j.current.resolved, '2026-06-30', 'got ' + j.current.resolved);
+    assert.strictEqual(j.current.requested, '2026-08-15');
+    assert.strictEqual(j.current.exact, false, 'the response should say it was not an exact date');
+  });
+
+  await checkAsync('a date before the first snapshot resolves to nothing, not forward', async () => {
+    const r = await get('/api/financials/summary?as_of=2020-01-01');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.strictEqual(j.current, null,
+      'a date earlier than any snapshot must not borrow a later balance');
+  });
+
+  await checkAsync('an exact snapshot date is reported as exact', async () => {
+    const r = await get('/api/financials/summary?as_of=2026-03-31');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.strictEqual(j.current.resolved, '2026-03-31');
+    assert.strictEqual(j.current.exact, true);
+  });
+
+  await checkAsync('the tiles come from the excluded relations, not v_cash_debt_summary', async () => {
+    /* Reading that view would put Leadli and Folio money in the tiles above a
+       table that excludes them: two numbers on one screen, both labelled Total
+       Cash, disagreeing. */
+    seen.length = 0;
+    await get('/api/financials/summary?as_of=2026-06-30');
+    assert.ok(!seen.some(x => /v_cash_debt_summary/.test(x.sql)),
+      'the summary view was read after all');
+    assert.ok(seen.some(x => /coalesce\(sum\(v\.balance\), 0\)/.test(x.sql) && /v_cash_by_entity_quarter/.test(x.sql)),
+      'cash was not aggregated from the cash view');
   });
 
   /* 9. Export: the file is what the caller was looking at. */

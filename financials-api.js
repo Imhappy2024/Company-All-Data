@@ -129,7 +129,25 @@ async function loadCaps() {
       });
     }
   }
-  return { caps, problems, at: Date.now() };
+  /* Resolved by name rather than hardcoded, so a renamed or re-seeded company
+     still resolves. If it comes back empty the name test still applies on its
+     own, and problems[] says the company test is doing nothing. */
+  let excludedCompanyIds = [];
+  try {
+    const brands = await q('select id, name from public.company where tenant_id = $1 and name ~* $2',
+                          [TENANT_ID, BRAND_EXCLUDE_RE]);
+    excludedCompanyIds = brands.map(r => r.id);
+    if (!excludedCompanyIds.length) {
+      problems.push({
+        relation: 'company', kind: 'no_excluded_brands',
+        detail: 'No company matched leadli/folio, so brand exclusion is running on name matching alone.',
+      });
+    }
+  } catch (err) {
+    problems.push({ relation: 'company', kind: 'exclude_lookup_failed', detail: err.message });
+  }
+
+  return { caps, problems, excludedCompanyIds, at: Date.now() };
 }
 
 function caps() {
@@ -187,12 +205,6 @@ function uuidParam(req, name) {
   return arrayParam(req, name).filter(v => UUID_RE.test(v));
 }
 
-function boolParam(req, name) {
-  return arrayParam(req, name)
-    .map(v => (v === 'true' ? true : v === 'false' ? false : null))
-    .filter(v => v !== null);
-}
-
 function numParam(v) {
   if (v === undefined || v === null || v === '') return null;
   const n = Number(v);
@@ -205,7 +217,8 @@ function parseFilters(req) {
   const asOf = ISO_DATE.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
   return {
     asOf,
-    company: uuidParam(req, 'company'),
+    /* No `company` (Brand) filter. Deal and Entity already scope to one
+       brand, and their option lists name it beside each row. */
     deal: uuidParam(req, 'deal'),
     entity: uuidParam(req, 'entity'),
     account: uuidParam(req, 'account'),
@@ -214,7 +227,10 @@ function parseFilters(req) {
     type: arrayParam(req, 'type'),
     kind: arrayParam(req, 'kind').filter(v => v === 'bank' || v === 'loan'),
     cashSource: arrayParam(req, 'cash_source'),
-    verified: boolParam(req, 'verified'),
+    /* No `verified` filter. Every one of the 441 balance rows is
+       is_verified = false, so the control had exactly one useful setting and
+       one that matched nothing. The draft banner carries the caveat instead,
+       and is_verified still rides on every export — see PROVENANCE. */
     min: numParam(req.query.min),
     max: numParam(req.query.max),
     maturityBefore: ISO_DATE.test(String(req.query.maturity_before || '')) ? String(req.query.maturity_before) : null,
@@ -239,7 +255,7 @@ const TABS = {
       ['institution', 'Institution'], ['account_number_last4', 'Last 4'],
       ['account_purpose', 'Account Purpose'], ['account_type', 'Account Type'],
       ['cash_source', 'Cash Source'], ['as_of_date', 'As Of Date'],
-      ['balance', 'Balance'], ['is_verified', 'Verified'], ['source', 'Source'],
+      ['balance', 'Balance'], ['source', 'Source'],
     ],
     money: ['balance'],
     dates: ['as_of_date'],
@@ -253,7 +269,7 @@ const TABS = {
     columns: [
       ['deal_name', 'Deal'], ['entity', 'Entity'], ['lender', 'Lender'],
       ['account_name', 'Account Name'], ['account_number_last4', 'Last 4'],
-      ['as_of_date', 'As Of Date'], ['balance', 'Balance'], ['is_verified', 'Verified'],
+      ['as_of_date', 'As Of Date'], ['balance', 'Balance'],
     ],
     money: ['balance'],
     dates: ['as_of_date'],
@@ -268,7 +284,7 @@ const TABS = {
       ['deal_name', 'Deal'], ['entity', 'Entity'], ['loan_label', 'Loan'], ['lender', 'Lender'],
       ['as_of_date', 'As Of Date'], ['balance', 'Balance'], ['prior_balance', 'Prior Balance'],
       ['principal_paid', 'Principal Paid'], ['maturity_date', 'Maturity Date'],
-      ['interest_rate', 'Interest Rate'], ['dscr', 'DSCR'], ['is_verified', 'Verified'],
+      ['interest_rate', 'Interest Rate'], ['dscr', 'DSCR'],
     ],
     money: ['balance', 'prior_balance', 'principal_paid'],
     dates: ['as_of_date', 'maturity_date'],
@@ -313,6 +329,78 @@ function scrub(row) {
 /* The cardinality(...) = 0 or ... pattern is what makes "nothing selected" mean
    "all" without branching in application code, and it is why no code path here
    can emit an empty IN (). */
+/* ---- brand exclusion -----------------------------------------------------
+
+   This screen is LeavenWealth's, so Leadli AI and Folio Excel are excluded
+   everywhere: the tables, the tiles, the filter option lists and the exports.
+   There is no toggle. A control that could put them back would make every
+   figure on the page mean two different things depending on a checkbox nobody
+   would remember setting.
+
+   The match is on a WORD BOUNDARY, and that is the whole design decision here.
+   A plain '%folio%' also matches "Portfolio Reserve" and "Portfolio Loan
+   Escrow" — entirely plausible account names in a property company — and would
+   drop real LeavenWealth money out of every total with nothing on screen to
+   say it had happened. \y is Postgres's word boundary; ~* is case-insensitive.
+
+   Two independent tests, because either one alone leaks:
+
+     - by COMPANY, which catches a Leadli entity whose own name says nothing
+       about Leadli. The ids are resolved by name at boot rather than
+       hardcoded, so a renamed or re-seeded company still resolves.
+     - by NAME, which catches a row hanging off a NULL company_id — and a row
+       with no company is exactly the one the company test cannot see.
+
+   A row is kept only if it passes both. */
+
+const BRAND_EXCLUDE_RE = '\\y(leadli|folio)\\y';
+
+/* Which columns the ALIASED relation exposes. For the views this is
+   intersected with what information_schema actually reports; the accounts tab
+   reads a subquery (see relationFor) whose aliases information_schema has
+   never heard of, so its list stands on its own. */
+const REL_TEXT_COLS = {
+  v_cash_by_entity_quarter:  ['entity', 'deal_name', 'account_name', 'institution'],
+  v_debt_by_account_quarter: ['entity', 'deal_name', 'account_name', 'lender'],
+  v_debt_by_quarter:         ['entity', 'deal_name', 'loan_label', 'lender'],
+  financial_account:         ['entity', 'deal_name', 'account_name', 'institution'],
+};
+const REL_IS_SUBQUERY = { financial_account: true };
+
+function brandExclusion(rel, c, P) {
+  const out = [];
+  const ids = c.excludedCompanyIds || [];
+  const sub = REL_IS_SUBQUERY[rel];
+  const exposes = col => sub || has(c, rel, col);
+
+  if (ids.length) {
+    if (exposes('company_id')) {
+      /* Written as "is null OR not in the list" rather than <>, because a NULL
+         company_id has to survive. "Not one of these" and "has no value" are
+         different claims, and SQL quietly turns the second into false. */
+      out.push('(v.company_id is null or not (v.company_id = any(' + P(ids) + '::uuid[])))');
+    } else if (exposes('account_id')) {
+      out.push('not exists (select 1 from public.financial_account fa\n' +
+               '        left join public.entity e on e.id = fa.owner_entity_id\n' +
+               '        left join public.deal   d on d.id = coalesce(fa.deal_id, e.deal_id)\n' +
+               '       where fa.id = v.account_id\n' +
+               '         and coalesce(e.company_id, d.company_id) = any(' + P(ids) + '::uuid[]))');
+    } else if (exposes('entity')) {
+      /* v_debt_by_account_quarter carries names and no ids, so the company
+         test has to go through the name. Imperfect if two entities share one;
+         the name test below is what covers that gap. */
+      out.push('not exists (select 1 from public.entity e\n' +
+               '       where e.name = v.entity and e.company_id = any(' + P(ids) + '::uuid[]))');
+    }
+  }
+
+  for (const col of (REL_TEXT_COLS[rel] || [])) {
+    if (!exposes(col)) continue;
+    out.push('coalesce(v.' + col + ", '') !~* " + P(BRAND_EXCLUDE_RE));
+  }
+  return out;
+}
+
 function buildWhere(tab, c, f) {
   const rel = tab.rel;
   const where = [];
@@ -320,6 +408,8 @@ function buildWhere(tab, c, f) {
   const P = v => { params.push(v); return '$' + params.length; };
 
   if (has(c, rel, 'tenant_id')) where.push(`v.tenant_id = ${P(TENANT_ID)}`);
+
+  for (const clause of brandExclusion(rel, c, P)) where.push(clause);
 
   if (tab.hasDate && f.asOf && has(c, rel, 'as_of_date')) where.push(`v.as_of_date = ${P(f.asOf)}::date`);
 
@@ -338,14 +428,6 @@ function buildWhere(tab, c, f) {
       /* The view exposes only the name. Resolving ids to names is a guess when
          two offerings share one, so it is recorded rather than done silently. */
       where.push(`v.deal_name = any(select name from public.deal where tenant_id = ${P(TENANT_ID)} and id = any(${P(f.deal)}::uuid[]))`);
-    }
-  }
-
-  if (f.company.length) {
-    if (accountScoped) where.push(dealExists('e.company_id', f.company));
-    else if (has(c, rel, 'company_id')) where.push(`v.company_id = any(${P(f.company)}::uuid[])`);
-    else if (has(c, rel, 'entity')) {
-      where.push(`v.entity = any(select name from public.entity where tenant_id = ${P(TENANT_ID)} and company_id = any(${P(f.company)}::uuid[]))`);
     }
   }
 
@@ -380,7 +462,6 @@ function buildWhere(tab, c, f) {
   if (f.type.length && has(c, rel, 'account_type')) where.push(`v.account_type = any(${P(f.type)}::text[])`);
   if (f.kind.length && has(c, rel, 'account_kind')) where.push(`v.account_kind = any(${P(f.kind)}::text[])`);
   if (f.cashSource.length && has(c, rel, 'cash_source')) where.push(`v.cash_source = any(${P(f.cashSource)}::text[])`);
-  if (f.verified.length && has(c, rel, 'is_verified')) where.push(`v.is_verified = any(${P(f.verified)}::bool[])`);
 
   if (has(c, rel, 'balance')) {
     if (f.min !== null) where.push(`v.balance >= ${P(f.min)}`);
@@ -421,59 +502,96 @@ function orderBy(tab, req) {
 
 /* ---- filter options ------------------------------------------------------ */
 
+/* The same exclusion the tables use, applied to `financial_account fa`.
+   The option lists have to agree with the rows or the screen contradicts
+   itself: a Deal offered in a dropdown that returns nothing when picked reads
+   as a broken filter, not as an excluded brand.
+   $1 tenant, $2 excluded company ids, $3 the word-boundary pattern. */
+const ACCOUNT_ELIGIBLE = `
+  and not exists (select 1 from public.entity e2
+       left join public.deal d2 on d2.id = coalesce(fa.deal_id, e2.deal_id)
+      where e2.id = fa.owner_entity_id
+        and coalesce(e2.company_id, d2.company_id) = any($2::uuid[]))
+  and coalesce(fa.name, '') !~* $3
+  and coalesce(fa.institution, '') !~* $3
+  and not exists (select 1 from public.entity e3 where e3.id = fa.owner_entity_id and e3.name ~* $3)
+  and not exists (select 1 from public.deal   d3 where d3.id = fa.deal_id          and d3.name ~* $3)`;
+
 let filtersCache = null;
 
 async function buildFilterOptions() {
   const c = await caps();
   const T = [TENANT_ID];
+  const X = [TENANT_ID, c.excludedCompanyIds || [], BRAND_EXCLUDE_RE];
 
-  const [quarters, deals, entities, companies, institutions, purposes, types, kinds, sources] = await Promise.all([
+  const [quarters, deals, entities, institutions, purposes, types, kinds, sources] = await Promise.all([
+    /* Every snapshot date in the data. With the custom date control these are
+       the pickable values rather than a list of quarters — see the /summary
+       route for how an arbitrary date resolves onto one of them. */
     q(`select distinct as_of_date,
               extract(year from as_of_date)::int as year,
               extract(quarter from as_of_date)::int as quarter
          from public.account_balance where tenant_id = $1
         order by as_of_date desc`, T),
+
     q(`select d.id, d.name, c.name as company
          from public.deal d
          left join public.company c on c.id = d.company_id
         where d.tenant_id = $1
-          and exists (select 1 from public.financial_account fa where fa.deal_id = d.id and fa.tenant_id = $1)
-        order by d.name`, T),
+          and d.name !~* $3
+          and (d.company_id is null or not (d.company_id = any($2::uuid[])))
+          and exists (select 1 from public.financial_account fa
+                       where fa.deal_id = d.id and fa.tenant_id = $1 ${ACCOUNT_ELIGIBLE})
+        order by d.name`, X),
+
     q(`select e.id, e.name, c.name as company
          from public.entity e
          left join public.company c on c.id = e.company_id
         where e.tenant_id = $1
-          and exists (select 1 from public.financial_account fa where fa.owner_entity_id = e.id and fa.tenant_id = $1)
-        order by e.name`, T),
-    q(`select id, name from public.company where tenant_id = $1 and is_active order by name`, T),
-    q(`select coalesce(institution, '(none)') as value, count(*)::int as accounts
-         from public.financial_account where tenant_id = $1 group by 1 order by 2 desc, 1`, T),
-    q(`select account_purpose as value, count(*)::int as accounts
-         from public.financial_account where tenant_id = $1 and account_purpose is not null
-        group by 1 order by 2 desc, 1`, T),
-    q(`select account_type as value, count(*)::int as accounts
-         from public.financial_account where tenant_id = $1 and account_type is not null
-        group by 1 order by 2 desc, 1`, T),
-    q(`select account_kind as value, count(*)::int as accounts
-         from public.financial_account where tenant_id = $1 and account_kind is not null
-        group by 1 order by 1`, T),
-    q(`select cash_source as value, count(*)::int as accounts
-         from public.financial_account where tenant_id = $1 and cash_source is not null
-        group by 1 order by 2 desc, 1`, T),
+          and e.name !~* $3
+          and (e.company_id is null or not (e.company_id = any($2::uuid[])))
+          and exists (select 1 from public.financial_account fa
+                       where fa.owner_entity_id = e.id and fa.tenant_id = $1 ${ACCOUNT_ELIGIBLE})
+        order by e.name`, X),
+
+    q(`select coalesce(fa.institution, '(none)') as value, count(*)::int as accounts
+         from public.financial_account fa where fa.tenant_id = $1 ${ACCOUNT_ELIGIBLE}
+        group by 1 order by 2 desc, 1`, X),
+    q(`select fa.account_purpose as value, count(*)::int as accounts
+         from public.financial_account fa
+        where fa.tenant_id = $1 and fa.account_purpose is not null ${ACCOUNT_ELIGIBLE}
+        group by 1 order by 2 desc, 1`, X),
+    q(`select fa.account_type as value, count(*)::int as accounts
+         from public.financial_account fa
+        where fa.tenant_id = $1 and fa.account_type is not null ${ACCOUNT_ELIGIBLE}
+        group by 1 order by 2 desc, 1`, X),
+    q(`select fa.account_kind as value, count(*)::int as accounts
+         from public.financial_account fa
+        where fa.tenant_id = $1 and fa.account_kind is not null ${ACCOUNT_ELIGIBLE}
+        group by 1 order by 1`, X),
+    q(`select fa.cash_source as value, count(*)::int as accounts
+         from public.financial_account fa
+        where fa.tenant_id = $1 and fa.cash_source is not null ${ACCOUNT_ELIGIBLE}
+        group by 1 order by 2 desc, 1`, X),
   ]);
 
+  const dates = quarters.map(r => ({
+    as_of: String(r.as_of_date).slice(0, 10),
+    year: r.year, quarter: r.quarter,
+    label: `Q${r.quarter} ${r.year}`,
+  }));
+
   return {
-    quarters: quarters.map(r => ({
-      as_of: String(r.as_of_date).slice(0, 10),
-      year: r.year, quarter: r.quarter,
-      label: `Q${r.quarter} ${r.year}`,
-    })),
-    deals, entities, companies,
+    quarters: dates,
+    /* The bounds the date control clamps to. Offering a date outside the range
+       the data covers invites a reading of "nothing that day" when the truth
+       is "nothing was ever recorded that day". */
+    date_range: dates.length
+      ? { min: dates[dates.length - 1].as_of, max: dates[0].as_of }
+      : null,
+    deals, entities,
     institutions, purposes, types, kinds, cash_sources: sources,
-    /* Both, always. A UI that only offers `true` here would be offering a
-       filter that currently matches nothing, on a dataset where every row is
-       false — which reads as a broken filter rather than as an empty result. */
-    verified: [{ value: false, label: 'Draft' }, { value: true, label: 'Verified' }],
+    excluded_brands: (c.excludedCompanyIds || []).length,
     problems: c.problems,
     generatedAt: new Date().toISOString(),
   };
@@ -541,7 +659,6 @@ function describeFilters(f, names) {
     if (!vals || !vals.length) return;
     bits.push(label + ': ' + vals.map(v => (map && map.get(v)) || v).join(', '));
   };
-  add('Brands', f.company, names.company);
   add('Deals', f.deal, names.deal);
   add('Entities', f.entity, names.entity);
   add('Institutions', f.institution);
@@ -549,7 +666,6 @@ function describeFilters(f, names) {
   add('Type', f.type);
   add('Kind', f.kind);
   add('Cash source', f.cashSource);
-  if (f.verified.length) bits.push('Verified: ' + f.verified.map(v => (v ? 'Verified' : 'Draft')).join(', '));
   if (f.min !== null) bits.push('Min balance: ' + f.min);
   if (f.max !== null) bits.push('Max balance: ' + f.max);
   if (f.maturityBefore) bits.push('Maturity before: ' + f.maturityBefore);
@@ -559,9 +675,8 @@ function describeFilters(f, names) {
 /* Names for the summary line, so it reads "Deals: Maples, Doral" rather than
    back-to-back uuids nobody can check. */
 async function idNames(f) {
-  const out = { company: new Map(), deal: new Map(), entity: new Map() };
+  const out = { deal: new Map(), entity: new Map() };
   const jobs = [];
-  if (f.company.length) jobs.push(q(`select id, name from public.company where tenant_id = $1 and id = any($2::uuid[])`, [TENANT_ID, f.company]).then(r => r.forEach(x => out.company.set(x.id, x.name))));
   if (f.deal.length) jobs.push(q(`select id, name from public.deal where tenant_id = $1 and id = any($2::uuid[])`, [TENANT_ID, f.deal]).then(r => r.forEach(x => out.deal.set(x.id, x.name))));
   if (f.entity.length) jobs.push(q(`select id, name from public.entity where tenant_id = $1 and id = any($2::uuid[])`, [TENANT_ID, f.entity]).then(r => r.forEach(x => out.entity.set(x.id, x.name))));
   await Promise.all(jobs);
@@ -587,9 +702,9 @@ function exportValue(tab, key, row, meta) {
 function exportFilename(tabKey, f, format) {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const scope = f.asOf || 'all';
-  const filtered = (f.company.length || f.deal.length || f.entity.length || f.institution.length ||
+  const filtered = (f.deal.length || f.entity.length || f.institution.length ||
                     f.purpose.length || f.type.length || f.kind.length || f.cashSource.length ||
-                    f.verified.length || f.min !== null || f.max !== null || f.maturityBefore)
+                    f.min !== null || f.max !== null || f.maturityBefore)
     ? '_filtered' : '';
   return `leavenwealth_${tabKey}_${scope}${filtered}_${stamp}.${format}`;
 }
@@ -629,41 +744,81 @@ function financialsRoutes() {
     } catch (err) { fail(res, err); }
   });
 
-  /* The tiles. Cash and debt are returned as separate fields and there is no
-     combined total in the payload, because there is no correct one. */
+  /* The tiles.
+
+     They are computed from the SAME relations and the SAME brand exclusion the
+     tables use, rather than read from v_cash_debt_summary. That view has no
+     brand dimension, so reading it would put Leadli and Folio money in the
+     tiles above a table that excludes them — two numbers on one screen, both
+     labelled Total Cash, disagreeing. Expect these figures to sit BELOW the
+     v_cash_debt_summary values in the brief for exactly that reason; that is
+     the exclusion working, not a fault.
+
+     Cash and debt are returned as separate fields. There is no combined total
+     in the payload because there is no correct one. */
   r.get('/summary', async (req, res) => {
     try {
       const c = await caps();
-      const asOf = ISO_DATE.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
+      const wanted = ISO_DATE.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
 
-      let rows = [];
-      if (c.caps['v_cash_debt_summary'] && c.caps['v_cash_debt_summary'].size) {
-        const tenantW = has(c, 'v_cash_debt_summary', 'tenant_id') ? 'where tenant_id = $1' : '';
-        rows = await q(`select * from public.v_cash_debt_summary ${tenantW} order by year desc, quarter desc`,
-                       tenantW ? [TENANT_ID] : []);
+      const dates = (await q(
+        `select distinct as_of_date from public.account_balance
+          where tenant_id = $1 order by as_of_date desc`, [TENANT_ID]
+      )).map(r2 => isoDate(r2.as_of_date));
+
+      /* An arbitrary date resolves onto the latest snapshot on or before it.
+         Balances exist on two days only, so a date control that demanded an
+         exact match would be a control that is wrong almost every time it is
+         used. Picking a date before the first snapshot resolves to nothing
+         rather than silently jumping forward to one — "no data yet at that
+         date" is a true answer and inventing a later balance is not. */
+      const asOf = wanted
+        ? (dates.find(d => d <= wanted) || null)
+        : (dates[0] || null);
+
+      const agg = async (tabKey) => {
+        const tab = TABS[tabKey];
+        const w = buildWhere(tab, c, { asOf, deal: [], entity: [], account: [], institution: [],
+                                       purpose: [], type: [], kind: [], cashSource: [],
+                                       min: null, max: null, maturityBefore: null });
+        const idCol = has(c, tab.rel, 'account_id') ? 'count(distinct v.account_id)::int' : 'count(*)::int';
+        const rows = await q(
+          `select coalesce(sum(v.balance), 0)::numeric as total,
+                  ${idCol} as n,
+                  coalesce(bool_and(v.is_verified), false) as all_verified
+             from ${relationFor(tabKey)}
+             ${w.sql}`, w.params);
+        return rows[0] || { total: null, n: 0, all_verified: false };
+      };
+
+      let current = null;
+      if (asOf) {
+        const [cash, debt] = await Promise.all([agg('cash'), agg('debt')]);
+        current = {
+          as_of_date: asOf,
+          year: Number(asOf.slice(0, 4)),
+          quarter: Math.ceil(Number(asOf.slice(5, 7)) / 3),
+          total_cash: cash.total,
+          total_debt: debt.total,
+          cash_accounts: cash.n,
+          loan_accounts: debt.n,
+          all_verified: cash.all_verified && debt.all_verified,
+          /* So the screen can say which snapshot an arbitrary date landed on,
+             rather than quietly showing figures from a different day. */
+          requested: wanted,
+          resolved: asOf,
+          exact: !wanted || wanted === asOf,
+        };
       }
 
-      /* The selector speaks in as-of dates (2026-06-30) because that is what
-         account_balance holds; this view is keyed by year + quarter and has no
-         as_of_date column at all. Deriving the quarter from the date is the
-         join. Matching on a column the view does not have returned null for
-         every quarter, and the tiles rendered "no data" over data. */
-      const pick = asOf ? (
-        rows.find(x => isoDate(x.as_of_date) === asOf) ||
-        rows.find(x => x.year === Number(asOf.slice(0, 4)) &&
-                       x.quarter === Math.ceil(Number(asOf.slice(5, 7)) / 3)) ||
-        null
-      ) : (rows[0] || null);
-
       res.json({
-        quarters: rows.map(x => ({
-          year: x.year, quarter: x.quarter, label: `Q${x.quarter} ${x.year}`,
-          as_of: isoDate(x.as_of_date) || null,
-          total_cash: x.total_cash, total_debt: x.total_debt,
-          cash_accounts: x.cash_accounts, loan_accounts: x.loan_accounts,
-          all_verified: x.all_verified,
+        quarters: dates.map(d => ({
+          as_of: d, year: Number(d.slice(0, 4)), quarter: Math.ceil(Number(d.slice(5, 7)) / 3),
+          label: 'Q' + Math.ceil(Number(d.slice(5, 7)) / 3) + ' ' + d.slice(0, 4),
         })),
-        current: pick,
+        date_range: dates.length ? { min: dates[dates.length - 1], max: dates[0] } : null,
+        current,
+        requested: wanted,
         problems: c.problems,
       });
     } catch (err) { fail(res, err); }

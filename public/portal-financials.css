@@ -220,16 +220,6 @@
    different claims and must never render identically. */
 .fin-nil { color: var(--ink-4); }
 
-/* Every balance is a draft today, so this is on every row. It is a state, not
-   decoration — do not hide it when the list gets long. */
-.fin-flag {
-  display: inline-flex; align-items: center; gap: 4px;
-  font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase;
-  padding: 1.5px 6px; border-radius: 3px; white-space: nowrap;
-}
-.fin-flag.draft { background: var(--warn-soft); color: var(--warn-ink); border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
-.fin-flag.ok { background: var(--good-soft); color: var(--good-ink); border: 1px solid color-mix(in srgb, var(--good) 28%, transparent); }
-
 .fin-foot {
   display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 11px 13px; border-top: 1px solid var(--border); background: var(--panel-2);
@@ -264,3 +254,18 @@
   border-radius: var(--r-sm); font-size: 12.5px; color: var(--dim);
 }
 .fin-note b { color: var(--text); font-weight: 600; }
+
+/* The date control is free-form, so it lands on dates the data does not have.
+   This says which snapshot it resolved to, and only when that differs from the
+   date asked for - repeating a date the reader just picked is noise. */
+.fin-resolved {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dimmer);
+  padding: 6px 9px; border-radius: var(--r-sm);
+  background: var(--panel-2); border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.fin-resolved.warn { color: var(--warn-ink); background: var(--warn-soft);
+  border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
+
+input.fin-qsel { font-family: var(--mono); }

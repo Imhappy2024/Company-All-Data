@@ -765,16 +765,70 @@ Coverage is printed beside the loan total (**54 of 75 loans** have any balance
 row) because a bare total implies the other 21 are paid off. They are
 unpopulated.
 
-### Every balance is a draft
-All 441 rows are `is_verified = false`. The banner is persistent and **not
-dismissible**, and the per-row flag renders on every row. `verified` is offered
-as a filter with **both** values even though `true` currently matches nothing —
-offering only the value that matches would look like a broken filter.
+### Every balance is a draft — banner only, no column, no filter
+All 441 rows are `is_verified = false`. There is **no Verified column and no
+Verified filter**: on a dataset where the value is false everywhere, a column
+repeated it 441 times and a filter had one setting matching everything and one
+matching nothing. The persistent, non-dismissible banner carries the caveat for
+the whole screen.
 
-### The grain is quarterly. There is no "current cash"
-Two balance dates exist: `2026-03-31` and `2026-06-30`. Nothing is labelled
-Today or Current Balance, and the quarter selector has **no "all quarters"
-option** — mixing the two dates double-counts every account.
+`is_verified` **still rides on every export** (via `PROVENANCE`), because that
+is where a figure leaves the system and the caveat has to travel with it.
+
+### Leadli and Folio are excluded, on a WORD BOUNDARY
+This screen is LeavenWealth's. Leadli AI and Folio Excel are excluded from the
+tables, the tiles, the filter option lists and the exports, with no toggle — a
+control that could put them back would make every figure mean two things
+depending on a checkbox nobody remembers setting.
+
+**The word boundary is the whole design decision.** A plain `%folio%` also
+matches "Portfolio Reserve" and "Portfolio Loan Escrow" — entirely plausible
+account names here — and would drop real LeavenWealth money out of every total
+with nothing on screen to say it happened. The pattern is
+`y(leadli|folio)y` with `~*`.
+
+Two independent tests, because either alone leaks:
+- **by company**, catching a Leadli entity whose own name says nothing about
+  Leadli. The ids are resolved *by name at boot*, not hardcoded, so a renamed
+  or re-seeded company still resolves.
+- **by name**, catching a row hanging off a NULL `company_id` — the one row the
+  company test cannot see.
+
+The company test is written `company_id is null or not (… = any(…))`, never
+`<>`: a NULL has to survive, and SQL quietly turns "not one of these" into
+false for it.
+
+There is also **no Brand filter**. Deal and Entity already scope to one brand and
+name it beside each option; a third control selecting the same rows another way
+is a way to contradict yourself.
+
+### The tiles do NOT come from `v_cash_debt_summary`
+They are aggregated from the same relations and the same exclusion the tables
+use. That view has no brand dimension, so reading it would put Leadli and Folio
+money in a tile above a table that excludes them — two numbers on one screen,
+both labelled Total Cash, disagreeing. **Expect the tiles to sit below the
+brief's figures** ($5,073,105.35 / $225,424,320.06); that is the exclusion
+working, not a fault.
+
+### The date control is free-form, and resolution happens in ONE place
+A date input, not a quarter dropdown. Balances exist on two days, so an input
+demanding an exact match would be wrong almost every time. **Any date resolves
+to the latest snapshot on or before it**, and the header says so whenever the
+date asked for is not one the data has.
+
+The browser resolves it and every request — rows, tiles, export — carries the
+**resolved** date. Sending the raw date instead would let the tiles resolve
+server-side while the table matched exactly, showing a total over an empty
+table. The server applies the same rule for direct API callers.
+
+A date **before** the first snapshot resolves to nothing rather than jumping
+forward — "nothing had been recorded by then" is true, inventing a later balance
+is not. When nothing resolves, the client **does not fetch at all**: omitting
+`as_of` would make the server answer with every quarter at once, double-counting
+every account into a large but plausible-looking total.
+
+The URL and localStorage carry the **requested** date, not the resolved one, so
+a shared link means "as at this date" rather than "this particular row".
 
 ### `account_purpose`, not `account_type`
 `account_purpose` is free text holding the original source labels (Operating,
@@ -829,7 +883,7 @@ correctly, a `display` rule elsewhere won, and the panel stayed invisible with
 nothing in the console.
 
 ### Tests
-    node test/test-financials.js     # 37 checks, no database needed
+    node test/test-financials.js     # 52 checks, no database needed
 
 The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
 accounts, 154 Operating) are Jay's to run. What this pins is everything that

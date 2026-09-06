@@ -13,8 +13,13 @@
       primary control and every figure on the page inherits it.
 
    2. Every balance is a DRAFT. All 441 rows are is_verified = false, from a
-      source marked DRAFT REQUIRES MITCH HAGEN VERIFICATION. The banner is
-      persistent and not dismissible, and the per-row flag renders on every row.
+      source marked DRAFT REQUIRES MITCH HAGEN VERIFICATION. There is no
+      Verified column and no Verified filter: on a dataset where the value is
+      false everywhere, a column repeating it 441 times said nothing and a
+      filter had one setting that matched everything and one that matched
+      nothing. The persistent, non-dismissible banner carries the caveat for
+      the whole screen instead, and is_verified still rides on every export,
+      where the figure leaves the system and the caveat has to travel with it.
 
    3. There are TWO debt numbers and they do not agree. v_debt_by_account_quarter
       reports ~$225.4M across 55 accounts; v_debt_by_quarter reports ~$15.2M
@@ -57,27 +62,30 @@ window.PortalFinancials = (function () {
      that the server will ignore is worse than not offering it: the chip says
      the view is filtered and the rows say otherwise. */
   var TAB_FILTERS = {
-    cash:     ['company', 'deal', 'entity', 'institution', 'purpose', 'type', 'cash_source', 'verified', 'range'],
-    debt:     ['company', 'deal', 'entity', 'institution', 'verified', 'range'],
-    loans:    ['company', 'deal', 'entity', 'institution', 'verified', 'range'],
-    accounts: ['company', 'deal', 'entity', 'institution', 'purpose', 'type', 'kind', 'cash_source']
+    cash:     ['deal', 'entity', 'institution', 'purpose', 'type', 'cash_source', 'range'],
+    debt:     ['deal', 'entity', 'institution', 'range'],
+    loans:    ['deal', 'entity', 'institution', 'range'],
+    accounts: ['deal', 'entity', 'institution', 'purpose', 'type', 'kind', 'cash_source']
   };
 
+  /* No Brand filter. Deal and Entity already scope to one brand, and the
+     option lists show each one's brand beside its name — which is what
+     actually disambiguates two similarly named entities. A third control
+     selecting the same rows a second way is a way to contradict yourself. */
   var FILTER_DEFS = [
-    { key: 'company',     label: 'Brand',        opts: 'companies',    idField: 'id',    nameField: 'name' },
     { key: 'deal',        label: 'Deal',         opts: 'deals',        idField: 'id',    nameField: 'name' },
     { key: 'entity',      label: 'Entity',       opts: 'entities',     idField: 'id',    nameField: 'name' },
     { key: 'institution', label: 'Institution',  opts: 'institutions', idField: 'value', nameField: 'value', count: 'accounts' },
     { key: 'purpose',     label: 'Purpose',      opts: 'purposes',     idField: 'value', nameField: 'value', count: 'accounts' },
     { key: 'type',        label: 'Type',         opts: 'types',        idField: 'value', nameField: 'value', count: 'accounts' },
     { key: 'kind',        label: 'Kind',         opts: 'kinds',        idField: 'value', nameField: 'value', count: 'accounts' },
-    { key: 'cash_source', label: 'Cash source',  opts: 'cash_sources', idField: 'value', nameField: 'value', count: 'accounts' },
-    { key: 'verified',    label: 'Verified',     opts: 'verified',     idField: 'value', nameField: 'label' }
+    { key: 'cash_source', label: 'Cash source',  opts: 'cash_sources', idField: 'value', nameField: 'value', count: 'accounts' }
   ];
 
   var S = {
     tab: 'debt',
-    asOf: null,
+    asOf: null,        /* the snapshot every request uses */
+    dateWanted: null,  /* what the reader actually typed */
     sel: {},              /* key -> array of selected values */
     min: '', max: '',
     sort: null, dir: null,
@@ -125,11 +133,6 @@ window.PortalFinancials = (function () {
 
   function fmtCell(key, row) {
     var v = row[key];
-    if (key === 'is_verified') {
-      return v
-        ? '<span class="fin-flag ok">verified</span>'
-        : '<span class="fin-flag draft">draft</span>';
-    }
     if (v === null || v === undefined || v === '') return nil();
     if (key === 'balance' || key === 'prior_balance' || key === 'principal_paid') return money(v);
     if (key === 'as_of_date' || key === 'maturity_date') return esc(dateOnly(v));
@@ -163,7 +166,7 @@ window.PortalFinancials = (function () {
       var k = decodeURIComponent(pair.slice(0, eq));
       var vRaw = pair.slice(eq + 1);
       if (k === 'fintab' && TAB_FILTERS[vRaw]) S.tab = vRaw;
-      else if (k === 'q') S.asOf = decodeURIComponent(vRaw);
+      else if (k === 'q') S.dateWanted = decodeURIComponent(vRaw);
       else if (k === 'min') S.min = decodeURIComponent(vRaw);
       else if (k === 'max') S.max = decodeURIComponent(vRaw);
       else if (S.sel[k]) {
@@ -177,7 +180,7 @@ window.PortalFinancials = (function () {
   function urlBits() {
     var out = [];
     if (S.tab) out.push('fintab=' + S.tab);
-    if (S.asOf) out.push('q=' + encodeURIComponent(S.asOf));
+    if (S.dateWanted) out.push('q=' + encodeURIComponent(S.dateWanted));
     FILTER_DEFS.forEach(function (d) {
       var v = S.sel[d.key];
       if (v && v.length) out.push(d.key + '=' + v.map(encodeURIComponent).join(','));
@@ -202,7 +205,7 @@ window.PortalFinancials = (function () {
   function saveLocal() {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
-        tab: S.tab, asOf: S.asOf, sel: S.sel, min: S.min, max: S.max
+        tab: S.tab, dateWanted: S.dateWanted, sel: S.sel, min: S.min, max: S.max
       }));
     } catch (e) { /* private window, or storage blocked — not worth reporting */ }
   }
@@ -213,7 +216,7 @@ window.PortalFinancials = (function () {
       if (!raw) return;
       var v = JSON.parse(raw);
       if (v.tab && TAB_FILTERS[v.tab]) S.tab = v.tab;
-      if (v.asOf) S.asOf = v.asOf;
+      if (v.dateWanted) S.dateWanted = v.dateWanted;
       if (v.min !== undefined) S.min = v.min;
       if (v.max !== undefined) S.max = v.max;
       if (v.sel) FILTER_DEFS.forEach(function (d) {
@@ -263,7 +266,10 @@ window.PortalFinancials = (function () {
     return getJson(API + '/filters').then(function (j) {
       S.options = j;
       S.problems = j.problems || [];
-      if (!S.asOf && j.quarters && j.quarters.length) S.asOf = j.quarters[0].as_of;
+      /* A date restored from the URL or localStorage is re-resolved against
+         the snapshots that actually exist now, not trusted as-is. */
+      if (S.dateWanted) S.asOf = resolveDate(S.dateWanted);
+      else if (!S.asOf && j.quarters && j.quarters.length) { S.asOf = j.quarters[0].as_of; S.dateWanted = S.asOf; }
       return j;
     }).catch(function (e) { S.optionsErr = e.message; return null; });
   }
@@ -281,7 +287,21 @@ window.PortalFinancials = (function () {
       .catch(function () { S.coverage = null; });
   }
 
+  /* Which tabs are meaningless without a snapshot date. Accounts is the
+     reference list and has no balances, so it is not one of them. */
+  var DATED_TABS = { cash: 1, debt: 1, loans: 1 };
+
   function loadRows() {
+    /* No resolved snapshot means the requested date is earlier than anything
+       recorded. Fetching anyway would omit as_of entirely, and the server
+       would answer with EVERY quarter at once - which double-counts every
+       account and reads as a suspiciously large but plausible total. An empty
+       table is the honest answer. */
+    if (DATED_TABS[S.tab] && !S.asOf) {
+      S.rows = []; S.total = 0; S.loading = false; S.error = null;
+      writeUrl(); saveLocal(); paint();
+      return Promise.resolve();
+    }
     S.loading = true; S.error = null;
     paint();
     var extra = { page: S.page, per_page: S.perPage };
@@ -323,23 +343,72 @@ window.PortalFinancials = (function () {
     return header() + draftBanner() + problems() + tiles() + filterBar() + chips() + tabs() + tabNote() + table();
   }
 
+  /* ---- the date control --------------------------------------------------
+
+     A free date input rather than a list of quarters. Balances exist on two
+     days only (2026-03-31 and 2026-06-30), so an input that demanded an exact
+     match would be wrong almost every time somebody used it. Any date resolves
+     to the LATEST SNAPSHOT ON OR BEFORE it, and the screen says so whenever the
+     date asked for is not a date the data has.
+
+     Resolving happens HERE, once, and every request — rows, tiles, export —
+     carries the resolved date. Sending the raw date instead would let the
+     tiles resolve it server-side while the table matched it exactly, and the
+     page would show a total over an empty table. The server applies the same
+     rule for direct API callers.
+
+     A date BEFORE the first snapshot resolves to nothing rather than jumping
+     forward. "Nothing had been recorded by then" is true; inventing a later
+     balance is not. */
+
+  function snapshots() {
+    return ((S.options && S.options.quarters) || []).map(function (x) { return x.as_of; });
+  }
+
+  function resolveDate(wanted) {
+    var all = snapshots();               /* newest first */
+    if (!all.length) return null;
+    if (!wanted) return all[0];
+    for (var i = 0; i < all.length; i++) if (all[i] <= wanted) return all[i];
+    return null;                          /* earlier than anything recorded */
+  }
+
   function header() {
-    var qs_ = (S.options && S.options.quarters) || [];
-    var opts = qs_.map(function (x) {
-      return '<option value="' + esc(x.as_of) + '"' + (x.as_of === S.asOf ? ' selected' : '') + '>' +
-        esc(x.label) + ' &middot; ' + esc(x.as_of) + '</option>';
-    }).join('');
-    /* No "All quarters" option. A balance without its as-of date is not a
-       figure anybody can act on, and mixing the two dates would double-count
-       every account. */
+    var all = snapshots();
+    var range = (S.options && S.options.date_range) || null;
+    var wanted = S.dateWanted || S.asOf || '';
+
+    var datalist = all.length
+      ? '<datalist id="fin-snapshots">' + all.map(function (d) {
+          return '<option value="' + esc(d) + '"></option>';
+        }).join('') + '</datalist>'
+      : '';
+
+    var input = '<input class="fin-qsel" type="date" id="fin-date" list="fin-snapshots"' +
+      ' value="' + esc(wanted) + '"' +
+      (range ? ' min="' + esc(range.min) + '" max="' + esc(range.max) + '"' : '') +
+      ' aria-label="As of date">';
+
+    /* Only shown when the answer differs from the question. Saying "resolved
+       to 2026-06-30" on a day the reader actually picked would be noise. */
+    var note = '';
+    if (S.dateWanted && S.asOf && S.dateWanted !== S.asOf) {
+      note = '<span class="fin-resolved">showing ' + esc(S.asOf) +
+             ' &mdash; nearest snapshot on or before ' + esc(S.dateWanted) + '</span>';
+    } else if (S.dateWanted && !S.asOf) {
+      note = '<span class="fin-resolved warn">nothing recorded on or before ' +
+             esc(S.dateWanted) + '</span>';
+    }
+
     return '' +
       '<div class="fin-head">' +
         '<div>' +
           '<h1 class="fin-title">Financials</h1>' +
-          '<p class="fin-sub">Cash &amp; debt &middot; quarterly snapshots</p>' +
+          '<p class="fin-sub">Cash &amp; debt &middot; LeavenWealth</p>' +
         '</div>' +
         '<div class="fin-headtools">' +
-          (opts ? '<select class="fin-qsel" id="fin-quarter">' + opts + '</select>' : '') +
+          note + input + datalist +
+          (all.length ? '<button class="fin-btn" id="fin-latest">Latest</button>' : '') +
           '<button class="fin-btn" id="fin-export-csv">Export CSV</button>' +
           '<button class="fin-btn" id="fin-export-xlsx">Export XLSX</button>' +
         '</div>' +
@@ -539,7 +608,9 @@ window.PortalFinancials = (function () {
         ? 'No rows match these filters. Clear one and try again.'
         : (S.tab === 'accounts'
             ? 'No accounts are recorded yet.'
-            : 'No balances were recorded for ' + esc(S.asOf || 'this quarter') + '.');
+            : (S.asOf
+                ? 'No balances were recorded on ' + esc(S.asOf) + '.'
+                : 'Nothing had been recorded on or before ' + esc(S.dateWanted || 'that date') + '.'));
       return '<div class="fin-tablewrap"><div class="fin-empty"><b>Nothing to show</b>' + why + '</div></div>';
     }
 
@@ -592,8 +663,18 @@ window.PortalFinancials = (function () {
   function wire() {
     var $ = function (id) { return host.querySelector('#' + id); };
 
-    var qsel = $('fin-quarter');
-    if (qsel) qsel.onchange = function () { S.asOf = this.value; reload(); };
+    var dsel = $('fin-date');
+    if (dsel) dsel.onchange = function () {
+      S.dateWanted = this.value || null;
+      S.asOf = resolveDate(S.dateWanted);
+      reload();
+    };
+    var latest = $('fin-latest');
+    if (latest) latest.onclick = function () {
+      var all = snapshots();
+      S.asOf = all[0] || null; S.dateWanted = S.asOf;
+      reload();
+    };
 
     var csv = $('fin-export-csv');
     if (csv) csv.onclick = function () { doExport('csv'); };
