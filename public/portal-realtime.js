@@ -45,9 +45,13 @@
     entity: ['properties', 'loans'],
     entity_owner: ['properties'],
 
+    /* cash + debt (the Financials screen) */
+    financial_account: ['financials'],
+    account_balance: ['financials'],
+
     /* debt */
-    loan: ['loans', 'overview'],
-    loan_balance: ['loans'],
+    loan: ['loans', 'overview', 'financials'],
+    loan_balance: ['loans', 'financials'],
     loan_collateral: ['loans'],
     guarantor: ['loans'],
     reporting_requirement: ['loans'],

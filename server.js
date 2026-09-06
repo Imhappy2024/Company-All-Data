@@ -2070,6 +2070,14 @@ function patchCachedPropertyField(taskId, fieldId, value) {
    key the server never emits reads as an empty string, never as an error.
    When /ops is finally retired, this can take the shorter path.
 --------------------------------------------------------------------------- */
+/* Financials — cash and debt, READ-ONLY. The router refuses any method that is
+   not GET, and every SQL string is checked for a write verb before it runs;
+   this connection is the postgres superuser, so nothing downstream would stop
+   a mistake here. Tenant scoping is the module's own job for the same reason:
+   RLS never runs on this connection. */
+const financialsApi = require('./financials-api');
+app.use('/api/financials', financialsApi.financialsRoutes());
+
 const portfolioList = require('./portfolio-list');
 const portfolioDetail = require('./portfolio-detail');
 app.use('/api/portfolio', portfolioList.propertyRoutes());

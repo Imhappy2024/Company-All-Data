@@ -1,0 +1,266 @@
+/* ===========================================================================
+   Financials — cash and debt.
+
+   Every selector is `fin-` prefixed. The portal already owns .card, .kpi,
+   .chip, .pill, .tbl and .btn, and this screen needs its own versions of most
+   of them; an unprefixed rule here restyles half the portal silently.
+
+   Loaded after tokens.css, so the palette, the three faces and the radius
+   steps come from the design system rather than from here.
+   =========================================================================== */
+
+/* ---- draft banner -------------------------------------------------------
+   Persistent, not a tooltip, and not dismissible for the session. All 441
+   balance rows are is_verified = false from a source still marked DRAFT, and a
+   figure that leaves this screen without that caveat gets quoted as fact. */
+
+.fin-draft {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 14px; margin: 0 0 14px;
+  border: 1px solid color-mix(in srgb, var(--warn) 34%, transparent);
+  background: var(--warn-soft);
+  border-radius: var(--r-md);
+  font-size: 12.5px; color: var(--text);
+}
+.fin-draft .fin-draft-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--warn); flex: none;
+}
+.fin-draft b { color: var(--warn-ink); font-weight: 600; }
+
+/* ---- header ------------------------------------------------------------- */
+
+.fin-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin: 0 0 14px; flex-wrap: wrap;
+}
+.fin-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--ink); margin: 0 0 3px; }
+.fin-sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dimmer); margin: 0;
+}
+.fin-headtools { display: flex; gap: 8px; align-items: center; flex: none; flex-wrap: wrap; }
+
+.fin-qsel {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--text);
+  font-family: var(--mono); font-size: 11px; letter-spacing: .06em;
+  padding: 8px 11px; cursor: pointer;
+}
+
+.fin-btn {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--text);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  text-transform: uppercase; padding: 8px 13px; cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+  white-space: nowrap;
+}
+.fin-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.fin-btn[disabled] { opacity: .5; cursor: default; }
+.fin-btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fin-btn.primary:hover { filter: brightness(1.08); }
+
+/* ---- tiles --------------------------------------------------------------
+   Cash and debt sit side by side and are never summed. There is deliberately
+   no "total" tile: the two are different account kinds and adding them
+   produces a meaningless number in the hundreds of millions. */
+
+.fin-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .fin-tiles { grid-template-columns: 1fr 1fr; } }
+
+.fin-tile {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); padding: 14px 16px 13px; min-width: 0;
+}
+.fin-tile .k {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--dimmer);
+  display: flex; align-items: center; gap: 6px;
+}
+.fin-tile .v {
+  font-family: var(--font-display); font-size: 25px; font-weight: 600;
+  letter-spacing: -.014em; line-height: 1.14; margin-top: 7px;
+  font-variant-numeric: tabular-nums; color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.fin-tile .d { font-size: 11.5px; margin-top: 4px; color: var(--dimmer); }
+.fin-tile.cash .v { color: var(--s3); }
+.fin-tile.debt .v { color: var(--s2); }
+
+/* ---- filter bar ---------------------------------------------------------- */
+
+.fin-filters {
+  display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+  padding: 11px 12px; margin-bottom: 12px;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+}
+
+.fin-ms { position: relative; }
+.fin-ms-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .07em;
+  text-transform: uppercase; padding: 7px 10px; cursor: pointer; white-space: nowrap;
+}
+.fin-ms-btn:hover { border-color: var(--border-strong); }
+.fin-ms-btn.on { border-color: var(--accent); color: var(--ink); background: var(--accent-soft); }
+.fin-ms-btn .caret { opacity: .6; font-size: 9px; }
+
+/* The panel is toggled by an explicit class, never by the `hidden` attribute.
+   The ops dashboard's multi-selects hit exactly this: `hidden` lost to a
+   `display` rule elsewhere, the attribute flipped correctly, and the panel
+   stayed invisible with nothing in the console to say why. */
+.fin-ms-panel {
+  display: none;
+  position: absolute; z-index: 60; top: calc(100% + 5px); left: 0;
+  min-width: 250px; max-width: 340px;
+  background: var(--surface-3); border: 1px solid var(--border-strong);
+  border-radius: var(--r-md); box-shadow: var(--shadow-pop);
+  padding: 8px;
+}
+.fin-ms-panel.open { display: block; }
+.fin-ms-search {
+  width: 100%; background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  font: inherit; font-size: 12px; padding: 6px 9px; margin-bottom: 7px;
+}
+.fin-ms-list { max-height: 264px; overflow-y: auto; display: flex; flex-direction: column; gap: 1px; }
+.fin-ms-opt {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 7px; border-radius: var(--r-sm); cursor: pointer;
+  font-size: 12.5px; color: var(--text);
+}
+.fin-ms-opt:hover { background: var(--panel-2); }
+.fin-ms-opt input { accent-color: var(--accent); flex: none; margin: 0; }
+.fin-ms-opt .n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fin-ms-opt .c { font-family: var(--mono); font-size: 10px; color: var(--dimmer); flex: none; }
+.fin-ms-none { padding: 8px 7px; font-size: 12px; color: var(--dimmer); }
+.fin-ms-foot {
+  display: flex; justify-content: space-between; gap: 8px;
+  margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border);
+}
+.fin-ms-foot button {
+  background: none; border: none; cursor: pointer; padding: 2px 4px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--dimmer);
+}
+.fin-ms-foot button:hover { color: var(--accent); }
+
+.fin-range { display: inline-flex; align-items: center; gap: 5px; }
+.fin-range input {
+  width: 92px; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: var(--r-sm); color: var(--text);
+  font-family: var(--mono); font-size: 11px; padding: 7px 8px;
+}
+.fin-range .sep { color: var(--dimmer); font-size: 11px; }
+
+/* ---- active filter chips ------------------------------------------------- */
+
+.fin-chips { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 12px; }
+.fin-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: var(--r-sm); padding: 3.5px 8px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--ink);
+}
+.fin-chip .x { cursor: pointer; opacity: .65; font-size: 12px; line-height: 1; }
+.fin-chip .x:hover { opacity: 1; color: var(--crit); }
+.fin-chip-clear {
+  background: none; border: 1px solid var(--border); cursor: pointer;
+  border-radius: var(--r-sm); padding: 3.5px 9px; color: var(--dimmer);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase;
+}
+.fin-chip-clear:hover { color: var(--crit); border-color: var(--crit); }
+.fin-count {
+  margin-left: auto; font-family: var(--mono); font-size: 10px;
+  letter-spacing: .06em; color: var(--dimmer); white-space: nowrap;
+}
+
+/* ---- tabs ---------------------------------------------------------------- */
+
+.fin-tabs { display: flex; gap: 3px; border-bottom: 1px solid var(--border); margin-bottom: 13px; }
+.fin-tab {
+  background: none; border: none; cursor: pointer;
+  padding: 9px 14px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; color: var(--dimmer);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase;
+}
+.fin-tab:hover { color: var(--text); }
+.fin-tab.active { color: var(--ink); border-bottom-color: var(--accent); }
+.fin-tab .n { font-size: 9.5px; opacity: .7; margin-left: 5px; }
+
+/* ---- table --------------------------------------------------------------- */
+
+.fin-tablewrap {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); overflow: hidden;
+}
+.fin-scroll { overflow-x: auto; }
+.fin-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.fin-table th {
+  text-align: left; white-space: nowrap; position: sticky; top: 0; z-index: 1;
+  background: var(--panel-2); color: var(--dimmer);
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .08em; text-transform: uppercase;
+  font-weight: 500; padding: 9px 12px; border-bottom: 1px solid var(--border);
+  cursor: pointer; user-select: none;
+}
+.fin-table th.nosort { cursor: default; }
+.fin-table th .dir { color: var(--accent); margin-left: 4px; }
+.fin-table td { padding: 9px 12px; border-bottom: 1px solid var(--border); color: var(--text); }
+.fin-table tr:last-child td { border-bottom: none; }
+.fin-table tbody tr:hover { background: var(--panel-2); }
+.fin-table td.r { text-align: right; font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 12px; }
+.fin-table td.mono { font-family: var(--mono); font-size: 11.5px; color: var(--dim); }
+
+/* An unreported value, a not-applicable one and a measured zero are three
+   different claims and must never render identically. */
+.fin-nil { color: var(--ink-4); }
+
+/* Every balance is a draft today, so this is on every row. It is a state, not
+   decoration — do not hide it when the list gets long. */
+.fin-flag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase;
+  padding: 1.5px 6px; border-radius: 3px; white-space: nowrap;
+}
+.fin-flag.draft { background: var(--warn-soft); color: var(--warn-ink); border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
+.fin-flag.ok { background: var(--good-soft); color: var(--good-ink); border: 1px solid color-mix(in srgb, var(--good) 28%, transparent); }
+
+.fin-foot {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 11px 13px; border-top: 1px solid var(--border); background: var(--panel-2);
+}
+.fin-foot .pginfo { font-family: var(--mono); font-size: 10px; letter-spacing: .06em; color: var(--dimmer); }
+.fin-foot .sp { flex: 1; }
+
+/* ---- states -------------------------------------------------------------- */
+
+.fin-empty, .fin-loading {
+  padding: 44px 20px; text-align: center; color: var(--dimmer); font-size: 13px;
+}
+.fin-empty b { display: block; color: var(--text); font-size: 14px; margin-bottom: 6px; font-family: var(--font-display); }
+
+.fin-problem {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 14px; margin-bottom: 12px;
+  border: 1px solid color-mix(in srgb, var(--crit) 30%, transparent);
+  background: var(--crit-soft); border-radius: var(--r-md);
+  font-size: 12.5px; color: var(--text);
+}
+.fin-problem b { color: var(--crit-ink); }
+.fin-problem ul { margin: 5px 0 0 16px; padding: 0; }
+.fin-problem li { margin: 2px 0; }
+
+/* The Loans tab measures something different from the Debt tab and the two
+   totals do not agree. This says so where the number is, not in a footnote. */
+.fin-note {
+  padding: 9px 13px; margin-bottom: 11px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-sm); font-size: 12.5px; color: var(--dim);
+}
+.fin-note b { color: var(--text); font-weight: 600; }

@@ -709,6 +709,144 @@ one — because `property`, `unit`, `loan`, `ownership` and `entity` are all alr
 bound to the `properties` view in `TABLE_VIEWS`, and a stale read on this screen is
 a wrong debt figure rather than a slow one.
 
+## Financials: cash and debt
+
+`/api/financials` (`financials-api.js`) + `public/portal-financials.{js,css}`.
+Replaces the baked `V.financials()` KPI block — Cash $770,785 across "5
+accounts", plus income, expenses and net. Three of those four could not have
+been made live even in principle: `transaction` and `transaction_category` are
+both **0 rows** pending the Buildium/AppFolio sync, so there is deliberately no
+income statement, expense breakdown, category chart or NOI trend on this
+screen. `property_financials` has 28 rows, which is not a portfolio.
+
+### Read-only is enforced twice, because nothing downstream would catch it
+The router refuses any method that is not GET/HEAD (405), and every SQL string
+is checked against a write-verb pattern before it reaches the pool. That second
+guard is not paranoia: `supabase-db` connects with `SUPABASE_DB_URL`, which is
+the **postgres superuser**, so a stray write would simply succeed.
+
+**Tenant scoping is this module's job for the same reason.** RLS never runs on
+that connection — `current_tenant_ids()` is never called — so every query
+filters `tenant_id` explicitly. A test asserts that every statement issued
+against a relation carrying the column has the filter in it.
+
+### The capability probe is the answer to "verify against the live database"
+The brief says to verify every column live rather than trusting its list. That
+was impossible while writing it: the repo has no `.env`. So the **server** does
+the verification, once, at first use, against `information_schema.columns`, and
+`problems[]` rides on every response.
+
+That turns the silent failure into a sentence. A column named here that the
+database lacks yields `undefined` → empty string, which on screen is
+indistinguishable from "no data for this quarter" — the exact trap the
+"Verify the DEPLOYED artifact" section opens with.
+
+`caps` also does real routing work. `v_debt_by_account_quarter` is documented
+with **names but no ids** (`entity`, `deal_name`, `lender`), while
+`v_cash_by_entity_quarter` has both. Filtering by id is correct; filtering by
+name is a guess when two entities share one. Each filter prefers the id form
+and falls back to the name form only where the view leaves no choice.
+
+### Two debt numbers that do not agree, and both are right
+
+| Source | Q2 2026 | Grain |
+|---|---|---|
+| `v_debt_by_account_quarter` (**Debt** tab, default) | $225,424,320.06 / 55 accounts | loan-kind rows in `account_balance` |
+| `v_debt_by_quarter` (**Loans** tab) | $15,223,209.45 / 3 loans | per-loan rows in `loan_balance` |
+
+`loan_balance` is sparse and its dates are ragged, so quarter-filtering it drops
+almost everything. Separate tabs, each with a note saying what it measures.
+**They are never added, and neither is cash and debt** — different account
+kinds, and the sum is a meaningless nine-figure number. There is no helper in
+either file that could produce one, and a test asserts no field in the summary
+payload equals cash + debt.
+
+Coverage is printed beside the loan total (**54 of 75 loans** have any balance
+row) because a bare total implies the other 21 are paid off. They are
+unpopulated.
+
+### Every balance is a draft
+All 441 rows are `is_verified = false`. The banner is persistent and **not
+dismissible**, and the per-row flag renders on every row. `verified` is offered
+as a filter with **both** values even though `true` currently matches nothing —
+offering only the value that matches would look like a broken filter.
+
+### The grain is quarterly. There is no "current cash"
+Two balance dates exist: `2026-03-31` and `2026-06-30`. Nothing is labelled
+Today or Current Balance, and the quarter selector has **no "all quarters"
+option** — mixing the two dates double-counts every account.
+
+### `account_purpose`, not `account_type`
+`account_purpose` is free text holding the original source labels (Operating,
+Loan, MM, Sec Dep, Reserve, CD, Savings, ICS, Other). `account_type` is the
+lossy CHECK-constrained version: CD and Savings both become `savings`, MM and
+ICS both become `money_market`. Both are offered as separate filters. When
+someone asks for a source label, it is `account_purpose`.
+
+`(none)` is a real selectable value under Institution, matched through
+`coalesce(institution, '(none)')`, so the **six** accounts whose source showed
+the bank as "?" stay reachable. Any nullable filter column gets the same
+treatment — a value nobody can select is a row nobody can find.
+
+### The two array-param forms are NOT equivalent
+`deal[]=a&deal[]=b` is the contract and each value is taken **verbatim**.
+`deal=a,b` is the compact form the page hash uses and it is **lossy on
+purpose**: Express decodes query values before the module sees them, so by then
+a percent-encoded comma and a literal comma are the same character and nothing
+downstream can separate them. "Maples, Phase II" is a real deal name.
+
+So the browser module uses the repeated form for every request, and reserves the
+comma form for the hash — where it does its own split-**before**-decode and the
+ambiguity never arises. When both are present, repeated wins.
+
+### Exports carry provenance, and never credentials
+Every export includes `as_of_date`, `source`, `is_verified`, `exported_at`,
+`exported_by` and a human-readable `filters_applied`, regardless of which
+columns are on screen. A figure that leaves this system without its as-of date
+and its draft flag gets quoted back as fact.
+
+The file is the **full filtered result set, not the current page** — the export
+route ignores `page`/`per_page`. CSV gets a `#` comment block; XLSX gets an
+`About` sheet instead, because a comment block above the header breaks every
+pivot the person downloading it is about to build.
+
+`NEVER_EXPOSE` (`portal_url`, `portal_username`, `portal_password`,
+`mfa_method`, `mfa_required`, `bank_contact_email`) is applied to every row on
+the way out, as a second line behind the per-tab column lists — so a column
+added to a list by name cannot smuggle one through. **`portal_password` was
+dropped from the schema on 2026-09-07; never reintroduce it in any form.**
+
+### `.onclick =`, not `addEventListener` (again)
+`paint()` re-renders the whole subtree on every filter change and `mount()` runs
+on every navigation back. `addEventListener` there stacks a copy per paint and
+fires N requests per click — the same bug the Users screen hit with its focus
+listener. The one document-level listener (click-outside to close a filter
+panel) binds once behind a guard.
+
+Filter panels toggle an explicit `.open` class, never the `hidden` attribute.
+The ops dashboard's multi-selects hit exactly that: the attribute flipped
+correctly, a `display` rule elsewhere won, and the panel stayed invisible with
+nothing in the console.
+
+### Tests
+    node test/test-financials.js     # 37 checks, no database needed
+
+The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
+accounts, 154 Operating) are Jay's to run. What this pins is everything that
+would still be wrong if the figures were right: that the feature cannot write,
+that tenant filtering is in the statement, that no filter emits an empty
+`IN ()`, that two selections union rather than intersect, that an export
+matches the on-screen filters and contains all rows rather than one page, that
+a comma / quote / newline inside a value survives, that money exports as a bare
+number and a measured zero as `0`, and that no credential field appears in any
+response or file.
+
+Two of those caught real bugs during the build: the summary was matching the
+selected quarter against an `as_of_date` column that `v_cash_debt_summary` does
+not have, so `current` came back null and every tile rendered "no data" over
+data; and `arrayParam` was comma-splitting repeated params, which would have
+torn "Maples, Phase II" into two filters matching nothing.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
@@ -984,6 +1122,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
+    node test/test-financials.js # financials: read-only, filters, export provenance
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
@@ -995,13 +1134,13 @@ In the sandbox `run-tests.js` reports one failure, `no page errors ->
 ERR_CONNECTION_RESET`: the staff headshots are hotlinked from static.showit.co
 and there is no outbound network. That one is an environment artefact.
 
-## Still baked - the biggest remaining inaccuracy
+## Still baked
 `V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:
 66 properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans. Three of
 those are wrong. The database has **75 loans totalling roughly $106.5M**, and
 occupancy is not derivable at all: `unit.occupancy` is free text and empty on all
-224 rows, with no lease or tenant table. Investors, Financials, Leads and
-Appointments are baked too. Replacing them with live reads (or honest empty
+224 rows, with no lease or tenant table. Investors, Leads and Appointments are baked too.
+**Financials is now live** - see "Financials: cash and debt" above. Replacing them with live reads (or honest empty
 states) is the next real piece of work.
 
 ## Current state (done)
