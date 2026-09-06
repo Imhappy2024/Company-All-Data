@@ -2061,6 +2061,20 @@ function patchCachedPropertyField(taskId, fieldId, value) {
 
 // Master grid of property records (entity > property > record), built on first
 // request and cached 6h with stale-while-revalidate. NOT pre-warmed on boot.
+/* ---------------------------------------------------------------------------
+   Portfolio — the Properties implementation ported from command-center.
+
+   Mounted at /api/portfolio, NOT /api/properties, because this service already
+   serves a different Properties payload there to /ops and to the SOV screens.
+   Two payload shapes at one path is the failure mode CLAUDE.md opens with: a
+   key the server never emits reads as an empty string, never as an error.
+   When /ops is finally retired, this can take the shorter path.
+--------------------------------------------------------------------------- */
+const portfolioList = require('./portfolio-list');
+const portfolioDetail = require('./portfolio-detail');
+app.use('/api/portfolio', portfolioList.propertyRoutes());
+app.use('/api/portfolio', portfolioDetail.propertyDetailRoutes({ invalidate: portfolioList.invalidate }));
+
 app.get('/api/properties', async (req, res) => {
   if (supaProps.enabled) {
     try { return res.json({ ...(await supaProps.getPropertiesPayload()), from_cache: false }); }

@@ -22,8 +22,8 @@ several brands). Two front ends are merged into ONE Express service:
 - `/api/*`→ existing routes (ClickUp + Supabase). Do not break these.
 
 **Portal ↔ ops (interim, during the unify-into-one-app migration):**
-- Portal **Properties** nav iframes `/ops#tab=properties&embed=1` (embed mode hides the ops
-  header/tabs/filter bar). Property Tasks is intentionally **removed** from the Properties view.
+- Portal **Properties** is **NATIVE** — the iframe is gone. See "Properties: the command-center
+  port" below. Property Tasks stays out of the Properties view.
 - Portal **Tasks** tab (per brand) is segmented **Overview | All Tasks** (+ **Property Tasks**
   for LeavenWealth only). **All Tasks is NATIVE** — `public/portal-tasks.js` reads `/api/tasks`
   and filters by space in the browser; it is no longer an iframe. See "Portal Tasks + live sync"
@@ -41,8 +41,8 @@ several brands). Two front ends are merged into ONE Express service:
 - Portal reads live where possible: **Loans** → `/api/loans` (Supabase); **Marketing/Ads** →
   `meta_ads_insight` via a browser supabase-js client (`window.__sb`, anon key), **session-gated**
   with a baked fallback until portal auth exists. Other cards are baked demo data for now.
-- **Roadmap:** port the Properties + Property-Tasks views natively into the portal (reusing the
-  same `/api/*`), then retire `/ops` and `public/index.html`. Until then the embeds are the bridge.
+- **Roadmap:** Properties is done (native). Port Property Tasks and Loan Views the same way,
+  then retire `/ops` and `public/index.html`. Until then the remaining embeds are the bridge.
 
 ## Stack
 Node 18+, Express, vanilla HTML/CSS/JS (NO framework, NO build step — keep it that way
@@ -538,6 +538,102 @@ apartments rather than a copy of the parent's address; parcels split on `A / B` 
 separate rows keeping dashes and periods; insurance limits carry a basis, and where
 there is no number the basis IS the value.
 
+## Properties: the command-center port
+
+Portal Properties is the implementation from `Imhappy2024/command-center`, running
+natively. The `/ops` iframe is gone.
+
+| Piece | command-center | here |
+|---|---|---|
+| List + tree + roll-ups | `routes/properties.js` | `portfolio-list.js` |
+| One record + every write | `routes/property-detail.js` | `portfolio-detail.js` |
+| Section CSS (`pr-` prefix) | inline in `public/index.html` | `public/portal-properties.css` |
+| Section JS + markup | inline in `public/index.html` | `public/portal-properties.js` |
+
+### It is mounted at `/api/portfolio`, NOT `/api/properties`
+This service **already serves a different Properties payload** at `/api/properties`
+to `/ops` and the SOV screens, and already has `/api/properties/:taskId/comments`.
+Two shapes on one path is the exact failure "Verify the DEPLOYED artifact" opens
+with: the key the caller wants is simply absent, which reads as an empty string and
+never as an error. When `/ops` is retired the path can shorten; until then, do not
+merge them.
+
+### What changed on the way over, and nothing else
+1. **The nine fetch URLs** point at `/api/portfolio`.
+2. **`escS` / `toast` / `tkRel` are defined in the module.** command-center is one
+   16k-line `index.html` where those are page-level helpers; the portal is split
+   across files, so the module carries its own rather than depending on a load
+   order it cannot see. `toast` builds its own `#pr-toasts` host on first use —
+   command-center's wrote into a `#so-toasts` that only exists on that page, and a
+   failed save reporting nothing is worse than an unstyled notice.
+3. **An IIFE exposing `window.PortalProperties`**, because `PR`, `PD` and ~38 `pr*`
+   functions would otherwise sit in the same global scope as portal.html's.
+4. **`mount(host)`.** command-center wired itself at parse time against markup
+   already in the document. The portal builds a view on navigation, so the two
+   element-level listeners from the bottom of the original file moved into
+   `mount()`, and the boot fetch is deferred to first mount.
+
+`ghlQuery(sql, params)` → `db.q(sql, params)`: same signature, same `{rows}`.
+
+### `.onclick =`, not `addEventListener`
+`mount()` runs on **every** navigation back to Properties. `addEventListener` there
+stacks a fresh copy per visit — N listeners, N refreshes per click. That is the
+same bug the Users screen hit with its focus listener. The document-level Escape
+handler binds once behind a `keysBound` guard for the same reason.
+
+### The palette is shimmed, not pasted
+command-center is dark-only and names colours `--brass --cream --jade --rust
+--panel2/3 --edge/2 --ink2`. The top of `portal-properties.css` maps those onto
+tokens.css names. Paste the hex values in instead and Properties is a dark
+rectangle in a light page, and it silently stops tracking the design system the
+moment anyone retunes it. `--i` and `--c` are deliberately absent from the shim:
+the JS sets both inline, per row.
+
+### The numbers keep their original guards
+These came across intact and are the reason the port was worth doing rather than
+rebuilding:
+- **Apartments are `SUM(unit.current_total_units)`.** `unit_count_reported` holds
+  only the FIRST building's count — one property reads 26 against a real 87.
+- **A loan reaches a property directly OR through one of its buildings**
+  (`loan_collateral.property_id || unitOwner.get(unit_id)`). Counting only the
+  former misses real debt. Same union the escrow section argues for.
+- **The roll-up deduplicates by property id via a Set.** Co-ownership otherwise
+  counts one property once per owner — $124M against a real $31M.
+- **Debt is the latest balance per loan**, never the origination amount.
+- **`loanRate()` prefers `interest_rate_pct`** and parses `interest_rate` text only
+  when it is a plain percentage. Guessing at a spread over an index would be
+  inventing a number.
+- **`problems[]` distinguishes a missing TABLE from a missing COLUMN.** The `q()`
+  wrapper tolerates the first and rethrows the second, so an empty screen says
+  which it is instead of looking the same either way.
+
+### Rendering, and where the write goes
+Field labels come from the **server**, not from a snake_case-to-Title-Case
+function: `dba_name` is "DBA Name / Name of Apartment Complex", the name the people
+who maintain this data use, carried over from the ClickUp fields it was migrated
+out of. Types come from `information_schema`, and that same lookup is what stops a
+column name arriving from the browser from reaching a query.
+
+Each field id encodes its own destination — `p:<col>`, `u:<unitId>:<col>`,
+`l:<loanId>:<col>`, `f:<finId>:<col>`, `i:<insId>:<col>`, `ownerentity`,
+`loanstatus:<propId>` — so the panel never has to know which table anything lives
+in, and a column added in Supabase appears without touching the front end.
+
+### In portal.html
+`V.properties()` returns `<div id="propertiesNative"></div>` and `render()` calls
+`PortalProperties.mount()` after `innerHTML` — the same arrangement as Tasks and
+Users & Roles, and for the same reason: the module needs the element to exist
+before it can wire it. Properties also takes the `wide` class (it was getting that
+free as an embed; a 12-column grid in a narrow column is unreadable) and
+suppresses the generic `page-h`, because it renders its own header and one screen
+should carry one title.
+
+`PortalProperties.invalidate()` is wired into the realtime `invalidate` callback.
+It forces past **two** caches — the module's payload and the server's five-minute
+one — because `property`, `unit`, `loan`, `ownership` and `entity` are all already
+bound to the `properties` view in `TABLE_VIEWS`, and a stale read on this screen is
+a wrong debt figure rather than a slow one.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
@@ -836,6 +932,7 @@ states) is the next real piece of work.
 - Ops dashboard is live (ClickUp+Supabase). Portal built with the 5-section layout.
 - Merged into one service; portal at `/`, ops at `/ops`; Properties card embeds ops.
 - Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
+- Portal **Properties is native** (ported from command-center); it no longer embeds `/ops`.
 - Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
 - Portal Overview/Investors/Financials/Leads/Appointments cards are STILL baked demo data.
 
