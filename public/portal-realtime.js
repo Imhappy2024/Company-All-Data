@@ -56,10 +56,10 @@
     guarantor: ['loans'],
     reporting_requirement: ['loans'],
 
-    /* risk + capital */
-    insurance_policy: ['insurance', 'overview'],
-    investor: ['investors'],
-    investor_stake: ['investors'],
+    /* risk + capital. The insurance, investors and integrations VIEWS were
+       removed, so nothing is bound to them; insurance_policy still touches the
+       overview cards. Re-add the bindings alongside any screen that returns. */
+    insurance_policy: ['overview'],
 
     /* growth */
     lead: ['leads', 'overview'],
@@ -108,7 +108,6 @@
     /* misc */
     document: ['documents'],
     task: ['tasks'],
-    integrations: ['integrations'],
 
     /* structural - changes the switcher counts and the brand list */
     company: ['*'],

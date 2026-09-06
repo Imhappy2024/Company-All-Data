@@ -173,7 +173,12 @@ function ptask(id, name, status, sync) {
 
   console.log('\nThe gate is scoped to Tasks, not the app');
   await page.evaluate(() => { setBrand('leavenwealth'); setView('properties'); });
-  check('Properties still embeds /ops', await page.locator('#embedHost iframe:visible').count(), 1);
+  /* Properties is NATIVE now - the /ops iframe is gone (see "Properties: the
+     command-center port"). This asserts the absence deliberately: the check it
+     replaced passed for as long as the embed existed, so leaving it would have
+     failed on the port rather than on a regression. */
+  check('Properties no longer embeds /ops', await page.locator('#embedHost iframe:visible').count(), 0);
+  check('Properties renders its own container', await page.locator('#propertiesNative').count(), 1);
   check('Properties is not gated', await page.locator('.pa-gate-card').count(), 0);
   await page.evaluate(() => setView('financials'));
   check('Financials is not gated', await page.locator('.pa-gate-card').count(), 0);

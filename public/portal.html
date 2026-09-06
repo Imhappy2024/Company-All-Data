@@ -599,8 +599,8 @@ const CORE=[
    Admin section disappears for a plain user - see canSeeAccess / itemVisible. */
 const ADMIN_SECTION=[{lbl:'Admin'},{id:'access',ic:'lock',label:'Users & Roles'}];
 const MENUS={
-  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{id:'investors',ic:'hand',label:'Investors'},{lbl:'Admin'},{id:'integrations',ic:'plug',label:'Integrations'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
-  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{id:'investors',ic:'hand',label:'Investors'},{id:'insurance',ic:'shield',label:'Insurance / Risk'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
+  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
+  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
   leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
   folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
   liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
@@ -898,8 +898,6 @@ const V={
     const body = loansCache ? renderLoans(loansCache) : '<div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div>';
     return seg+`<div id="loansBody">${body}</div>`;
   },
-  investors(){return card('hand','Investors',INVESTORS.length,tbl([{t:'Investor'},{t:'Position'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td>${esc(i.where)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true);},
-  insurance(){return `<div class="placeholder">${I.shield}<div>Insurance & risk &mdash; 257 policies in <b>insurance_policy</b></div></div>`;},
   leads(){
     const byP={};LEADS.forEach(l=>byP[l.p]=(byP[l.p]||0)+1);
     const chips=Object.entries(byP).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROV[p].c}"></span>${PROV[p].n} &middot; ${n}</span>`).join(' ');
@@ -992,7 +990,6 @@ const V={
     if(clickUpGated()) return seg+clickUpGateHtml();
     return seg;   /* ops iframe lives in #embedHost (keep-alive) */
   },
-  integrations(){return `<div class="placeholder">${I.plug}<div>Connected integrations &mdash; GoHighLevel, Meta Ads, ClickUp, AppFolio (from <b>integrations</b>)</div></div>`;},
   /* Users & Roles. portal-users.js paints into this container from render(), after
      innerHTML has replaced it - same arrangement as the native Tasks screen. */
   access(){return `<div id="usersNative"></div>`;},

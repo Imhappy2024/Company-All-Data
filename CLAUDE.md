@@ -10,7 +10,7 @@ several brands). Two front ends are merged into ONE Express service:
 - `/`     → **portal** (`public/portal.html`) — a **sidebar app shell with brand-as-workspace**.
             The workspace switcher (top-left) picks a brand (Executive Board / LeavenWealth / Leadli AI /
             Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
-            LeavenWealth: Overview, Properties, Loans, Investors, Insurance + workspace core
+            LeavenWealth: Overview, Properties, Loans + workspace core
             (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,
             Appointments, Marketing/Ads. Folio: App Users, Plans, Reports (SaaS). Liquid: Loan
             Pipeline, Borrowers. Clicking a person (Org/Dept charts, Team) opens a profile drawer
@@ -988,6 +988,31 @@ untouched control would mean "hide everything that has debt". They test
 `*_accounts > 0`, not `balance <> 0` — an entity with a loan account sitting at
 zero still has debt on file.
 
+## Removed screens: Investors, Insurance / Risk, Integrations
+
+Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
+functions behind them. All three were placeholders or baked demo data:
+`investors` rendered a five-row hardcoded `INVESTORS` array, `insurance` and
+`integrations` rendered a "coming soon" placeholder naming the table each would
+one day read.
+
+The view functions went with the nav entries rather than being left in place. A
+screen with no route to it is one somebody eventually wires data into without
+noticing nothing links to it.
+
+**The data is untouched.** `insurance_policy` (257 policies, 21 carriers,
+$435M TIV), `investor`, `investor_stake` and `integrations` are all still
+there, and `/ops` still surfaces the loan/debt views. Only the portal screens
+went.
+
+`TABLE_VIEWS` in portal-realtime.js was cleaned in the same commit: bindings to
+a view that no longer exists can never match, which is not a live bug but reads
+as coverage that is not there. `insurance_policy` still refreshes `overview`.
+
+**Still present, deliberately:** the Executive Board overview keeps its baked
+"Investors" card, because it is a card on a dashboard rather than a menu. Say
+the word and it goes too.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
@@ -1291,7 +1316,9 @@ states) is the next real piece of work.
 - Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
 - Portal **Properties is native** (ported from command-center); it no longer embeds `/ops`.
 - Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
-- Portal Overview/Investors/Financials/Leads/Appointments cards are STILL baked demo data.
+- Portal Overview/Leads/Appointments cards are STILL baked demo data.
+- Investors, Insurance / Risk and Integrations were REMOVED from the nav (and their
+  views deleted) on 2026-09-07. See "Removed screens" below before re-adding one.
 
 ## Roadmap (typical next tasks — confirm scope before large changes)
 1. Add Supabase Auth (email magic-link or password) to the portal; gate `/` behind login.
