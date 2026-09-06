@@ -765,15 +765,16 @@ Coverage is printed beside the loan total (**54 of 75 loans** have any balance
 row) because a bare total implies the other 21 are paid off. They are
 unpopulated.
 
-### Every balance is a draft — banner only, no column, no filter
-All 441 rows are `is_verified = false`. There is **no Verified column and no
-Verified filter**: on a dataset where the value is false everywhere, a column
-repeated it 441 times and a filter had one setting matching everything and one
-matching nothing. The persistent, non-dismissible banner carries the caveat for
-the whole screen.
+### Every balance is a draft — and the screen no longer says so anywhere
+All 441 rows are `is_verified = false`. There is **no Verified column, no
+Verified filter and no draft banner**: on a dataset where the value never
+varies, all three were repeating one fact 441 times.
 
-`is_verified` **still rides on every export** (via `PROVENANCE`), because that
-is where a figure leaves the system and the caveat has to travel with it.
+`is_verified` and the DRAFT line **still ride on every export** (via
+`PROVENANCE`), and that is deliberate rather than an oversight. On screen the
+reader has the context that these are quarterly draft snapshots; in a
+spreadsheet mailed to someone else they have nothing. That is where the caveat
+earns its place.
 
 ### Leadli and Folio are excluded, on a WORD BOUNDARY
 This screen is LeavenWealth's. Leadli AI and Folio Excel are excluded from the
@@ -810,25 +811,32 @@ both labelled Total Cash, disagreeing. **Expect the tiles to sit below the
 brief's figures** ($5,073,105.35 / $225,424,320.06); that is the exclusion
 working, not a fault.
 
-### The date control is free-form, and resolution happens in ONE place
-A date input, not a quarter dropdown. Balances exist on two days, so an input
-demanding an exact match would be wrong almost every time. **Any date resolves
-to the latest snapshot on or before it**, and the header says so whenever the
-date asked for is not one the data has.
+### A date RANGE — and the tiles pin to one date inside it
+From and To, both free-form and both optional, replacing the quarter dropdown.
+Clearing both shows every snapshot.
 
-The browser resolves it and every request — rows, tiles, export — carries the
-**resolved** date. Sending the raw date instead would let the tiles resolve
-server-side while the table matched exactly, showing a total over an empty
-table. The server applies the same rule for direct API callers.
+**The table may span several snapshots; the tiles may not.** Every row carries
+its own As Of Date, so reading Q1 beside Q2 is a real thing to want. But summing
+a range covering both counts every account twice and yields roughly double the
+truth while looking entirely plausible. So `/summary` pins the tiles to the
+**latest snapshot inside the range**, and the header says which one whenever the
+range holds more than one.
 
-A date **before** the first snapshot resolves to nothing rather than jumping
-forward — "nothing had been recorded by then" is true, inventing a later balance
-is not. When nothing resolves, the client **does not fetch at all**: omitting
-`as_of` would make the server answer with every quarter at once, double-counting
-every account into a large but plausible-looking total.
+"As at" falls out of this for free: leave **From** empty, set **To**, and the
+tiles land on the newest snapshot at or before it. A range containing no
+snapshot yields no tiles at all rather than borrowing a balance from outside it,
+which matches the empty table beneath. A backwards range is swapped, because
+that is a slip rather than a request for nothing.
 
-The URL and localStorage carry the **requested** date, not the resolved one, so
-a shared link means "as at this date" rather than "this particular row".
+An account present in an earlier snapshot but absent from the pinned one is
+therefore not in the tiles. With two snapshots that is rare, and the
+alternative — a latest-per-account roll-up — **cannot be done on
+`v_debt_by_account_quarter`, which carries no account id at all.**
+
+`as_of=X` is still accepted and means a single day (`from = to = X`).
+
+The URL uses `?q=` when both bounds are the same day and `?from=&to=`
+otherwise, so the common case stays a short link.
 
 ### `account_purpose`, not `account_type`
 `account_purpose` is free text holding the original source labels (Operating,
@@ -883,7 +891,7 @@ correctly, a `display` rule elsewhere won, and the panel stayed invisible with
 nothing in the console.
 
 ### Tests
-    node test/test-financials.js     # 52 checks, no database needed
+    node test/test-financials.js     # 55 checks, no database needed
 
 The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
 accounts, 154 Operating) are Jay's to run. What this pins is everything that

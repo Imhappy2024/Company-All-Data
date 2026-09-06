@@ -214,9 +214,17 @@ function numParam(v) {
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 function parseFilters(req) {
-  const asOf = ISO_DATE.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
+  const iso = v => (ISO_DATE.test(String(v || '')) ? String(v) : null);
+  /* as_of is still accepted and means a single day (from = to = as_of), so an
+     existing link or API caller keeps working. */
+  const exact = iso(req.query.as_of);
+  let from = exact || iso(req.query.from);
+  let to   = exact || iso(req.query.to);
+  /* A backwards range is a slip, not a request for nothing. Swapping is what
+     every date picker does and is far less surprising than an empty table. */
+  if (from && to && from > to) { const t = from; from = to; to = t; }
   return {
-    asOf,
+    from, to,
     /* No `company` (Brand) filter. Deal and Entity already scope to one
        brand, and their option lists name it beside each row. */
     deal: uuidParam(req, 'deal'),
@@ -411,7 +419,15 @@ function buildWhere(tab, c, f) {
 
   for (const clause of brandExclusion(rel, c, P)) where.push(clause);
 
-  if (tab.hasDate && f.asOf && has(c, rel, 'as_of_date')) where.push(`v.as_of_date = ${P(f.asOf)}::date`);
+  /* A range, inclusive at both ends. The TABLE may legitimately span several
+     snapshots — every row carries its own As Of Date, so reading Q1 against Q2
+     side by side is a real thing to want. The TILES must not: summing across a
+     range that covers two snapshots counts every account twice. The /summary
+     route pins them to one date inside the range for exactly that reason. */
+  if (tab.hasDate && has(c, rel, 'as_of_date')) {
+    if (f.from) where.push(`v.as_of_date >= ${P(f.from)}::date`);
+    if (f.to)   where.push(`v.as_of_date <= ${P(f.to)}::date`);
+  }
 
   /* An account reaches its offering directly or through its entity. That
      fallback is the view's own, and dropping half of it silently under-reports
@@ -654,7 +670,10 @@ function exportColumns(tab) {
 
 function describeFilters(f, names) {
   const bits = [];
-  if (f.asOf) bits.push('Quarter: ' + f.asOf);
+  if (f.from && f.to && f.from === f.to) bits.push('As of: ' + f.from);
+  else if (f.from && f.to) bits.push('Dates: ' + f.from + ' to ' + f.to);
+  else if (f.from) bits.push('Dates: from ' + f.from);
+  else if (f.to) bits.push('Dates: up to ' + f.to);
   const add = (label, vals, map) => {
     if (!vals || !vals.length) return;
     bits.push(label + ': ' + vals.map(v => (map && map.get(v)) || v).join(', '));
@@ -699,9 +718,17 @@ function exportValue(tab, key, row, meta) {
   return v;
 }
 
+function dateScope(f) {
+  if (f.from && f.to) return f.from === f.to ? f.from : f.from + ' to ' + f.to;
+  if (f.from) return 'from ' + f.from;
+  if (f.to) return 'up to ' + f.to;
+  return 'all dates';
+}
+
 function exportFilename(tabKey, f, format) {
   const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-  const scope = f.asOf || 'all';
+  const scope = (f.from && f.to) ? (f.from === f.to ? f.from : f.from + '_to_' + f.to)
+              : (f.from || f.to || 'all-dates');
   const filtered = (f.deal.length || f.entity.length || f.institution.length ||
                     f.purpose.length || f.type.length || f.kind.length || f.cashSource.length ||
                     f.min !== null || f.max !== null || f.maturityBefore)
@@ -759,28 +786,39 @@ function financialsRoutes() {
   r.get('/summary', async (req, res) => {
     try {
       const c = await caps();
-      const wanted = ISO_DATE.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
+      const f = parseFilters(req);
 
       const dates = (await q(
         `select distinct as_of_date from public.account_balance
           where tenant_id = $1 order by as_of_date desc`, [TENANT_ID]
       )).map(r2 => isoDate(r2.as_of_date));
 
-      /* An arbitrary date resolves onto the latest snapshot on or before it.
-         Balances exist on two days only, so a date control that demanded an
-         exact match would be a control that is wrong almost every time it is
-         used. Picking a date before the first snapshot resolves to nothing
-         rather than silently jumping forward to one — "no data yet at that
-         date" is a true answer and inventing a later balance is not. */
-      const asOf = wanted
-        ? (dates.find(d => d <= wanted) || null)
-        : (dates[0] || null);
+      /* THE TILES PIN TO ONE DATE, even though the table shows a range.
+
+         Summing a range that spans both snapshots counts every account twice
+         and produces a number that is roughly double the truth while looking
+         entirely plausible — the worst kind of wrong. So the tiles use the
+         LATEST snapshot inside the range: the closest thing to "where things
+         stand at the end of this window".
+
+         A date before the first snapshot resolves to nothing rather than
+         reaching back past the start of the range. "Nothing had been recorded
+         by then" is true; borrowing an earlier balance is not.
+
+         An account present in an earlier snapshot but absent from the pinned
+         one is therefore not in the tiles. With two snapshots that is rare,
+         and the alternative — a latest-per-account roll-up — cannot be done on
+         v_debt_by_account_quarter, which carries no account id at all. */
+      const inRange = dates.filter(d => (!f.from || d >= f.from) && (!f.to || d <= f.to));
+      const asOf = inRange.length ? inRange[0] : null;   /* dates are newest first */
 
       const agg = async (tabKey) => {
         const tab = TABS[tabKey];
-        const w = buildWhere(tab, c, { asOf, deal: [], entity: [], account: [], institution: [],
-                                       purpose: [], type: [], kind: [], cashSource: [],
-                                       min: null, max: null, maturityBefore: null });
+        /* from = to = the pinned date, so the aggregate is one snapshot even
+           when the table beneath it spans several. */
+        const w = buildWhere(tab, c, { from: asOf, to: asOf, deal: [], entity: [], account: [],
+                                       institution: [], purpose: [], type: [], kind: [],
+                                       cashSource: [], min: null, max: null, maturityBefore: null });
         const idCol = has(c, tab.rel, 'account_id') ? 'count(distinct v.account_id)::int' : 'count(*)::int';
         const rows = await q(
           `select coalesce(sum(v.balance), 0)::numeric as total,
@@ -803,11 +841,14 @@ function financialsRoutes() {
           cash_accounts: cash.n,
           loan_accounts: debt.n,
           all_verified: cash.all_verified && debt.all_verified,
-          /* So the screen can say which snapshot an arbitrary date landed on,
-             rather than quietly showing figures from a different day. */
-          requested: wanted,
+          /* So the screen can say which snapshot the tiles are pinned to,
+             rather than quietly showing figures from a different day than the
+             rows beneath them. */
+          requested_from: f.from,
+          requested_to: f.to,
           resolved: asOf,
-          exact: !wanted || wanted === asOf,
+          exact: !f.to || f.to === asOf,
+          snapshots_in_range: inRange.length,
         };
       }
 
@@ -818,7 +859,8 @@ function financialsRoutes() {
         })),
         date_range: dates.length ? { min: dates[dates.length - 1], max: dates[0] } : null,
         current,
-        requested: wanted,
+        requested_from: f.from,
+        requested_to: f.to,
         problems: c.problems,
       });
     } catch (err) { fail(res, err); }
@@ -905,7 +947,7 @@ function sendCsv(res, tab, cols, out, meta) {
   const head =
     '# LeavenWealth financial export\n' +
     `# Generated: ${meta.exportedAt} by ${meta.exportedBy}\n` +
-    `# Quarter: ${out.filters.asOf || 'all quarters'}\n` +
+    `# Dates: ${dateScope(out.filters)}\n` +
     `# Filters: ${meta.filtersApplied}\n` +
     '# DRAFT - figures are unverified, pending Mitch Hagen\n' +
     `# Rows: ${out.rows.length}\n`;
@@ -960,7 +1002,7 @@ async function sendXlsx(res, tabKey, tab, cols, out, meta) {
     ['Tab', tabKey],
     ['Generated', meta.exportedAt],
     ['Generated by', meta.exportedBy],
-    ['Quarter', out.filters.asOf || 'all quarters'],
+    ['Dates', dateScope(out.filters)],
     ['Filters', meta.filtersApplied],
     ['Rows', out.rows.length],
     ['Status', 'DRAFT - figures are unverified, pending Mitch Hagen'],

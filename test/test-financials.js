@@ -383,23 +383,53 @@ function req(server, method, url) {
   });
 
   /* 8d. The custom date control resolves onto a real snapshot. */
-  await checkAsync('an arbitrary date resolves to the latest snapshot on or before it', async () => {
-    const r = await get('/api/financials/summary?as_of=2026-08-15');
+  await checkAsync('an open-ended To date pins the tiles to the latest snapshot before it', async () => {
+    /* This is how "as at" falls out of a range: leave From empty, set To, and
+       the tiles land on the newest snapshot at or before it. */
+    const r = await get('/api/financials/summary?to=2026-08-15');
     const j = JSON.parse(r.body.toString('utf8'));
-    assert.ok(j.current, 'a snapshot was resolved');
+    assert.ok(j.current, 'a snapshot was pinned');
     assert.strictEqual(j.current.resolved, '2026-06-30', 'got ' + j.current.resolved);
-    assert.strictEqual(j.current.requested, '2026-08-15');
-    assert.strictEqual(j.current.exact, false, 'the response should say it was not an exact date');
+    assert.strictEqual(j.current.exact, false, 'the response should say To was not itself a snapshot');
   });
 
-  await checkAsync('a date before the first snapshot resolves to nothing, not forward', async () => {
-    const r = await get('/api/financials/summary?as_of=2020-01-01');
+  await checkAsync('a range spanning both snapshots pins the tiles to the later one', async () => {
+    /* The table may show both; the tiles must not sum them, or every account
+       is counted twice into a plausible-looking number roughly double the
+       truth. */
+    const r = await get('/api/financials/summary?from=2026-01-01&to=2026-12-31');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.strictEqual(j.current.snapshots_in_range, 2, 'both snapshots are in range');
+    assert.strictEqual(j.current.resolved, '2026-06-30', 'tiles must pin to the later one');
+  });
+
+  await checkAsync('the tile aggregate queries ONE day, never the whole range', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary?from=2026-01-01&to=2026-12-31');
+    const agg = seen.filter(x => /coalesce\(sum\(v\.balance\), 0\)/.test(x.sql));
+    assert.ok(agg.length, 'the aggregate ran');
+    for (const a of agg) {
+      const dates = a.params.filter(p => typeof p === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(p));
+      assert.deepStrictEqual([...new Set(dates)], ['2026-06-30'],
+        'the aggregate spanned more than one day: ' + JSON.stringify(dates));
+    }
+  });
+
+  await checkAsync('a range containing no snapshot yields no tiles, matching the empty table', async () => {
+    const r = await get('/api/financials/summary?from=2020-01-01&to=2020-12-31');
     const j = JSON.parse(r.body.toString('utf8'));
     assert.strictEqual(j.current, null,
-      'a date earlier than any snapshot must not borrow a later balance');
+      'a range with no snapshot must not borrow a balance from outside it');
   });
 
-  await checkAsync('an exact snapshot date is reported as exact', async () => {
+  await checkAsync('a backwards range is swapped rather than returning nothing', async () => {
+    const r = await get('/api/financials/summary?from=2026-12-31&to=2026-01-01');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.ok(j.current, 'the range was swapped, not treated as empty');
+    assert.strictEqual(j.current.resolved, '2026-06-30');
+  });
+
+  await checkAsync('as_of still works and means a single day', async () => {
     const r = await get('/api/financials/summary?as_of=2026-03-31');
     const j = JSON.parse(r.body.toString('utf8'));
     assert.strictEqual(j.current.resolved, '2026-03-31');
@@ -430,7 +460,7 @@ function req(server, method, url) {
   check('CSV carries the provenance comment block', () => {
     assert.ok(/^# LeavenWealth financial export/m.test(csvText), 'missing title line');
     assert.ok(/^# Generated: .+ by /m.test(csvText), 'missing generated line');
-    assert.ok(/^# Quarter: 2026-06-30$/m.test(csvText), 'missing quarter line');
+    assert.ok(/^# Dates: 2026-06-30$/m.test(csvText), 'missing dates line');
     assert.ok(/^# DRAFT - figures are unverified, pending Mitch Hagen$/m.test(csvText), 'missing draft line');
     assert.ok(/^# Rows: 3$/m.test(csvText), 'missing row count');
   });

@@ -445,7 +445,20 @@
           '<input class="pu-in" id="puLast" data-field="last" autocomplete="off" value="' + esc(d.last || '') + '"></div>' +
       '</div>' +
       '<label class="pu-lab" for="puEmail">Email</label>' +
-      '<input class="pu-in" id="puEmail" data-field="email" type="email" autocomplete="off"' +
+      /* type=text, NOT type=email, and that is load-bearing.
+
+         selectionStart and setSelectionRange are specified only for text,
+         search, url, tel and password. On an email input selectionStart reads
+         null and setSelectionRange throws — so the caret restore below did
+         nothing, the caret sat at 0 after every repaint, and each character
+         typed landed in front of the last. The field rendered the address
+         backwards.
+
+         inputmode keeps the @-bearing keyboard on a phone, which is what
+         type=email was really buying. Nothing is lost by dropping the
+         browser's own validation: inviteReady() already tests the address and
+         the server re-checks it. */
+      '<input class="pu-in" id="puEmail" data-field="email" type="text" inputmode="email" autocomplete="off"' +
         ' placeholder="name@company.com" value="' + esc(d.email || '') + '">' +
       (match
         ? '<div class="pu-note">That address already belongs to <b>' + esc(match.full_name || match.email) +
@@ -871,10 +884,18 @@
         var m = matchedStaff(ui.draft.email);
         ui.draft.staff_id = m ? m.id : null;
         if (m) loadPriorGrants(m.id);
+        /* The fallback stays even though the field is now type=text: landing
+           silently at 0 types the address backwards, and a swallowed exception
+           leaves nothing to debug from. */
         var caret = ev.target.selectionStart;
+        if (caret === null || caret === undefined) caret = ev.target.value.length;
         paint();
         var again = document.getElementById('puEmail');
-        if (again) { again.focus(); try { again.setSelectionRange(caret, caret); } catch (e) {} }
+        if (again) {
+          again.focus();
+          try { again.setSelectionRange(caret, caret); }
+          catch (e) { console.warn('[users] could not restore the caret:', e.message); }
+        }
       }
     });
     document.addEventListener('keydown', function (ev) {

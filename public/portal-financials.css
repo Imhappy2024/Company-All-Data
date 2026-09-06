@@ -9,25 +9,6 @@
    steps come from the design system rather than from here.
    =========================================================================== */
 
-/* ---- draft banner -------------------------------------------------------
-   Persistent, not a tooltip, and not dismissible for the session. All 441
-   balance rows are is_verified = false from a source still marked DRAFT, and a
-   figure that leaves this screen without that caveat gets quoted as fact. */
-
-.fin-draft {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 14px; margin: 0 0 14px;
-  border: 1px solid color-mix(in srgb, var(--warn) 34%, transparent);
-  background: var(--warn-soft);
-  border-radius: var(--r-md);
-  font-size: 12.5px; color: var(--text);
-}
-.fin-draft .fin-draft-dot {
-  width: 7px; height: 7px; border-radius: 50%;
-  background: var(--warn); flex: none;
-}
-.fin-draft b { color: var(--warn-ink); font-weight: 600; }
-
 /* ---- header ------------------------------------------------------------- */
 
 .fin-head {
@@ -269,3 +250,9 @@
   border-color: color-mix(in srgb, var(--warn) 32%, transparent); }
 
 input.fin-qsel { font-family: var(--mono); }
+
+.fin-daterange { display: inline-flex; align-items: center; gap: 5px; }
+.fin-daterange .sep {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--dimmer);
+}

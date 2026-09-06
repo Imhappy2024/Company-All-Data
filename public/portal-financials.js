@@ -13,13 +13,15 @@
       primary control and every figure on the page inherits it.
 
    2. Every balance is a DRAFT. All 441 rows are is_verified = false, from a
-      source marked DRAFT REQUIRES MITCH HAGEN VERIFICATION. There is no
-      Verified column and no Verified filter: on a dataset where the value is
-      false everywhere, a column repeating it 441 times said nothing and a
-      filter had one setting that matched everything and one that matched
-      nothing. The persistent, non-dismissible banner carries the caveat for
-      the whole screen instead, and is_verified still rides on every export,
-      where the figure leaves the system and the caveat has to travel with it.
+      source marked DRAFT REQUIRES MITCH HAGEN VERIFICATION. Nothing on screen
+      says so any more — no Verified column, no Verified filter, no banner. On
+      a dataset where the value is false everywhere, all three were repeating
+      one fact that never varied.
+
+      is_verified and the DRAFT line DO still ride on every export, and that is
+      deliberate rather than an oversight: on screen the reader has the context
+      that these are quarterly draft snapshots, and in a spreadsheet mailed to
+      someone else they have nothing. That is where the caveat earns its place.
 
    3. There are TWO debt numbers and they do not agree. v_debt_by_account_quarter
       reports ~$225.4M across 55 accounts; v_debt_by_quarter reports ~$15.2M
@@ -84,8 +86,7 @@ window.PortalFinancials = (function () {
 
   var S = {
     tab: 'debt',
-    asOf: null,        /* the snapshot every request uses */
-    dateWanted: null,  /* what the reader actually typed */
+    dateFrom: null, dateTo: null,   /* inclusive range; either may be null */
     sel: {},              /* key -> array of selected values */
     min: '', max: '',
     sort: null, dir: null,
@@ -166,7 +167,9 @@ window.PortalFinancials = (function () {
       var k = decodeURIComponent(pair.slice(0, eq));
       var vRaw = pair.slice(eq + 1);
       if (k === 'fintab' && TAB_FILTERS[vRaw]) S.tab = vRaw;
-      else if (k === 'q') S.dateWanted = decodeURIComponent(vRaw);
+      else if (k === 'from') S.dateFrom = decodeURIComponent(vRaw);
+      else if (k === 'to') S.dateTo = decodeURIComponent(vRaw);
+      else if (k === 'q') { S.dateFrom = S.dateTo = decodeURIComponent(vRaw); }
       else if (k === 'min') S.min = decodeURIComponent(vRaw);
       else if (k === 'max') S.max = decodeURIComponent(vRaw);
       else if (S.sel[k]) {
@@ -180,7 +183,11 @@ window.PortalFinancials = (function () {
   function urlBits() {
     var out = [];
     if (S.tab) out.push('fintab=' + S.tab);
-    if (S.dateWanted) out.push('q=' + encodeURIComponent(S.dateWanted));
+    if (S.dateFrom && S.dateFrom === S.dateTo) out.push('q=' + encodeURIComponent(S.dateFrom));
+    else {
+      if (S.dateFrom) out.push('from=' + encodeURIComponent(S.dateFrom));
+      if (S.dateTo) out.push('to=' + encodeURIComponent(S.dateTo));
+    }
     FILTER_DEFS.forEach(function (d) {
       var v = S.sel[d.key];
       if (v && v.length) out.push(d.key + '=' + v.map(encodeURIComponent).join(','));
@@ -205,7 +212,7 @@ window.PortalFinancials = (function () {
   function saveLocal() {
     try {
       localStorage.setItem(LS_KEY, JSON.stringify({
-        tab: S.tab, dateWanted: S.dateWanted, sel: S.sel, min: S.min, max: S.max
+        tab: S.tab, dateFrom: S.dateFrom, dateTo: S.dateTo, sel: S.sel, min: S.min, max: S.max
       }));
     } catch (e) { /* private window, or storage blocked — not worth reporting */ }
   }
@@ -216,7 +223,8 @@ window.PortalFinancials = (function () {
       if (!raw) return;
       var v = JSON.parse(raw);
       if (v.tab && TAB_FILTERS[v.tab]) S.tab = v.tab;
-      if (v.dateWanted) S.dateWanted = v.dateWanted;
+      if (v.dateFrom) S.dateFrom = v.dateFrom;
+      if (v.dateTo) S.dateTo = v.dateTo;
       if (v.min !== undefined) S.min = v.min;
       if (v.max !== undefined) S.max = v.max;
       if (v.sel) FILTER_DEFS.forEach(function (d) {
@@ -230,7 +238,10 @@ window.PortalFinancials = (function () {
      survives the wire without any splitting convention at all. */
   function qs(extra) {
     var p = [];
-    if (S.asOf) p.push('as_of=' + encodeURIComponent(S.asOf));
+    /* Sent as a range. When both bounds are the same day this is exactly the
+       old single-date request, so nothing downstream needs a special case. */
+    if (S.dateFrom) p.push('from=' + encodeURIComponent(S.dateFrom));
+    if (S.dateTo) p.push('to=' + encodeURIComponent(S.dateTo));
     var allowed = TAB_FILTERS[S.tab] || [];
     FILTER_DEFS.forEach(function (d) {
       if (allowed.indexOf(d.key) < 0) return;
@@ -266,16 +277,22 @@ window.PortalFinancials = (function () {
     return getJson(API + '/filters').then(function (j) {
       S.options = j;
       S.problems = j.problems || [];
-      /* A date restored from the URL or localStorage is re-resolved against
-         the snapshots that actually exist now, not trusted as-is. */
-      if (S.dateWanted) S.asOf = resolveDate(S.dateWanted);
-      else if (!S.asOf && j.quarters && j.quarters.length) { S.asOf = j.quarters[0].as_of; S.dateWanted = S.asOf; }
+      /* Default to the newest snapshot alone rather than to every date: one
+         snapshot is the reading somebody wants on arrival, and a table that
+         opens showing two quarters interleaved is confusing before it is
+         useful. Explicit is fine, so both bounds are set. */
+      if (!S.dateFrom && !S.dateTo && j.quarters && j.quarters.length) {
+        S.dateFrom = S.dateTo = j.quarters[0].as_of;
+      }
       return j;
     }).catch(function (e) { S.optionsErr = e.message; return null; });
   }
 
   function loadSummary() {
-    return getJson(API + '/summary' + (S.asOf ? '?as_of=' + encodeURIComponent(S.asOf) : ''))
+    var p2 = [];
+    if (S.dateFrom) p2.push('from=' + encodeURIComponent(S.dateFrom));
+    if (S.dateTo) p2.push('to=' + encodeURIComponent(S.dateTo));
+    return getJson(API + '/summary' + (p2.length ? '?' + p2.join('&') : ''))
       .then(function (j) { S.summary = j; })
       .catch(function () { S.summary = null; });
   }
@@ -287,21 +304,15 @@ window.PortalFinancials = (function () {
       .catch(function () { S.coverage = null; });
   }
 
-  /* Which tabs are meaningless without a snapshot date. Accounts is the
-     reference list and has no balances, so it is not one of them. */
-  var DATED_TABS = { cash: 1, debt: 1, loans: 1 };
-
   function loadRows() {
-    /* No resolved snapshot means the requested date is earlier than anything
-       recorded. Fetching anyway would omit as_of entirely, and the server
-       would answer with EVERY quarter at once - which double-counts every
-       account and reads as a suspiciously large but plausible total. An empty
-       table is the honest answer. */
-    if (DATED_TABS[S.tab] && !S.asOf) {
-      S.rows = []; S.total = 0; S.loading = false; S.error = null;
-      writeUrl(); saveLocal(); paint();
-      return Promise.resolve();
-    }
+    /* No guard against an unbounded range any more, and none is needed. The
+       old single-date control could resolve to nothing and then omit as_of,
+       which made the server answer with EVERY quarter at once and
+       double-count every account. A range always sends the bounds it has, and
+       "all dates" is now a thing the reader can deliberately ask for — every
+       row carries its own As Of Date, so a multi-snapshot table reads
+       correctly. Only the tiles have to pin to one date, and the server does
+       that. */
     S.loading = true; S.error = null;
     paint();
     var extra = { page: S.page, per_page: S.perPage };
@@ -340,43 +351,36 @@ window.PortalFinancials = (function () {
         esc(S.optionsErr) + '</div></div></div>';
     }
     if (!S.options) return '<div class="fin-loading">Reading accounts&hellip;</div>';
-    return header() + draftBanner() + problems() + tiles() + filterBar() + chips() + tabs() + tabNote() + table();
+    return header() + problems() + tiles() + filterBar() + chips() + tabs() + tabNote() + table();
   }
 
-  /* ---- the date control --------------------------------------------------
+  /* ---- the date range ----------------------------------------------------
 
-     A free date input rather than a list of quarters. Balances exist on two
-     days only (2026-03-31 and 2026-06-30), so an input that demanded an exact
-     match would be wrong almost every time somebody used it. Any date resolves
-     to the LATEST SNAPSHOT ON OR BEFORE it, and the screen says so whenever the
-     date asked for is not a date the data has.
+     From and To, both free-form and both optional. Empty means "no bound that
+     side", so clearing both shows every snapshot.
 
-     Resolving happens HERE, once, and every request — rows, tiles, export —
-     carries the resolved date. Sending the raw date instead would let the
-     tiles resolve it server-side while the table matched it exactly, and the
-     page would show a total over an empty table. The server applies the same
-     rule for direct API callers.
+     The TABLE may legitimately span more than one snapshot — every row carries
+     its own As Of Date, so reading Q1 beside Q2 is a real thing to want.
 
-     A date BEFORE the first snapshot resolves to nothing rather than jumping
-     forward. "Nothing had been recorded by then" is true; inventing a later
-     balance is not. */
+     The TILES may not. Summing a range covering both snapshots counts every
+     account twice and yields roughly double the truth while looking entirely
+     plausible. The server pins them to the LATEST snapshot inside the range,
+     and the header says which one whenever the range holds more than one. */
 
   function snapshots() {
     return ((S.options && S.options.quarters) || []).map(function (x) { return x.as_of; });
   }
 
-  function resolveDate(wanted) {
-    var all = snapshots();               /* newest first */
-    if (!all.length) return null;
-    if (!wanted) return all[0];
-    for (var i = 0; i < all.length; i++) if (all[i] <= wanted) return all[i];
-    return null;                          /* earlier than anything recorded */
+  function snapshotsInRange() {
+    return snapshots().filter(function (d) {
+      return (!S.dateFrom || d >= S.dateFrom) && (!S.dateTo || d <= S.dateTo);
+    });
   }
 
   function header() {
     var all = snapshots();
     var range = (S.options && S.options.date_range) || null;
-    var wanted = S.dateWanted || S.asOf || '';
+    var bounds = range ? ' min="' + esc(range.min) + '" max="' + esc(range.max) + '"' : '';
 
     var datalist = all.length
       ? '<datalist id="fin-snapshots">' + all.map(function (d) {
@@ -384,20 +388,24 @@ window.PortalFinancials = (function () {
         }).join('') + '</datalist>'
       : '';
 
-    var input = '<input class="fin-qsel" type="date" id="fin-date" list="fin-snapshots"' +
-      ' value="' + esc(wanted) + '"' +
-      (range ? ' min="' + esc(range.min) + '" max="' + esc(range.max) + '"' : '') +
-      ' aria-label="As of date">';
+    var inputs =
+      '<span class="fin-daterange">' +
+        '<input class="fin-qsel" type="date" id="fin-from" list="fin-snapshots" aria-label="From date"' +
+          ' value="' + esc(S.dateFrom || '') + '"' + bounds + '>' +
+        '<span class="sep">to</span>' +
+        '<input class="fin-qsel" type="date" id="fin-to" list="fin-snapshots" aria-label="To date"' +
+          ' value="' + esc(S.dateTo || '') + '"' + bounds + '>' +
+      '</span>';
 
-    /* Only shown when the answer differs from the question. Saying "resolved
-       to 2026-06-30" on a day the reader actually picked would be noise. */
+    /* Only when it is not obvious. Announcing the pinned date on a range that
+       contains exactly one snapshot is noise. */
+    var inR = snapshotsInRange();
     var note = '';
-    if (S.dateWanted && S.asOf && S.dateWanted !== S.asOf) {
-      note = '<span class="fin-resolved">showing ' + esc(S.asOf) +
-             ' &mdash; nearest snapshot on or before ' + esc(S.dateWanted) + '</span>';
-    } else if (S.dateWanted && !S.asOf) {
-      note = '<span class="fin-resolved warn">nothing recorded on or before ' +
-             esc(S.dateWanted) + '</span>';
+    if (!inR.length && (S.dateFrom || S.dateTo)) {
+      note = '<span class="fin-resolved warn">no snapshot in this range</span>';
+    } else if (inR.length > 1) {
+      note = '<span class="fin-resolved">' + inR.length + ' snapshots &middot; totals as at ' +
+             esc(inR[0]) + '</span>';
     }
 
     return '' +
@@ -407,22 +415,13 @@ window.PortalFinancials = (function () {
           '<p class="fin-sub">Cash &amp; debt &middot; LeavenWealth</p>' +
         '</div>' +
         '<div class="fin-headtools">' +
-          note + input + datalist +
+          note + inputs + datalist +
           (all.length ? '<button class="fin-btn" id="fin-latest">Latest</button>' : '') +
+          (all.length ? '<button class="fin-btn" id="fin-alldates">All dates</button>' : '') +
           '<button class="fin-btn" id="fin-export-csv">Export CSV</button>' +
           '<button class="fin-btn" id="fin-export-xlsx">Export XLSX</button>' +
         '</div>' +
       '</div>';
-  }
-
-  /* Persistent and not dismissible. Every row in the dataset is a draft; a
-     banner you can close is a banner nobody sees on the visit that matters. */
-  function draftBanner() {
-    var v = S.summary && S.summary.current;
-    if (v && v.all_verified === true) return '';
-    return '<div class="fin-draft"><span class="fin-draft-dot"></span>' +
-      '<div><b>Draft figures</b> &mdash; pending verification by Mitch Hagen. ' +
-      'Every balance below is <code>is_verified = false</code>.</div></div>';
   }
 
   function problems() {
@@ -451,7 +450,9 @@ window.PortalFinancials = (function () {
       tile('', 'Accounts', null,
            (cashN != null && loanN != null) ? (cashN + loanN) + ' with a balance this quarter' : '',
            (cashN != null && loanN != null) ? String(cashN + loanN) : null) +
-      tile('', 'As Of', null, 'quarterly snapshot', dateOnly(c.as_of_date) || S.asOf || '—') +
+      tile('', 'As Of', null,
+           (c.snapshots_in_range > 1 ? 'latest of ' + c.snapshots_in_range + ' in range' : 'snapshot'),
+           dateOnly(c.as_of_date) || '—') +
       '</div>';
     /* Accounts adds a COUNT of accounts, which is a real quantity. Cash and
        debt are never added; there is no tile for that and no helper for it. */
@@ -608,9 +609,10 @@ window.PortalFinancials = (function () {
         ? 'No rows match these filters. Clear one and try again.'
         : (S.tab === 'accounts'
             ? 'No accounts are recorded yet.'
-            : (S.asOf
-                ? 'No balances were recorded on ' + esc(S.asOf) + '.'
-                : 'Nothing had been recorded on or before ' + esc(S.dateWanted || 'that date') + '.'));
+            : (snapshotsInRange().length
+                ? 'No balances were recorded in this date range.'
+                : 'No snapshot falls in this date range. Balances exist on '
+                  + esc(snapshots().join(' and ')) + '.'));
       return '<div class="fin-tablewrap"><div class="fin-empty"><b>Nothing to show</b>' + why + '</div></div>';
     }
 
@@ -663,18 +665,17 @@ window.PortalFinancials = (function () {
   function wire() {
     var $ = function (id) { return host.querySelector('#' + id); };
 
-    var dsel = $('fin-date');
-    if (dsel) dsel.onchange = function () {
-      S.dateWanted = this.value || null;
-      S.asOf = resolveDate(S.dateWanted);
-      reload();
-    };
+    var fromEl = $('fin-from'), toEl = $('fin-to');
+    if (fromEl) fromEl.onchange = function () { S.dateFrom = this.value || null; reload(); };
+    if (toEl)   toEl.onchange   = function () { S.dateTo   = this.value || null; reload(); };
     var latest = $('fin-latest');
     if (latest) latest.onclick = function () {
       var all = snapshots();
-      S.asOf = all[0] || null; S.dateWanted = S.asOf;
+      S.dateFrom = S.dateTo = all[0] || null;
       reload();
     };
+    var allDates = $('fin-alldates');
+    if (allDates) allDates.onclick = function () { S.dateFrom = S.dateTo = null; reload(); };
 
     var csv = $('fin-export-csv');
     if (csv) csv.onclick = function () { doExport('csv'); };
