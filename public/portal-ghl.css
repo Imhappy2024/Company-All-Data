@@ -1,0 +1,232 @@
+/* ===========================================================================
+   Leads (GHL) — ported from command-center's Leads view.
+
+   Every selector is `ld-` prefixed. The portal already owns .card, .row,
+   .chip, .tag, .reader and .search, and an unprefixed rule here would restyle
+   half the portal silently — the same reason Properties took `pr-` and
+   Financials took `fin-`.
+
+   command-center's own names for these colours (--brass --edge2 --panel2
+   --ink2 --jade --rust) are mapped onto tokens.css at the top of
+   portal-properties.css, so this file uses the token names directly rather
+   than carrying a second shim.
+   =========================================================================== */
+
+/* ---- header ------------------------------------------------------------- */
+
+.ld-head {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; margin: 0 0 14px; flex-wrap: wrap;
+}
+.ld-title { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: var(--ink); margin: 0 0 3px; }
+.ld-sub {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ink-4); margin: 0;
+}
+.ld-tools { display: flex; gap: 8px; align-items: center; flex: none; flex-wrap: wrap; }
+
+/* Searches every lead in scope, not the page on screen: the list is capped at
+   the most recently active few hundred and the one you are looking for is
+   usually not among them. */
+.ld-search {
+  display: flex; align-items: center; gap: 7px;
+  background: var(--bg); border: 1px solid var(--border-strong);
+  border-radius: var(--r-sm); padding: 0 9px; height: 34px;
+  min-width: min(300px, 52vw); transition: border-color .12s var(--ease);
+}
+.ld-search:focus-within { border-color: var(--accent); }
+.ld-search .ic { color: var(--ink-4); font-size: 14px; line-height: 1; flex: none; }
+.ld-search input {
+  flex: 1; min-width: 0; background: none; border: 0; color: var(--text);
+  font: inherit; font-size: 12.5px; height: 100%;
+}
+.ld-search input:focus { outline: none; }
+.ld-search .x {
+  background: none; border: 0; cursor: pointer; color: var(--ink-4);
+  font-size: 15px; line-height: 1; padding: 0 2px;
+}
+.ld-search .x:hover { color: var(--crit); }
+
+.ld-btn {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-md); color: var(--text);
+  font-family: var(--mono); font-size: 10.5px; letter-spacing: .08em;
+  text-transform: uppercase; padding: 8px 13px; cursor: pointer;
+  transition: background .15s var(--ease), border-color .15s var(--ease);
+  white-space: nowrap;
+}
+.ld-btn:hover { background: var(--surface-2); border-color: var(--border-strong); }
+.ld-btn[disabled] { opacity: .5; cursor: default; }
+
+.ld-synced {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
+  color: var(--ink-4); display: flex; align-items: center; gap: 6px;
+  transition: color .2s;
+}
+.ld-synced .d { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+.ld-synced.ok .d { background: var(--good); }
+.ld-synced.bad { color: var(--crit-ink); }
+.ld-synced.bad .d { background: var(--crit); }
+
+/* Leads has its OWN banner. In command-center these errors used to route to
+   the Inbox's, which lives inside a hidden view — so a failure reported itself
+   where nobody could see it and read as "nothing happened". */
+.ld-banner {
+  color: var(--crit-ink); background: var(--crit-soft);
+  border: 1px solid color-mix(in srgb, var(--crit) 30%, transparent);
+  border-radius: var(--r-md); font-size: 12.5px; padding: 9px 13px;
+  margin-bottom: 12px;
+}
+
+/* ---- stage bar ----------------------------------------------------------
+   Real stages, real counts, pipeline order. Never a fixed six: stages are per
+   pipeline and change, and LeavenWealth's nine do not match Leadli's
+   twenty-six. */
+
+.ld-stagebar { display: flex; gap: 6px; margin-bottom: 14px; overflow-x: auto; padding-bottom: 3px; }
+.ld-stage {
+  flex: none; cursor: pointer; text-align: left;
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-md); padding: 9px 12px; min-width: 108px;
+  transition: border-color .13s var(--ease), background .13s var(--ease);
+}
+.ld-stage:hover { border-color: var(--border-strong); }
+.ld-stage.on { border-color: var(--accent); background: var(--accent-soft); }
+.ld-stage .n {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--ink-4);
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px;
+}
+.ld-stage .v {
+  font-family: var(--font-display); font-size: 19px; font-weight: 600;
+  color: var(--ink); margin-top: 4px; font-variant-numeric: tabular-nums;
+}
+.ld-stage.on .v { color: var(--accent); }
+
+/* ---- split: list beside reader ------------------------------------------ */
+
+.ld-wrap { display: grid; grid-template-columns: 1fr; gap: 0; align-items: start; }
+.ld-wrap.split { grid-template-columns: minmax(280px, 34%) minmax(0, 1fr); gap: 14px; }
+@media (max-width: 1000px) { .ld-wrap.split { grid-template-columns: 1fr; } }
+
+.ld-card {
+  background: var(--panel); border: 1px solid var(--border);
+  border-radius: var(--r-lg); overflow: hidden; min-width: 0;
+}
+.ld-cardhead {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 15px; border-bottom: 1px solid var(--border);
+}
+.ld-cardhead h3 { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--ink); margin: 0; }
+.ld-eyebrow {
+  font-family: var(--mono); font-size: 10px; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--ink-4);
+}
+
+.ld-list { max-height: 660px; overflow: auto; }
+
+.ld-row {
+  display: block; width: 100%; text-align: left; cursor: pointer;
+  background: none; border: 0; border-bottom: 1px solid var(--border);
+  border-left: 2px solid transparent;
+  padding: 10px 14px; transition: background .12s var(--ease);
+}
+.ld-row:hover { background: var(--panel-2); }
+.ld-row.on { background: var(--panel-2); border-left-color: var(--accent); }
+/* An inbound message newer than the newest outbound one. Not a read receipt —
+   nothing here marks anything read — so it says "they answered last". */
+.ld-row.unread { border-left-color: var(--good); }
+
+.ld-row .top { display: flex; align-items: baseline; gap: 8px; }
+.ld-name {
+  font-weight: 600; font-size: 13px; color: var(--ink);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ld-when { font-family: var(--mono); font-size: 10px; color: var(--ink-4); flex: none; }
+.ld-meta {
+  font-size: 11.5px; color: var(--ink-3); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ld-tags { display: flex; gap: 4px; margin-top: 6px; min-width: 0; overflow: hidden; }
+.ld-tag {
+  border: 1px solid var(--border-strong); border-radius: 99px; padding: 1px 7px;
+  font-size: 9.5px; font-family: var(--mono); color: var(--ink-3);
+  white-space: nowrap; flex: none;
+}
+.ld-tag.more { color: var(--ink-4); border-style: dashed; }
+
+/* A stage belongs to an OPPORTUNITY, not to a person. Most contacts have none
+   — 28 of LeavenWealth's 1,231 — so this chip is absent rather than defaulted
+   to "new", which would assert a stage about twelve hundred people. */
+.ld-stagechip {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .06em;
+  text-transform: uppercase; padding: 1.5px 6px; border-radius: 3px;
+  background: var(--accent-soft); color: var(--accent); flex: none;
+}
+.ld-stagechip.won  { background: var(--good-soft); color: var(--good-ink); }
+.ld-stagechip.lost { background: var(--crit-soft); color: var(--crit-ink); }
+
+/* ---- reader -------------------------------------------------------------- */
+
+.ld-reader { display: flex; flex-direction: column; min-height: 380px; max-height: 672px; }
+.ld-rhead { padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.ld-rname { font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--ink); }
+.ld-rmeta { font-size: 12px; color: var(--ink-3); margin-top: 4px; display: flex; flex-wrap: wrap; gap: 10px; }
+.ld-rmeta a { color: var(--accent); text-decoration: none; }
+.ld-rmeta a:hover { text-decoration: underline; }
+.ld-rclose {
+  float: right; background: none; border: 0; cursor: pointer;
+  color: var(--ink-4); font-size: 17px; line-height: 1;
+}
+.ld-rclose:hover { color: var(--crit); }
+
+.ld-tabs { display: flex; gap: 2px; padding: 0 12px; border-bottom: 1px solid var(--border); }
+.ld-tab {
+  background: none; border: 0; cursor: pointer; padding: 9px 12px; margin-bottom: -1px;
+  border-bottom: 2px solid transparent; color: var(--ink-4);
+  font-family: var(--mono); font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+}
+.ld-tab:hover { color: var(--text); }
+.ld-tab.on { color: var(--ink); border-bottom-color: var(--accent); }
+.ld-tab .n { opacity: .65; margin-left: 5px; }
+
+.ld-body { padding: 14px 16px; overflow: auto; flex: 1; }
+
+.ld-bubble {
+  max-width: 78%; padding: 9px 12px; border-radius: var(--r-md);
+  font-size: 12.5px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere;
+  margin-bottom: 10px; border: 1px solid var(--border);
+}
+.ld-bubble.in  { background: var(--panel-2); }
+.ld-bubble.out { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 26%, transparent); margin-left: auto; }
+.ld-bubble .bh {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-4); margin-bottom: 5px; display: flex; gap: 8px;
+}
+.ld-bubble .subj { font-weight: 600; color: var(--ink); margin-bottom: 4px; }
+
+.ld-act {
+  display: flex; gap: 10px; align-items: baseline;
+  font-size: 11.5px; color: var(--ink-3); padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.ld-act .k {
+  font-family: var(--mono); font-size: 9px; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--ink-4); flex: none; min-width: 96px;
+}
+
+.ld-fields { display: grid; grid-template-columns: minmax(140px, 34%) 1fr; gap: 1px 12px; font-size: 12.5px; }
+.ld-fields dt { color: var(--ink-4); padding: 6px 0; border-bottom: 1px solid var(--border); }
+.ld-fields dd { color: var(--text); padding: 6px 0; margin: 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+
+.ld-empty, .ld-loading { padding: 40px 20px; text-align: center; color: var(--ink-4); font-size: 13px; }
+.ld-empty b { display: block; color: var(--text); font-size: 14px; margin-bottom: 6px; font-family: var(--font-display); }
+
+.ld-nil { color: var(--ink-4); }
+.ld-note {
+  padding: 9px 13px; margin-bottom: 11px;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-left: 2px solid var(--accent);
+  border-radius: var(--r-sm); font-size: 12.5px; color: var(--ink-3);
+}
+.ld-note b { color: var(--text); font-weight: 600; }

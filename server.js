@@ -2075,6 +2075,14 @@ function patchCachedPropertyField(taskId, fieldId, value) {
    this connection is the postgres superuser, so nothing downstream would stop
    a mistake here. Tenant scoping is the module's own job for the same reason:
    RLS never runs on this connection. */
+/* GHL leads, READ-ONLY and brand-scoped. Every request resolves to the set of
+   ghl_location rows owned by one company, and an absent or unknown company_id
+   scopes to NOTHING rather than to everything - an empty screen gets reported,
+   Folio's 4,643 leads under LeavenWealth does not. This service holds no GHL
+   credential, so the send path was not ported. */
+const ghlApi = require('./ghl-api');
+app.use('/api/ghl', ghlApi.ghlRoutes());
+
 const financialsApi = require('./financials-api');
 app.use('/api/financials', financialsApi.financialsRoutes());
 

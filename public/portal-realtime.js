@@ -45,10 +45,6 @@
     entity: ['properties', 'loans'],
     entity_owner: ['properties'],
 
-    /* cash + debt (the Financials screen) */
-    financial_account: ['financials'],
-    account_balance: ['financials'],
-
     /* debt */
     loan: ['loans', 'overview', 'financials'],
     loan_balance: ['loans', 'financials'],
@@ -61,10 +57,18 @@
        overview cards. Re-add the bindings alongside any screen that returns. */
     insurance_policy: ['overview'],
 
-    /* growth */
+    /* growth. lead and appointment already existed here; the ghl_* tables are
+       new and feed the same Leads screen. Duplicating a key would have been
+       silently destructive - the later literal wins and the earlier one is
+       gone with no error - so they are merged rather than appended. */
     lead: ['leads', 'overview'],
     lead_provider: ['leads'],
-    appointment: ['appointments'],
+    appointment: ['leads', 'appointments'],
+    ghl_message: ['leads'],
+    ghl_opportunity: ['leads'],
+    ghl_conversation: ['leads'],
+    ghl_note: ['leads'],
+    ghl_location: ['leads'],
     contact: ['leads'],
     deal: ['leads'],
     communication: ['leads'],

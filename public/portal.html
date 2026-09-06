@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/portal-properties.css">
 <link rel="stylesheet" href="/portal-financials.css">
+<link rel="stylesheet" href="/portal-ghl.css">
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 /* Palette, geometry and the dark theme now come from the shared design system in
@@ -433,6 +434,7 @@ tbody tr:hover{background:var(--panel-2)}
 <script src="/portal-tasks.js"></script>
 <script src="/portal-properties.js"></script>
 <script src="/portal-financials.js"></script>
+<script src="/portal-ghl.js"></script>
 <script src="/portal-realtime.js"></script>
 <script>
 /* Thin-line icon set (16x16, 1.4 stroke, round caps) to match the shared design. */
@@ -898,12 +900,12 @@ const V={
     const body = loansCache ? renderLoans(loansCache) : '<div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div>';
     return seg+`<div id="loansBody">${body}</div>`;
   },
-  leads(){
-    const byP={};LEADS.forEach(l=>byP[l.p]=(byP[l.p]||0)+1);
-    const chips=Object.entries(byP).map(([p,n])=>`<span class="chip"><span class="sw" style="background:${PROV[p].c}"></span>${PROV[p].n} &middot; ${n}</span>`).join(' ');
-    return card('target','Pipeline by provider',null,chips)+`<div style="height:16px"></div>`+
-      card('users','Leads',LEADS.length,tbl([{t:'Name'},{t:'Provider'},{t:'Status'}],LEADS.map(l=>`<tr><td><span class="who"><span class="mo" style="background:${PROV[l.p].c}">${ini(l.n)}</span>${esc(l.n)}</span></td><td><span class="chip"><span class="sw" style="background:${PROV[l.p].c}"></span>${PROV[l.p].n}</span></td><td>${pill(l.s,l.pc)}</td></tr>`).join('')),true);
-  },
+  /* Leads is the command-center GHL screen, running natively and scoped to the
+     current brand. It replaced a baked six-row array grouped by lead provider.
+     Same arrangement as Properties and Financials: a container here, painted
+     by the module from render(), because the module needs the element to exist
+     before it can wire it. */
+  leads(){return '<div id="ghlNative"></div>';},
   appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
   ads(){ setTimeout(function(){loadAds(false);},0); return `<div id="adsBody">${renderAdsBody()}</div>`; },
   subscribers(){
@@ -1369,7 +1371,7 @@ function render(){
   const host=document.getElementById('embedHost');
   const embed=isEmbedView();
   const info=embed?embedInfo():null;
-  content.className='content'+(embed?' wide embed-lean':((view==='properties'||view==='financials')?' wide':''));
+  content.className='content'+(embed?' wide embed-lean':((view==='properties'||view==='financials'||view==='leads')?' wide':''));
   /* Read-only means read-only: no New button where the level is 'read'. The
      database refuses the write anyway, but a button that always fails is worse
      than no button. canWrite() resolves inside the current brand's scope.
@@ -1381,7 +1383,7 @@ function render(){
   const newBtn = view==='access'
     ? (canSeeAccess()?`<button class="btn" onclick="PortalUsers.openAdd()">${I.plus} Invite user</button>`:'')
     : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
-  const pageH=(embed||view==='properties'||view==='financials')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
+  const pageH=(embed||view==='properties'||view==='financials'||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
   content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
   /* The native Tasks screen must be painted after innerHTML replaces the
      container, not from inside the template string. brandSpaces and BRANDS are
@@ -1395,6 +1397,10 @@ function render(){
   /* Users & Roles, same arrangement. `scope` is what makes one component serve both
      views: 'exec' lists everyone with the businesses they reach, a company id lists
      only people who can reach that business. */
+  if(view==='leads' && window.PortalGHL){
+    PortalGHL.mount(document.getElementById('ghlNative'),
+                    {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
+  }
   if(view==='financials' && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
@@ -1464,6 +1470,9 @@ if(window.PortalRealtime) PortalRealtime.start({
     /* Financials caches its filter option lists and its summary, so rerender()
        alone would repaint the same rows off the same cache. */
     if((v==='*' || v==='financials') && window.PortalFinancials){ PortalFinancials.invalidate(); }
+    /* Leads caches its list per brand, so rerender() alone would repaint the
+       same rows off the same cache. */
+    if((v==='*' || v==='leads') && window.PortalGHL){ PortalGHL.invalidate(); }
     /* Team directory caches its list the same way, so the staff binding in
        TABLE_VIEWS only refreshes it if the cache is dropped first. */
     if(v==='*' || v==='team'){ teamRows=null; teamErr=null; }

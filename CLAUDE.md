@@ -988,6 +988,96 @@ untouched control would mean "hide everything that has debt". They test
 `*_accounts > 0`, not `balance <> 0` — an entity with a loan account sitting at
 zero still has debt on file.
 
+## Leads (GHL): the command-center port, brand-scoped
+
+`/api/ghl` (`ghl-api.js` + `ghl-data.js`) and `public/portal-ghl.{js,css}`.
+Replaces the baked `V.leads()` — six hardcoded rows grouped by lead provider.
+
+| Piece | command-center | here |
+|---|---|---|
+| Data layer | `lib/ghl-data.js` | `ghl-data.js` |
+| Routes | `routes/ghl.js` (918 lines) | `ghl-api.js` (read-only, rewritten) |
+| Section JS + CSS | inline in `public/index.html` | `public/portal-ghl.{js,css}` |
+
+The data layer is a real port (`ghlQuery` → `db.q`, ESM → CJS). The **routes
+were rewritten**, not ported: command-center's file drags in its webhook
+receiver, rate limiter, OAuth provider stack and send path, and none of that
+can work here.
+
+### It reads the same Supabase project
+command-center's `ghlDbUrl()` is `SUPABASE_DB_URL` — the same
+`lhdpzalqrwepfjoicdiz` this portal uses. That is why the port works at all: the
+24 `ghl_*` tables are already there, populated by the n8n pipeline.
+
+### Verified live 2026-09-07 (not probed — queried)
+
+| Brand | location | leads | opps | messages |
+|---|---|---|---|---|
+| LeavenWealth | `r7zMur27ESvHGQpOWI2F` | 1,231 | 31 | **0** |
+| Leadli AI | `sR79W8mCX3gd5pWKG5wU` | 2,538 | 0 | **0** |
+| Folio Excel | `xvWwoC1KQ1cOtw8Qf3Ez` | 4,643 | 8 | 111 |
+| Liquid Lending | **none** | 8 (company-only) | 0 | 0 |
+
+`ghl_location.company_id` is populated on all three and points at the same
+`company` table `BRAND_COMPANY_ID` uses, so brand scoping is a column filter.
+
+**Only Folio has messages.** An empty Messages tab under LeavenWealth is the
+ingest, not a broken screen, and the empty state says so.
+
+**Most leads have no stage** — 28 of LeavenWealth's 1,231. Stage belongs to an
+opportunity, not a person; the chip is absent rather than defaulted to "new".
+
+### The gate is `allowedLocationIds(companyId)`, not the list
+Every per-lead read (`/thread`, `/detail`) resolves its lead through that
+function, so scoping it scopes all of them. Scope only the list the sidebar
+renders and `/leads/:id/thread` still answers for any location anyone guesses —
+and the location is **in the lead id**, so guessing is trivial.
+
+**An absent or malformed `company_id` scopes to NOTHING, never everything.**
+`subAccounts(null, null)` legitimately returns every location (it is the
+unscoped call), so falling through to it meant a request that merely *omitted*
+the parameter answered with all three brands at once. `test-ghl.js` caught
+that, because it asserts the promise in the header comment rather than the
+behaviour of the code. Executive Board has no Leads item, so nothing in the
+portal makes an unscoped request.
+
+`?location=` narrows **within** the brand and can never widen past it: the
+requested id has to already be in the brand's resolved set.
+
+### 33 leads know their brand but not their location
+Verified live: Leadli 18, Liquid 8, LeavenWealth 5, Folio 2 — rows with a
+`company_id` and a NULL `ghl_location_id`. command-center's predicate is
+location-only, so **it hides every one of them**, and all 8 of Liquid Lending's
+leads are in that set: the brand would read "no sub-account" while holding real
+leads.
+
+`leadRows` takes an optional `companyId` and widens to
+`ghl_location_id IS NULL AND company_id = $7`. Those leads have no messages and
+no opportunities by construction (both are keyed by location), so they carry a
+`noLocation` flag and the client shows the contact header with an honest reason
+instead of firing two requests that would 404.
+
+### No writes, and not by omission
+This service holds no GHL credential — there is no GHL variable in
+`.env.example` — so `sendableLocationIds` and `tokenFor` were **dropped from
+the data layer** rather than left to fail at runtime. There is no composer and
+no sync button, because a control that always fails is worse than no control.
+Refresh is a re-read; n8n owns the GHL → Supabase pipeline.
+
+The router refuses any non-GET method (405) and every SQL string is checked for
+a write verb, same as `financials-api.js` and for the same reason: `supabase-db`
+connects as the postgres superuser.
+
+### Tests
+    node test/test-ghl.js     # 31 checks, no database needed
+
+Each brand sees only its own sub-account; a lead id naming another brand 404s
+on both `/thread` and `/detail`; `?location=` cannot widen; an unscoped or
+malformed request returns nothing; a brand with no sub-account still returns
+its company-only leads; sender HTML is flattened; a one-character search is
+ignored **and says so**; a malformed `?since` is refused rather than silently
+meaning "everything".
+
 ## Removed screens: Investors, Insurance / Risk, Integrations
 
 Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
@@ -1289,6 +1379,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
     node test/test-financials.js # financials: read-only, filters, export provenance
+    node test/test-ghl.js        # GHL leads: brand scoping, read-only guard
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
@@ -1305,7 +1396,7 @@ and there is no outbound network. That one is an environment artefact.
 66 properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans. Three of
 those are wrong. The database has **75 loans totalling roughly $106.5M**, and
 occupancy is not derivable at all: `unit.occupancy` is free text and empty on all
-224 rows, with no lease or tenant table. Investors, Leads and Appointments are baked too.
+224 rows, with no lease or tenant table. Investors and Appointments are baked too. **Leads is now live** - see "Leads (GHL)" above.
 **Financials is now live** - see "Financials: cash and debt" above. Replacing them with live reads (or honest empty
 states) is the next real piece of work.
 
@@ -1316,7 +1407,9 @@ states) is the next real piece of work.
 - Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
 - Portal **Properties is native** (ported from command-center); it no longer embeds `/ops`.
 - Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
-- Portal Overview/Leads/Appointments cards are STILL baked demo data.
+- Portal Overview/Appointments cards are STILL baked demo data.
+- Portal **Leads is native and brand-scoped** (ported from command-center's GHL
+  section) - see "Leads (GHL)" above.
 - Investors, Insurance / Risk and Integrations were REMOVED from the nav (and their
   views deleted) on 2026-09-07. See "Removed screens" below before re-adding one.
 
