@@ -55,6 +55,36 @@ const CASH_ROWS = [
     portal_url: '', portal_username: '', mfa_method: '', mfa_required: false, bank_contact_email: '' },
 ];
 
+/* One entity with cash only, one with DEBT ONLY (the row a LEFT JOIN drops),
+   and one with a NEGATIVE cash balance — the three cases the spec calls out.
+   The first entity name carries two commas, which a naive CSV join breaks on. */
+const ENTITY_ROWS = [
+  { entity_id: 'e1', entity: '2200 Ridgmar Plaza, LLC & Ridgmar Partners, LLC',
+    entity_type: 'LLC', brand: 'LeavenWealth', deal_name: 'Ridgmar',
+    cash_balance: '780132.81', cash_accounts: 3,
+    debt_balance: '22075000.00', debt_accounts: 2,
+    net_position: '-21294867.19', all_verified: false,
+    as_of_date: '2026-06-30', source: 'Q2 workbook' },
+  { entity_id: 'e2', entity: 'Cash Only Holdings LLC', entity_type: 'LLC',
+    brand: 'LeavenWealth', deal_name: null,
+    cash_balance: '470102.30', cash_accounts: 1,
+    debt_balance: '0', debt_accounts: 0,
+    net_position: '470102.30', all_verified: false,
+    as_of_date: '2026-06-30', source: 'Bank' },
+  { entity_id: 'e3', entity: 'Debt Only SPE', entity_type: null,
+    brand: null, deal_name: 'Estrella',
+    cash_balance: '0', cash_accounts: 0,
+    debt_balance: '25600000.00', debt_accounts: 1,
+    net_position: '-25600000.00', all_verified: false,
+    as_of_date: '2026-06-30', source: null },
+  { entity_id: 'e4', entity: 'Overdrawn Partners LLC', entity_type: 'LP',
+    brand: 'LeavenWealth', deal_name: null,
+    cash_balance: '-40000.00', cash_accounts: 1,
+    debt_balance: '0', debt_accounts: 0,
+    net_position: '-40000.00', all_verified: false,
+    as_of_date: '2026-06-30', source: 'Bank' },
+];
+
 const VIEW_COLUMNS = {
   v_cash_by_entity_quarter: ['tenant_id', 'year', 'quarter', 'entity_id', 'entity', 'deal_name',
     'account_id', 'account_name', 'institution', 'account_number_last4', 'account_type',
@@ -115,6 +145,21 @@ const fakeDb = {
     }
     if (/select id, name from public\.(deal|company|entity)/.test(sql)) {
       return Promise.resolve({ rows: [{ id: (params && params[1] && params[1][0]) || 'x', name: 'Maples, Phase II' }] });
+    }
+    if (/coalesce\(sum\(r\.cash_balance\)/.test(sql)) {
+      return Promise.resolve({ rows: [{ cash: '4900000.00', debt: '210000000.00',
+                                        net: '-205100000.00', entities: 4 }] });
+    }
+    if (/fa\.owner_entity_id is null/.test(sql)) {
+      /* Two accounts with no owner entity, so the reconciliation note fires. */
+      return Promise.resolve({ rows: [{ cash: '1500.00', debt: '0', accounts: 2 }] });
+    }
+    if (/full outer join debt/.test(sql)) {
+      if (/count\(\*\)::int as n/.test(sql)) return Promise.resolve({ rows: [{ n: ENTITY_ROWS.length }] });
+      return Promise.resolve({ rows: ENTITY_ROWS.slice() });
+    }
+    if (/join public\.account_balance ab on ab\.account_id = fa\.id/.test(sql)) {
+      return Promise.resolve({ rows: CASH_ROWS.slice() });
     }
     if (/select v\.\* from/.test(sql)) return Promise.resolve({ rows: CASH_ROWS.slice() });
     return Promise.resolve({ rows: [] });
@@ -626,6 +671,218 @@ function req(server, method, url) {
     const s = seen.find(x => /select v\.\*/.test(x.sql));
     assert.ok(/order by v\.balance /.test(s.sql), 'expected the default sort, got: ' + s.sql.slice(-80));
     assert.ok(!/drop/i.test(s.sql), 'the injected fragment reached the SQL');
+  });
+
+  /* ================= the entity rollup ================= */
+
+  /* THE join. A LEFT JOIN from cash silently drops the one entity that has
+     debt and no bank account; the count reads 60 instead of 61 and nobody
+     notices until the entity totals fail to reconcile. */
+  await checkAsync('cash and debt are joined with a FULL OUTER JOIN', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(s, 'no full outer join was issued');
+    assert.ok(/full outer join debt dt on dt\.entity_id = c\.entity_id/.test(s.sql),
+      'the join is not the documented one: ' + s.sql.slice(0, 400));
+    assert.ok(!/left join debt/i.test(s.sql), 'a LEFT JOIN from cash would drop the debt-only entity');
+  });
+
+  await checkAsync('a debt-only entity survives into the rows', async () => {
+    const r = await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const j = JSON.parse(r.body.toString('utf8'));
+    const debtOnly = j.rows.find(x => x.entity === 'Debt Only SPE');
+    assert.ok(debtOnly, 'the debt-only entity was dropped');
+    assert.strictEqual(Number(debtOnly.cash_accounts), 0);
+    assert.ok(Number(debtOnly.debt_balance) > 0);
+  });
+
+  await checkAsync('balances coalesce to 0 but the entity join never does', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/coalesce\(c\.cash_balance, 0\)/.test(s.sql), 'cash balance does not coalesce');
+    assert.ok(/coalesce\(dt\.debt_balance, 0\)/.test(s.sql), 'debt balance does not coalesce');
+    /* An entity that does not exist is a different problem from one holding
+       zero, and must not read as a zero row. */
+    assert.ok(/join public\.entity e on e\.id = coalesce\(c\.entity_id, dt\.entity_id\)/.test(s.sql),
+      'the entity join is not an inner join');
+  });
+
+  await checkAsync('debt comes from loan-kind accounts, never loan_balance', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/account_kind = 'loan'/.test(s.sql), 'debt is not taken from loan-kind accounts');
+    assert.ok(!/loan_balance|v_debt_by_quarter/.test(s.sql),
+      'the sparse loan_balance source leaked into this view');
+  });
+
+  await checkAsync('nothing calls abs() on a balance', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    for (const s of seen) assert.ok(!/\babs\s*\(/i.test(s.sql), 'abs() in: ' + s.sql.slice(0, 120));
+  });
+
+  await checkAsync('a negative cash balance is returned, not filtered out', async () => {
+    const r = await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const j = JSON.parse(r.body.toString('utf8'));
+    const neg = j.rows.find(x => Number(x.cash_balance) < 0);
+    assert.ok(neg, 'the negative-cash entity is missing');
+    assert.strictEqual(neg.entity, 'Overdrawn Partners LLC');
+  });
+
+  await checkAsync('a descending sort puts nulls last so negatives stay in the list', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&sort=cash_balance&dir=desc');
+    const s = seen.find(x => /order by r\./.test(x.sql));
+    assert.ok(/order by r\.cash_balance desc nulls last/.test(s.sql), 'got: ' + s.sql.slice(-90));
+  });
+
+  await checkAsync('an unknown sort column is refused rather than escaped', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&sort=cash_balance;drop%20table%20x');
+    const s = seen.find(x => /order by r\./.test(x.sql));
+    assert.ok(/order by r\.cash_balance /.test(s.sql), 'got: ' + s.sql.slice(-90));
+    assert.ok(!/drop/i.test(s.sql), 'the injected fragment reached the SQL');
+  });
+
+  await checkAsync('totals are computed over the filtered set, not the portfolio', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&entity[]=11111111-1111-4111-8111-111111111111');
+    const s = seen.find(x => /coalesce\(sum\(r\.cash_balance\)/.test(x.sql));
+    assert.ok(s, 'no totals query ran');
+    assert.ok(/e\.id = any/.test(s.sql), 'the totals ignored the active filter');
+  });
+
+  await checkAsync('the totals payload keeps cash and debt separate and net as a subtraction', async () => {
+    const r = await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.ok(j.totals, 'no totals');
+    const c = Number(j.totals.cash), d = Number(j.totals.debt);
+    assert.strictEqual(Number(j.totals.net), c - d, 'net is not cash minus debt');
+    assert.ok(!Object.values(j.totals).some(v => Number(v) === c + d), 'a field equals cash + debt');
+    assert.ok(!/equity/i.test(JSON.stringify(j)), 'net position is described as equity somewhere');
+  });
+
+  await checkAsync('accounts with no owner entity are reported, not silently dropped', async () => {
+    /* owner_entity_id is nullable and the entity join drops those accounts, so
+       the Cash column cannot sum to the account-level tile. Saying so is the
+       only thing that makes the difference explicable. */
+    const r = await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.ok(j.unattributed, 'the unattributed gap is not reported');
+    assert.strictEqual(j.unattributed.accounts, 2);
+  });
+
+  await checkAsync('institution and purpose narrow the accounts BEFORE the rollup', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&institution[]=Dundee%20Bank');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    const acctCte = s.sql.slice(s.sql.indexOf('with acct as ('), s.sql.indexOf('cash as ('));
+    assert.ok(/coalesce\(fa\.institution/.test(acctCte),
+      'the institution filter is not inside the acct CTE, so it applies after the rollup');
+  });
+
+  await checkAsync('the entity rollup excludes leadli and folio too', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/!~\*/.test(s.sql), 'no brand exclusion');
+    const re = s.params.find(p => typeof p === 'string' && p.indexOf('leadli') >= 0);
+    assert.ok(re && re.indexOf('\\y') === 0, 'the pattern is not word-bounded: ' + JSON.stringify(re));
+  });
+
+  await checkAsync('has_debt unset does not filter; has_debt=true does', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30');
+    let s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(!/debt_accounts, 0\) > 0/.test(s.sql), 'an untouched control filtered anyway');
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&has_debt=true');
+    s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/coalesce\(dt\.debt_accounts, 0\) > 0/.test(s.sql), 'has_debt=true did not filter');
+  });
+
+  await checkAsync('has_debt=false is distinct from unset', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&has_debt=false');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/coalesce\(dt\.debt_accounts, 0\) = 0/.test(s.sql), 'has_debt=false did not filter');
+  });
+
+  await checkAsync('a negative cash_min is accepted', async () => {
+    seen.length = 0;
+    await get('/api/financials/summary/entities?as_of=2026-06-30&cash_min=-50000');
+    const s = seen.find(x => /full outer join/i.test(x.sql));
+    assert.ok(/coalesce\(c\.cash_balance, 0\) >= /.test(s.sql), 'no cash minimum applied');
+    assert.ok(s.params.indexOf(-50000) >= 0, 'the negative bound was dropped: ' + JSON.stringify(s.params));
+  });
+
+  /* Export */
+  const ecsv = await get('/api/financials/summary/entities/export?format=csv&as_of=2026-06-30');
+  const ecsvText = ecsv.body.toString('utf8');
+
+  check('the entity export is named for this view', () => {
+    const cd = ecsv.headers['content-disposition'] || '';
+    assert.ok(/leavenwealth_cash_debt_summary_2026-06-30_\d{8}\.csv/.test(cd), cd);
+  });
+
+  check('the entity export carries the totals line', () => {
+    const line = ecsvText.split('\n').find(l => l.indexOf('# Totals:') === 0);
+    assert.ok(line, 'no totals line');
+    assert.ok(/Cash [\d,]+\.\d{2} \| Debt [\d,]+\.\d{2}/.test(line), 'got: ' + line);
+  });
+
+  check('the entity export states the unattributed accounts', () => {
+    assert.ok(/^# NOTE: 2 account\(s\) have no owner entity/m.test(ecsvText),
+      'the reconciliation note is missing from the file');
+  });
+
+  check('the entity export keeps Verified even though the table dropped it', () => {
+    const header = ecsvText.split('\n').find(l => l && l[0] !== '#');
+    assert.ok(header.indexOf('Verified') >= 0, 'got: ' + header);
+    assert.ok(header.indexOf('Net Position') >= 0, 'got: ' + header);
+  });
+
+  check('an entity name with two commas is quoted, not split', () => {
+    assert.ok(ecsvText.indexOf('"2200 Ridgmar Plaza, LLC & Ridgmar Partners, LLC"') >= 0,
+      'the entity name was not quoted');
+  });
+
+  check('a negative balance exports as a raw negative number', () => {
+    /* Parentheses are a screen convention. A spreadsheet needs -40000. */
+    assert.ok(ecsvText.indexOf('-40000') >= 0, 'expected the raw negative');
+    assert.ok(ecsvText.indexOf('(40,000.00)') < 0, 'a display-formatted negative leaked into the file');
+  });
+
+  check('no credential field is in the entity export', () => {
+    for (const bad of ['portal_url', 'portal_username', 'mfa_method', 'bank.example']) {
+      assert.ok(ecsvText.indexOf(bad) < 0, 'leaked ' + bad);
+    }
+  });
+
+  await checkAsync('the entity export is the full result set, not one page', async () => {
+    const r = await get('/api/financials/summary/entities/export?format=csv&as_of=2026-06-30&page=1&per_page=1');
+    assert.strictEqual(csvRecords(r.body.toString('utf8')), ENTITY_ROWS.length);
+  });
+
+  await checkAsync('the entity XLSX has an About sheet carrying the totals', async () => {
+    const r = await get('/api/financials/summary/entities/export?format=xlsx&as_of=2026-06-30');
+    assert.strictEqual(r.body.slice(0, 2).toString('binary'), 'PK', 'not a zip');
+    const ExcelJS = require('exceljs');
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(r.body);
+    const about = wb.getWorksheet('About');
+    assert.ok(about, 'no About sheet');
+    const text = JSON.stringify(about.getSheetValues());
+    assert.ok(text.indexOf('Totals') >= 0, 'no totals row on the About sheet');
+    assert.ok(text.indexOf('unverified') >= 0, 'the unverified caveat is missing');
+  });
+
+  await checkAsync('the entity view is read-only like the rest', async () => {
+    const r = await req(server, 'POST', '/api/financials/summary/entities');
+    assert.strictEqual(r.status, 405, 'got ' + r.status);
   });
 
   server.close();

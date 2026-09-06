@@ -891,7 +891,7 @@ correctly, a `display` rule elsewhere won, and the panel stayed invisible with
 nothing in the console.
 
 ### Tests
-    node test/test-financials.js     # 55 checks, no database needed
+    node test/test-financials.js     # 81 checks, no database needed
 
 The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
 accounts, 154 Operating) are Jay's to run. What this pins is everything that
@@ -908,6 +908,85 @@ selected quarter against an `as_of_date` column that `v_cash_debt_summary` does
 not have, so `current` came back null and every tile rendered "no data" over
 data; and `arrayParam` was comma-splitting repeated params, which would have
 torn "Maples, Phase II" into two filters matching nothing.
+
+## Cash & Debt Summary: the entity rollup
+
+The **By Entity** tab (default) on Financials. One row per entity, cash beside
+debt: "which LLCs are holding cash, and what do they owe". The other three tabs
+are the account-level detail underneath it.
+
+`GET /api/financials/summary/entities`, `/:id/accounts`, `/export`.
+
+### The join is a FULL OUTER JOIN and that is the whole point
+At Q2 2026: 45 entities have both cash and debt, 15 have cash only, and **one
+has debt only**. A LEFT JOIN from cash silently drops that one — the count reads
+60 instead of 61, and an entity carrying debt with no operating account
+disappears from a debt report. Nobody notices until the entity totals fail to
+reconcile to the portfolio.
+
+`coalesce(..., 0)` is on the **balances** but never on the entity join. An
+entity with no bank accounts genuinely holds zero cash; an entity that does not
+exist is a different problem and must not read as a zero.
+
+### Accounts with no owner entity are REPORTED, not silently dropped
+`financial_account.owner_entity_id` is nullable, and the rollup joins entity on
+`coalesce(cash.entity_id, debt.entity_id)` — so an account with no owner is
+dropped by that join. The Cash column then **cannot** sum to the account-level
+tile, and nothing would say why.
+
+`fetchEntityRows` measures that gap separately and returns it as
+`unattributed`; the screen states it and so does every export. This is the
+difference between a number someone can explain and a number someone finds with
+a calculator.
+
+### Cash can be negative; net position is meant to be about -$220M
+Eight entities carry a negative cash balance. Nothing calls `abs()`, the sort
+uses `nulls last` so a -$40,000 entity sits at the bottom of a descending sort
+rather than dropping off an end, and negatives render in parentheses in the crit
+colour per accounting convention — but **export as raw negatives**, because a
+spreadsheet needs `-40000`, not `(40,000.00)`.
+
+Net position across the portfolio is roughly **-$220M**. That is what a
+leveraged property portfolio looks like: it is not an error state, the column is
+not painted red, and there is no health indicator implying distress. It is
+labelled **Net Cash Position** and it is **not equity** — property values are
+nowhere in this calculation.
+
+### Debt is loan-KIND ACCOUNTS, never `loan_balance`
+`account_balance` where `account_kind = 'loan'` gives $225.4M across 55
+accounts; `loan_balance` gives $15.2M across 3 loans. This view uses the first
+and there is deliberately **no toggle** — `loan_balance` is sparse with ragged
+dates and has its own tab.
+
+### One row per entity means ONE snapshot
+The view pins to the latest snapshot inside the date range, exactly as the tiles
+do. A range covering both dates would otherwise give every entity two rows and a
+totals line counting every account twice. The screen says which date it pinned
+to whenever the range holds more than one.
+
+### Institution and Purpose narrow the ACCOUNTS, before the rollup
+Picking Dundee Bank shows each entity's **Dundee-only** cash, not its full
+balance. That is deliberate and the UI says so under the chips — without the
+note the totals look wrong to anyone checking them against the account view.
+
+### Two spec bullets deliberately not followed
+The brief lists a **Brand filter** and a **Verified column**. Both were removed
+from the sibling account-level view by later instruction, and Leadli/Folio are
+excluded from this screen entirely, so:
+- there is no Brand filter (Deal and Entity already scope to one brand, and the
+  option lists name it);
+- there is no Verified column, but `is_verified` **is** in every export — which
+  is what the brief's §2.6 actually requires.
+
+The same brand exclusion applies here as everywhere else on the screen, so the
+row count and totals will sit **below** the brief's figures (61 entities,
+$5,073,105.35). That is the exclusion working.
+
+### `has_cash` / `has_debt` are THREE states
+Yes, No, and not filtering. A plain boolean collapses the last two, so an
+untouched control would mean "hide everything that has debt". They test
+`*_accounts > 0`, not `balance <> 0` — an entity with a loan account sitting at
+zero still has debt on file.
 
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;

@@ -256,3 +256,54 @@ input.fin-qsel { font-family: var(--mono); }
   font-family: var(--mono); font-size: 10px; letter-spacing: .06em;
   text-transform: uppercase; color: var(--dimmer);
 }
+
+/* ---- the entity rollup ---------------------------------------------------
+   One row per entity, cash beside debt, with its accounts underneath when a
+   row is opened. */
+
+.fin-etable tbody tr.fin-erow { cursor: pointer; }
+.fin-etable tbody tr.fin-erow.open { background: var(--accent-soft); }
+.fin-etoggle { display: inline-block; width: 12px; color: var(--dimmer); margin-right: 4px; }
+.fin-erow.open .fin-etoggle { color: var(--accent); }
+
+.fin-exp > td { padding: 0 0 0 26px; background: var(--panel-2); }
+.fin-sub-table { font-size: 12px; margin: 6px 0 10px; }
+.fin-sub-table th { background: none; border-bottom: 1px solid var(--border); position: static; }
+.fin-sub-table td { border-bottom: 1px solid var(--border); }
+
+/* Accounting convention: parentheses, not a leading minus that is easy to miss
+   in a column of figures. Eight entities carry a negative cash balance, so
+   this is the normal case rather than an exception. */
+.fin-neg { color: var(--crit); }
+
+/* Net position runs to about -$220M across the portfolio. That is what a
+   leveraged property portfolio looks like, so the column is NOT painted as an
+   error state and carries no health indicator. Only the individual negative
+   figure is coloured, by the rule above. */
+.fin-totals td {
+  border-top: 2px solid var(--border-strong);
+  background: var(--panel-2); position: sticky; bottom: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.fin-tri { display: inline-flex; align-items: center; gap: 0; }
+.fin-tri .lbl, .fin-range .lbl {
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em;
+  text-transform: uppercase; color: var(--dimmer); margin-right: 6px;
+}
+.fin-tri-opt {
+  background: var(--panel-2); border: 1px solid var(--border); cursor: pointer;
+  color: var(--dimmer); padding: 6px 9px;
+  font-family: var(--mono); font-size: 9.5px; letter-spacing: .07em; text-transform: uppercase;
+}
+.fin-tri-opt:first-of-type { border-radius: var(--r-sm) 0 0 var(--r-sm); }
+.fin-tri-opt:last-of-type { border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.fin-tri-opt + .fin-tri-opt { border-left: none; }
+.fin-tri-opt:hover { color: var(--text); }
+.fin-tri-opt.on { background: var(--accent-soft); color: var(--ink); border-color: var(--accent); }
+
+.fin-note.warn {
+  border-left-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--text);
+}

@@ -213,6 +213,16 @@ function numParam(v) {
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
+/* Three states, not two: "only entities with debt", "only entities without",
+   and "do not filter on this at all". A plain boolean collapses the last two,
+   so an untouched control would mean "hide everything that has debt". */
+function triParam(req, name) {
+  const v = req.query[name];
+  if (v === 'true' || v === '1') return true;
+  if (v === 'false' || v === '0') return false;
+  return null;
+}
+
 function parseFilters(req) {
   const iso = v => (ISO_DATE.test(String(v || '')) ? String(v) : null);
   /* as_of is still accepted and means a single day (from = to = as_of), so an
@@ -235,6 +245,13 @@ function parseFilters(req) {
     type: arrayParam(req, 'type'),
     kind: arrayParam(req, 'kind').filter(v => v === 'bank' || v === 'loan'),
     cashSource: arrayParam(req, 'cash_source'),
+    /* Entity-rollup only. entityType carries a '(none)' bucket like every
+       other nullable dimension, so entities with no type stay reachable. */
+    entityType: arrayParam(req, 'entity_type'),
+    hasCash: triParam(req, 'has_cash'),
+    hasDebt: triParam(req, 'has_debt'),
+    cashMin: numParam(req.query.cash_min), cashMax: numParam(req.query.cash_max),
+    debtMin: numParam(req.query.debt_min), debtMax: numParam(req.query.debt_max),
     /* No `verified` filter. Every one of the 441 balance rows is
        is_verified = false, so the control had exactly one useful setting and
        one that matched nothing. The draft banner carries the caveat instead,
@@ -540,7 +557,7 @@ async function buildFilterOptions() {
   const T = [TENANT_ID];
   const X = [TENANT_ID, c.excludedCompanyIds || [], BRAND_EXCLUDE_RE];
 
-  const [quarters, deals, entities, institutions, purposes, types, kinds, sources] = await Promise.all([
+  const [quarters, deals, entities, institutions, purposes, types, kinds, entityTypes, sources] = await Promise.all([
     /* Every snapshot date in the data. With the custom date control these are
        the pickable values rather than a list of quarters — see the /summary
        route for how an arbitrary date resolves onto one of them. */
@@ -585,6 +602,14 @@ async function buildFilterOptions() {
          from public.financial_account fa
         where fa.tenant_id = $1 and fa.account_kind is not null ${ACCOUNT_ELIGIBLE}
         group by 1 order by 1`, X),
+    q(`select coalesce(e.entity_type, '(none)') as value, count(*)::int as entities
+         from public.entity e
+        where e.tenant_id = $1
+          and e.name !~* $3
+          and (e.company_id is null or not (e.company_id = any($2::uuid[])))
+          and exists (select 1 from public.financial_account fa
+                       where fa.owner_entity_id = e.id and fa.tenant_id = $1 ${ACCOUNT_ELIGIBLE})
+        group by 1 order by 2 desc, 1`, X),
     q(`select fa.cash_source as value, count(*)::int as accounts
          from public.financial_account fa
         where fa.tenant_id = $1 and fa.cash_source is not null ${ACCOUNT_ELIGIBLE}
@@ -606,7 +631,7 @@ async function buildFilterOptions() {
       ? { min: dates[dates.length - 1].as_of, max: dates[0].as_of }
       : null,
     deals, entities,
-    institutions, purposes, types, kinds, cash_sources: sources,
+    institutions, purposes, types, kinds, entity_types: entityTypes, cash_sources: sources,
     excluded_brands: (c.excludedCompanyIds || []).length,
     problems: c.problems,
     generatedAt: new Date().toISOString(),
@@ -734,6 +759,237 @@ function exportFilename(tabKey, f, format) {
                     f.min !== null || f.max !== null || f.maturityBefore)
     ? '_filtered' : '';
   return `leavenwealth_${tabKey}_${scope}${filtered}_${stamp}.${format}`;
+}
+
+/* ---- the entity rollup ---------------------------------------------------
+
+   One row per entity: its cash position and its debt position side by side.
+   The account-level tabs answer "what is in this account"; this answers
+   "which LLCs are holding cash, and what do they owe".
+
+   THE JOIN BETWEEN CASH AND DEBT IS A FULL OUTER JOIN, AND THAT IS THE WHOLE
+   POINT. At Q2 2026, 45 entities have both, 15 have cash only, and ONE has
+   debt only. A LEFT JOIN from cash silently drops that one: the row count
+   reads 60 instead of 61, and an entity carrying debt with no operating
+   account disappears from a debt report. Nobody notices until the entity
+   totals fail to reconcile to the portfolio.
+
+   coalesce(..., 0) is on the BALANCES but never on the entity join. An entity
+   with no bank accounts genuinely holds zero cash — that is a fact. An entity
+   that does not exist is a different problem and must not read as a zero.
+
+   Debt here is loan-KIND ACCOUNTS out of account_balance ($225.4M / 55
+   accounts), never loan_balance ($15.2M / 3 loans). loan_balance is sparse
+   with ragged dates and quarter-filtering it drops nearly everything; it has
+   its own tab. There is deliberately no toggle between them here.
+
+   Cash CAN BE NEGATIVE — eight entities are at Q2 2026. Nothing here calls
+   abs(), and the sort has to leave a -$40,000 entity at the bottom of a
+   descending sort rather than dropping it off an end.
+
+   Net position is a SUBTRACTION and it will be about -$220M. That is what a
+   leveraged property portfolio looks like, not an error state. It is NOT
+   equity: property values are nowhere in this calculation. */
+
+/* Institution and purpose filter the UNDERLYING ACCOUNTS, before the rollup,
+   so picking Dundee Bank shows each entity's Dundee-only cash rather than its
+   full balance. That is deliberate, and the UI says so — otherwise the totals
+   look wrong to anyone checking them against the account view. */
+function entityRollupSql(c, f, opts) {
+  const params = [];
+  const P = v => { params.push(v); return '$' + params.length; };
+  const T = P(TENANT_ID);
+  const D = P(opts.asOf);
+
+  const acct = [];
+  if (f.institution.length) {
+    acct.push(`coalesce(fa.institution, '(none)') = any(${P(f.institution)}::text[])`);
+  }
+  if (f.purpose.length) acct.push(`fa.account_purpose = any(${P(f.purpose)}::text[])`);
+  const acctWhere = acct.length ? '\n     and ' + acct.join('\n     and ') : '';
+
+  /* The same brand exclusion the rest of the screen uses. Leaving it off here
+     would make this view disagree with every other tab about the same money. */
+  const ids = c.excludedCompanyIds || [];
+  const outer = [`e.tenant_id = ${T}`];
+  if (ids.length) {
+    outer.push(`(e.company_id is null or not (e.company_id = any(${P(ids)}::uuid[])))`);
+  }
+  outer.push(`coalesce(e.name, '') !~* ${P(BRAND_EXCLUDE_RE)}`);
+  outer.push(`coalesce(co.name, '') !~* ${P(BRAND_EXCLUDE_RE)}`);
+  outer.push(`coalesce(d.name, '') !~* ${P(BRAND_EXCLUDE_RE)}`);
+
+  if (f.entity.length) outer.push(`e.id = any(${P(f.entity)}::uuid[])`);
+  if (f.deal.length) outer.push(`e.deal_id = any(${P(f.deal)}::uuid[])`);
+  if (f.entityType.length) {
+    outer.push(`coalesce(e.entity_type, '(none)') = any(${P(f.entityType)}::text[])`);
+  }
+
+  /* Derived flags. "Has debt" is debt_accounts > 0, not debt_balance <> 0 — an
+     entity with a loan account sitting at zero still has debt on file. */
+  if (f.hasCash === true) outer.push('coalesce(c.cash_accounts, 0) > 0');
+  if (f.hasCash === false) outer.push('coalesce(c.cash_accounts, 0) = 0');
+  if (f.hasDebt === true) outer.push('coalesce(dt.debt_accounts, 0) > 0');
+  if (f.hasDebt === false) outer.push('coalesce(dt.debt_accounts, 0) = 0');
+
+  /* Ranges accept negatives; eight entities are below zero on cash. */
+  if (f.cashMin !== null) outer.push(`coalesce(c.cash_balance, 0) >= ${P(f.cashMin)}`);
+  if (f.cashMax !== null) outer.push(`coalesce(c.cash_balance, 0) <= ${P(f.cashMax)}`);
+  if (f.debtMin !== null) outer.push(`coalesce(dt.debt_balance, 0) >= ${P(f.debtMin)}`);
+  if (f.debtMax !== null) outer.push(`coalesce(dt.debt_balance, 0) <= ${P(f.debtMax)}`);
+
+  const sql = `
+with acct as (
+  select fa.owner_entity_id as entity_id, fa.account_kind,
+         ab.balance, ab.is_verified, ab.as_of_date, ab.source
+    from public.account_balance ab
+    join public.financial_account fa on fa.id = ab.account_id
+   where ab.tenant_id = ${T} and fa.tenant_id = ${T}
+     and ab.as_of_date = ${D}::date
+     and fa.owner_entity_id is not null${acctWhere}
+),
+cash as (
+  select entity_id,
+         sum(balance) as cash_balance, count(*)::int as cash_accounts,
+         bool_and(is_verified) as cash_verified, max(as_of_date) as cash_as_of,
+         min(source) as cash_source
+    from acct where account_kind = 'bank' group by entity_id
+),
+debt as (
+  select entity_id,
+         sum(balance) as debt_balance, count(*)::int as debt_accounts,
+         bool_and(is_verified) as debt_verified, max(as_of_date) as debt_as_of
+    from acct where account_kind = 'loan' group by entity_id
+)
+select e.id                            as entity_id,
+       e.name                          as entity,
+       e.entity_type,
+       co.name                         as brand,
+       d.name                          as deal_name,
+       coalesce(c.cash_balance, 0)     as cash_balance,
+       coalesce(c.cash_accounts, 0)    as cash_accounts,
+       coalesce(dt.debt_balance, 0)    as debt_balance,
+       coalesce(dt.debt_accounts, 0)   as debt_accounts,
+       coalesce(c.cash_balance, 0) - coalesce(dt.debt_balance, 0) as net_position,
+       coalesce(c.cash_verified, true) and coalesce(dt.debt_verified, true) as all_verified,
+       coalesce(c.cash_as_of, dt.debt_as_of) as as_of_date,
+       c.cash_source                   as source
+  from cash c
+  full outer join debt dt on dt.entity_id = c.entity_id
+  join public.entity e on e.id = coalesce(c.entity_id, dt.entity_id)
+  left join public.company co on co.id = e.company_id
+  left join public.deal    d  on d.id = e.deal_id
+ where ${outer.join('\n   and ')}`;
+
+  return { sql, params };
+}
+
+const ENTITY_SORTS = {
+  cash_balance: 'cash_balance', debt_balance: 'debt_balance', net_position: 'net_position',
+  entity: 'entity', brand: 'brand', deal_name: 'deal_name', entity_type: 'entity_type',
+  cash_accounts: 'cash_accounts', debt_accounts: 'debt_accounts', as_of_date: 'as_of_date',
+};
+
+/* Shown on screen. `Verified` is NOT a column here, for the same reason it is
+   not one on the account tabs: it never varies. It IS in the export. */
+const ENTITY_COLUMNS = [
+  ['entity', 'Entity'], ['brand', 'Brand'], ['deal_name', 'Deal'],
+  ['cash_balance', 'Cash Balance'], ['cash_accounts', 'Cash Accts'],
+  ['debt_balance', 'Debt Balance'], ['debt_accounts', 'Debt Accts'],
+  ['net_position', 'Net Position'], ['as_of_date', 'As Of'],
+];
+
+const ENTITY_EXPORT_COLUMNS = [
+  ['entity', 'Entity'], ['brand', 'Brand'], ['deal_name', 'Deal'],
+  ['cash_balance', 'Cash Balance'], ['cash_accounts', 'Cash Accounts'],
+  ['debt_balance', 'Debt Balance'], ['debt_accounts', 'Debt Accounts'],
+  ['net_position', 'Net Position'], ['as_of_date', 'As Of Date'],
+  ['all_verified', 'Verified'], ['source', 'Source'],
+];
+
+const ENTITY_TAB = {
+  money: ['cash_balance', 'debt_balance', 'net_position'],
+  dates: ['as_of_date'],
+};
+
+async function fetchEntityRows(req, { all = false } = {}) {
+  const c = await caps();
+  const f = parseFilters(req);
+
+  /* One row per entity means one snapshot, so this view pins the same way the
+     tiles do: the latest snapshot inside the range. A range covering both
+     dates would otherwise give every entity two rows and a totals line that
+     counted every account twice. */
+  const dates = (await q(
+    `select distinct as_of_date from public.account_balance
+      where tenant_id = $1 order by as_of_date desc`, [TENANT_ID]
+  )).map(r => isoDate(r.as_of_date));
+  const inRange = dates.filter(d => (!f.from || d >= f.from) && (!f.to || d <= f.to));
+  const asOf = inRange.length ? inRange[0] : null;
+
+  if (!asOf) {
+    return { rows: [], total: 0, page: 1, perPage: 50, filters: f, asOf: null,
+             snapshotsInRange: 0, totals: null, unattributed: null, problems: c.problems };
+  }
+
+  const base = entityRollupSql(c, f, { asOf });
+  const [{ n }] = await q(`select count(*)::int as n from (${base.sql}) r`, base.params);
+
+  const sortKey = ENTITY_SORTS[String(req.query.sort || '')] || 'cash_balance';
+  const dir = String(req.query.dir || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+  /* nulls last keeps a negative-cash entity at the bottom of a descending sort
+     rather than dropping it off an end. */
+  let sql = `select * from (${base.sql}) r order by r.${sortKey} ${dir} nulls last, r.entity asc`;
+  const params = base.params.slice();
+
+  let page = 1, perPage = n;
+  if (all) {
+    sql += `\n limit ${EXPORT_ROW_CAP}`;
+  } else {
+    page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    perPage = Math.min(MAX_PER_PAGE, Math.max(1, parseInt(req.query.per_page, 10) || 50));
+    params.push(perPage, (page - 1) * perPage);
+    sql += `\n limit $${params.length - 1} offset $${params.length}`;
+  }
+
+  const rows = (await q(sql, params)).map(scrub);
+
+  /* Totals over the FILTERED set, not the portfolio, so the pinned totals row
+     agrees with the rows above it. Computed in SQL across the whole filtered
+     result rather than from `rows`, which is one page. */
+  const [totals] = await q(
+    `select coalesce(sum(r.cash_balance), 0)::numeric as cash,
+            coalesce(sum(r.debt_balance), 0)::numeric as debt,
+            coalesce(sum(r.net_position), 0)::numeric as net,
+            count(*)::int as entities
+       from (${base.sql}) r`, base.params);
+
+  /* The reconciliation the acceptance checks turn on.
+
+     financial_account.owner_entity_id is NULLABLE, and this rollup joins
+     entity on coalesce(cash.entity_id, debt.entity_id) — so an account with no
+     owner entity is dropped by that join. Silently. The Cash Balance column
+     then cannot sum to the account-level Total Cash tile, and nothing on
+     screen would say why.
+
+     This measures the gap so the screen can state it, rather than leaving
+     someone to find it with a calculator. Reported only when non-zero. */
+  const [orphan] = await q(
+    `select coalesce(sum(ab.balance) filter (where fa.account_kind = 'bank'), 0)::numeric as cash,
+            coalesce(sum(ab.balance) filter (where fa.account_kind = 'loan'), 0)::numeric as debt,
+            count(*)::int as accounts
+       from public.account_balance ab
+       join public.financial_account fa on fa.id = ab.account_id
+      where ab.tenant_id = $1 and fa.tenant_id = $1
+        and ab.as_of_date = $2::date
+        and fa.owner_entity_id is null`, [TENANT_ID, asOf]);
+
+  return {
+    rows, total: n, page, perPage, filters: f, asOf,
+    snapshotsInRange: inRange.length,
+    totals, problems: c.problems,
+    unattributed: (orphan && orphan.accounts > 0) ? orphan : null,
+  };
 }
 
 /* ---- routes -------------------------------------------------------------- */
@@ -880,6 +1136,175 @@ function financialsRoutes() {
     } catch (err) { fail(res, err); }
   });
 
+  /* The entity rollup: one row per entity, cash beside debt. */
+  r.get('/summary/entities', async (req, res) => {
+    try {
+      const out = await fetchEntityRows(req);
+      res.json({
+        rows: out.rows,
+        columns: ENTITY_COLUMNS,
+        total_count: out.total,
+        page: out.page,
+        per_page: out.perPage,
+        /* Over the FILTERED set, so the pinned totals row and the rows above
+           it can never disagree. Cash and debt stay separate fields; `net` is
+           a subtraction and is labelled Net Cash Position on screen, never
+           equity — property values are not in this calculation. */
+        totals: out.totals,
+        as_of: out.asOf,
+        snapshots_in_range: out.snapshotsInRange,
+        /* Non-null when accounts exist with no owner entity. Those are dropped
+           by the entity join, so without this the Cash Balance column cannot
+           sum to the account-level tile and nothing says why. */
+        unattributed: out.unattributed,
+        problems: out.problems,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  /* Each entity's own accounts, for the expanded row. Same shape the account
+     tabs render, so the component is shared rather than rebuilt. */
+  r.get('/summary/entities/:id/accounts', async (req, res) => {
+    try {
+      const c = await caps();
+      const f = parseFilters(req);
+      const dates = (await q(
+        `select distinct as_of_date from public.account_balance
+          where tenant_id = $1 order by as_of_date desc`, [TENANT_ID]
+      )).map(x => isoDate(x.as_of_date));
+      const inRange = dates.filter(d => (!f.from || d >= f.from) && (!f.to || d <= f.to));
+      const asOf = inRange.length ? inRange[0] : null;
+      if (!asOf) return res.json({ rows: [], as_of: null });
+
+      const params = [TENANT_ID, req.params.id, asOf];
+      const extra = [];
+      /* The same account-level narrowing the rollup applied, so an expanded
+         row adds up to the row it came from. */
+      if (f.institution.length) {
+        params.push(f.institution);
+        extra.push(`and coalesce(fa.institution, '(none)') = any($${params.length}::text[])`);
+      }
+      if (f.purpose.length) {
+        params.push(f.purpose);
+        extra.push(`and fa.account_purpose = any($${params.length}::text[])`);
+      }
+
+      const rows = await q(
+        `select fa.id as account_id, fa.name as account_name, fa.account_kind,
+                fa.account_type, fa.account_purpose, fa.institution,
+                fa.account_number_last4, fa.cash_source,
+                ab.balance, ab.as_of_date, ab.is_verified, ab.source
+           from public.financial_account fa
+           join public.account_balance ab on ab.account_id = fa.id
+          where fa.tenant_id = $1 and ab.tenant_id = $1
+            and fa.owner_entity_id = $2::uuid
+            and ab.as_of_date = $3::date
+            ${extra.join('\n            ')}
+          order by fa.account_kind, ab.balance desc nulls last`, params);
+      res.json({ rows: rows.map(scrub), as_of: asOf });
+    } catch (err) { fail(res, err); }
+  });
+
+  r.get('/summary/entities/export', async (req, res) => {
+    const format = String(req.query.format || 'csv').toLowerCase() === 'xlsx' ? 'xlsx' : 'csv';
+    try {
+      const out = await fetchEntityRows(req, { all: true });
+      const names = await idNames(out.filters);
+      const meta = {
+        exportedAt: new Date().toISOString(),
+        exportedBy: exportedBy(req),
+        filtersApplied: describeFilters(out.filters, names),
+      };
+      const cols = ENTITY_EXPORT_COLUMNS.concat(
+        PROVENANCE.filter(([k]) => !ENTITY_EXPORT_COLUMNS.some(([e]) => e === k))
+      );
+
+      const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const name = `leavenwealth_cash_debt_summary_${out.asOf || 'no-snapshot'}_${stamp}.${format}`;
+
+      console.log('[financials] export tab=entities format=%s rows=%d by=%s filters=%s',
+                  format, out.rows.length, meta.exportedBy, meta.filtersApplied);
+
+      res.set('Content-Disposition', `attachment; filename="${name}"`);
+
+      /* The totals line travels with the file. This gets pasted into decks and
+         emails, and a total carrying its own filter description is much harder
+         to misread than a bare column of numbers. */
+      const t = out.totals || { cash: 0, debt: 0, entities: 0 };
+      const totalsLine = `Cash ${Number(t.cash).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` +
+        ` | Debt ${Number(t.debt).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+      if (format === 'csv') {
+        res.type('text/csv; charset=utf-8');
+        res.write(
+          '# LeavenWealth cash & debt summary\n' +
+          `# Generated: ${meta.exportedAt} by ${meta.exportedBy}\n` +
+          `# Dates: ${dateScope(out.filters)}${out.asOf ? ' (as at ' + out.asOf + ')' : ''}\n` +
+          `# Filters: ${meta.filtersApplied}\n` +
+          '# Figures unverified (is_verified = false on all source balances)\n' +
+          `# Rows: ${out.rows.length}\n` +
+          `# Totals: ${totalsLine}\n` +
+          (out.unattributed
+            ? `# NOTE: ${out.unattributed.accounts} account(s) have no owner entity and are NOT in these rows\n`
+            : '')
+        );
+        const st = stringify({ header: true, columns: cols.map(([key, header]) => ({ key, header })) });
+        st.on('error', () => res.end());
+        st.pipe(res);
+        for (const row of out.rows) {
+          const rec = {};
+          for (const [key] of cols) rec[key] = exportValue(ENTITY_TAB, key, row, meta);
+          st.write(rec);
+        }
+        st.end();
+        return;
+      }
+
+      res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: res, useStyles: true });
+      const ws = wb.addWorksheet('Cash & Debt', { views: [{ state: 'frozen', ySplit: 1 }] });
+      ws.columns = cols.map(([key, header]) => ({
+        header, key,
+        width: Math.min(46, Math.max(12, header.length + 4)),
+        style: ENTITY_TAB.money.includes(key) ? { numFmt: '#,##0.00;[Red](#,##0.00)' }
+             : ENTITY_TAB.dates.includes(key) ? { numFmt: 'yyyy-mm-dd' } : {},
+      }));
+      ws.getRow(1).font = { bold: true };
+      ws.getRow(1).commit();
+      for (const row of out.rows) {
+        const rec = {};
+        for (const [key] of cols) rec[key] = exportValue(ENTITY_TAB, key, row, meta);
+        ws.addRow(rec).commit();
+      }
+      ws.commit();
+
+      const about = wb.addWorksheet('About');
+      about.columns = [{ width: 22 }, { width: 96 }];
+      /* Styled before commit: this is a streaming writer and a committed row
+         is already serialised. */
+      const title = about.addRow(['LeavenWealth cash & debt summary', '']);
+      title.font = { bold: true, size: 13 };
+      title.commit();
+      [
+        ['Generated', meta.exportedAt],
+        ['Generated by', meta.exportedBy],
+        ['Dates', dateScope(out.filters) + (out.asOf ? ' (as at ' + out.asOf + ')' : '')],
+        ['Filters', meta.filtersApplied],
+        ['Rows', out.rows.length],
+        ['Totals', totalsLine],
+        ['Status', 'Figures unverified (is_verified = false on all source balances)'],
+      ].concat(out.unattributed
+        ? [['Note', out.unattributed.accounts + ' account(s) have no owner entity and are NOT in these rows']]
+        : []
+      ).forEach(([k, v]) => about.addRow([k, v]).commit());
+      about.commit();
+      await wb.commit();
+    } catch (err) {
+      if (res.headersSent) return res.end();
+      fail(res, err);
+    }
+  });
+
   for (const tabKey of Object.keys(TABS)) {
     r.get('/' + tabKey, async (req, res) => {
       try {
@@ -1012,4 +1437,5 @@ async function sendXlsx(res, tabKey, tab, cols, out, meta) {
   await wb.commit();
 }
 
-module.exports = { financialsRoutes, TABS, NEVER_EXPOSE, arrayParam, describeFilters };
+module.exports = { financialsRoutes, TABS, NEVER_EXPOSE, arrayParam, describeFilters,
+                   ENTITY_COLUMNS, ENTITY_EXPORT_COLUMNS, ENTITY_SORTS };

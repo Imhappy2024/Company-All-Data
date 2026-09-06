@@ -52,8 +52,10 @@ window.PortalFinancials = (function () {
   var LS_KEY = 'lwFinFiltersV1';
 
   var TABS = [
-    /* Debt is the default tab, per the brief. It is also the view that answers
-       the question the account-level data can actually answer. */
+    /* "By Entity" leads and is the default: it is the rollup a person actually
+       reads — which LLCs hold cash, and what do they owe — where the other
+       three are account-level detail underneath it. */
+    { id: 'entities', label: 'By Entity' },
     { id: 'debt', label: 'Debt' },
     { id: 'cash', label: 'Cash' },
     { id: 'loans', label: 'Loans' },
@@ -64,6 +66,8 @@ window.PortalFinancials = (function () {
      that the server will ignore is worse than not offering it: the chip says
      the view is filtered and the rows say otherwise. */
   var TAB_FILTERS = {
+    entities: ['deal', 'entity', 'entity_type', 'institution', 'purpose',
+               'has_cash', 'has_debt', 'cashrange', 'debtrange'],
     cash:     ['deal', 'entity', 'institution', 'purpose', 'type', 'cash_source', 'range'],
     debt:     ['deal', 'entity', 'institution', 'range'],
     loans:    ['deal', 'entity', 'institution', 'range'],
@@ -81,11 +85,12 @@ window.PortalFinancials = (function () {
     { key: 'purpose',     label: 'Purpose',      opts: 'purposes',     idField: 'value', nameField: 'value', count: 'accounts' },
     { key: 'type',        label: 'Type',         opts: 'types',        idField: 'value', nameField: 'value', count: 'accounts' },
     { key: 'kind',        label: 'Kind',         opts: 'kinds',        idField: 'value', nameField: 'value', count: 'accounts' },
-    { key: 'cash_source', label: 'Cash source',  opts: 'cash_sources', idField: 'value', nameField: 'value', count: 'accounts' }
+    { key: 'cash_source', label: 'Cash source',  opts: 'cash_sources', idField: 'value', nameField: 'value', count: 'accounts' },
+    { key: 'entity_type', label: 'Entity type',  opts: 'entity_types',  idField: 'value', nameField: 'value', count: 'entities' }
   ];
 
   var S = {
-    tab: 'debt',
+    tab: 'entities',
     dateFrom: null, dateTo: null,   /* inclusive range; either may be null */
     sel: {},              /* key -> array of selected values */
     min: '', max: '',
@@ -96,6 +101,10 @@ window.PortalFinancials = (function () {
     loading: false, error: null, problems: [],
     optionsErr: null,
     openPanel: null,
+    totals: null,
+    expanded: null, expandedRows: null,   /* the open entity row and its accounts */
+    hasCash: null, hasDebt: null,         /* three states: yes / no / not filtering */
+    cashMin: '', cashMax: '', debtMin: '', debtMax: '',
     search: {}            /* key -> type-ahead text */
   };
 
@@ -253,6 +262,16 @@ window.PortalFinancials = (function () {
       if (S.min !== '') p.push('min=' + encodeURIComponent(S.min));
       if (S.max !== '') p.push('max=' + encodeURIComponent(S.max));
     }
+    if (allowed.indexOf('has_cash') >= 0 && S.hasCash !== null) p.push('has_cash=' + S.hasCash);
+    if (allowed.indexOf('has_debt') >= 0 && S.hasDebt !== null) p.push('has_debt=' + S.hasDebt);
+    if (allowed.indexOf('cashrange') >= 0) {
+      if (S.cashMin !== '') p.push('cash_min=' + encodeURIComponent(S.cashMin));
+      if (S.cashMax !== '') p.push('cash_max=' + encodeURIComponent(S.cashMax));
+    }
+    if (allowed.indexOf('debtrange') >= 0) {
+      if (S.debtMin !== '') p.push('debt_min=' + encodeURIComponent(S.debtMin));
+      if (S.debtMax !== '') p.push('debt_max=' + encodeURIComponent(S.debtMax));
+    }
     if (extra) Object.keys(extra).forEach(function (k) {
       if (extra[k] !== null && extra[k] !== undefined && extra[k] !== '') {
         p.push(k + '=' + encodeURIComponent(extra[k]));
@@ -304,6 +323,90 @@ window.PortalFinancials = (function () {
       .catch(function () { S.coverage = null; });
   }
 
+  function loadEntityRows() {
+    S.loading = true; S.error = null;
+    paint();
+    var extra = { page: S.page, per_page: S.perPage };
+    if (S.sort) { extra.sort = S.sort; extra.dir = S.dir; }
+    return getJson(API + '/summary/entities?' + qs(extra)).then(function (j) {
+      S.rows = j.rows || [];
+      S.columns = j.columns || [];
+      S.total = j.total_count || 0;
+      S.totals = j.totals || null;
+      S.entityAsOf = j.as_of || null;
+      S.snapshotsInRange = j.snapshots_in_range || 0;
+      S.unattributed = j.unattributed || null;
+      if (j.problems && j.problems.length) S.problems = j.problems;
+    }).catch(function (e) {
+      S.error = e.message; S.rows = []; S.total = 0; S.totals = null;
+    }).then(function () {
+      S.loading = false;
+      writeUrl(); saveLocal(); paint();
+    });
+  }
+
+  function loadEntityAccounts(id) {
+    S.expandedRows = null;
+    paint();
+    return getJson(API + '/summary/entities/' + encodeURIComponent(id) + '/accounts?' + qs())
+      .then(function (j) { S.expandedRows = j.rows || []; })
+      .catch(function () { S.expandedRows = []; })
+      .then(paint);
+  }
+
+  /* Two notes this view cannot do without.
+
+     The first is why its totals may not match the account-level tiles: an
+     account with no owner entity is dropped by the entity join, so the column
+     genuinely sums to less. Stating it beats leaving someone to find it with
+     a calculator.
+
+     The second is that institution and purpose narrow the ACCOUNTS before the
+     rollup, so filtering to one bank shows each entity's balance at that bank
+     rather than its whole balance. Without this the totals look wrong to
+     anyone checking them against the account view. */
+  function entityNotes() {
+    var out = '';
+    if (S.snapshotsInRange > 1 && S.entityAsOf) {
+      out += '<div class="fin-note">One row per entity, <b>as at ' + esc(S.entityAsOf) + '</b> &mdash; ' +
+        'the latest of ' + S.snapshotsInRange + ' snapshots in this range. ' +
+        'Showing every snapshot at once would give each entity one row per date ' +
+        'and count every account more than once.</div>';
+    }
+    if ((S.sel.institution || []).length || (S.sel.purpose || []).length) {
+      out += '<div class="fin-note">Institution and Purpose filter the <b>underlying accounts</b> ' +
+        'before the rollup, so these balances are each entity’s filtered total, ' +
+        'not its full position.</div>';
+    }
+    if (S.unattributed) {
+      out += '<div class="fin-note warn"><b>' + S.unattributed.accounts + ' account' +
+        (S.unattributed.accounts === 1 ? '' : 's') + ' with no owner entity</b> ' +
+        '(' + signedMoney(S.unattributed.cash) + ' cash, ' + signedMoney(S.unattributed.debt) + ' debt) ' +
+        'cannot appear in a per-entity rollup, so the totals below are lower than the tiles above by that much.</div>';
+    }
+    return out;
+  }
+
+  /* Yes / No / not filtering. A two-state checkbox would make an untouched
+     control mean "hide everything that has debt". */
+  function triControl(key, label) {
+    var v = S[key];
+    var opt = function (val, text) {
+      return '<button class="fin-tri-opt' + (v === val ? ' on' : '') +
+        '" data-tri="' + key + '" data-val="' + String(val) + '">' + text + '</button>';
+    };
+    return '<span class="fin-tri"><span class="lbl">' + esc(label) + '</span>' +
+      opt('null', 'Any') + opt('true', 'Yes') + opt('false', 'No') + '</span>';
+  }
+
+  function rangeControl(minKey, maxKey, label) {
+    return '<span class="fin-range"><span class="lbl">' + esc(label) + '</span>' +
+      '<input id="fin-' + minKey + '" type="number" step="0.01" placeholder="Min" value="' + esc(S[minKey]) + '">' +
+      '<span class="sep">to</span>' +
+      '<input id="fin-' + maxKey + '" type="number" step="0.01" placeholder="Max" value="' + esc(S[maxKey]) + '">' +
+      '</span>';
+  }
+
   function loadRows() {
     /* No guard against an unbounded range any more, and none is needed. The
        old single-date control could resolve to nothing and then omit as_of,
@@ -332,12 +435,147 @@ window.PortalFinancials = (function () {
 
   function reload() {
     S.page = 1;
-    Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(loadRows);
+    S.expanded = null; S.expandedRows = null;
+    Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(rowsForTab);
   }
+
+  function rowsForTab() { return S.tab === 'entities' ? loadEntityRows() : loadRows(); }
 
   /* ---- rendering --------------------------------------------------------- */
 
   var host = null;
+
+  /* ---- the entity rollup -------------------------------------------------
+
+     "By Entity" is the rollup a person actually reads: which LLCs are holding
+     cash, and what do they owe. The other three tabs are account-level.
+
+     It is one row per entity AT ONE SNAPSHOT, so it pins to the latest
+     snapshot in the range the same way the tiles do. A range covering both
+     dates would otherwise give every entity two rows and a totals line
+     counting every account twice.
+
+     Cash CAN be negative — eight entities are at Q2 2026. Negatives render in
+     parentheses in the crit colour, per accounting convention, and are never
+     hidden or abs()'d.
+
+     Net position will be around -$220M. That is what a leveraged property
+     portfolio looks like. It is NOT coloured as an error state and there is no
+     health indicator implying distress, and it is labelled Net Cash Position
+     rather than anything resembling equity — property values are nowhere in
+     this calculation. */
+
+  function entityRow(row, cols) {
+    var open = S.expanded === row.entity_id;
+    var cells = cols.map(function (c) {
+      var key = c[0];
+      var cls = ENTITY_NUM[key] ? ' class="r"' : '';
+      return '<td' + cls + '>' + fmtEntityCell(key, row) + '</td>';
+    }).join('');
+    var main = '<tr class="fin-erow' + (open ? ' open' : '') +
+      '" data-entity="' + esc(row.entity_id) + '">' + cells + '</tr>';
+    if (!open) return main;
+    return main + '<tr class="fin-exp"><td colspan="' + cols.length + '">' +
+      (S.expandedRows === null
+        ? '<div class="fin-loading">Reading accounts&hellip;</div>'
+        : accountsTable(S.expandedRows)) + '</td></tr>';
+  }
+
+  function accountsTable(rows) {
+    if (!rows.length) return '<div class="fin-empty">No accounts for this entity at this date.</div>';
+    return '<table class="fin-table fin-sub-table"><thead><tr>' +
+      ['Kind', 'Account', 'Institution', 'Last 4', 'Purpose', 'Balance']
+        .map(function (h, i) { return '<th' + (i === 5 ? ' class="r"' : '') + '>' + h + '</th>'; }).join('') +
+      '</tr></thead><tbody>' +
+      rows.map(function (a) {
+        return '<tr>' +
+          '<td>' + esc(a.account_kind || '') + '</td>' +
+          '<td>' + esc(a.account_name || '') + '</td>' +
+          '<td>' + (a.institution ? esc(a.institution) : nil()) + '</td>' +
+          '<td class="mono">' + (a.account_number_last4 ? esc(a.account_number_last4) : nil()) + '</td>' +
+          '<td>' + (a.account_purpose ? esc(a.account_purpose) : nil()) + '</td>' +
+          '<td class="r">' + signedMoney(a.balance) + '</td>' +
+          '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  var ENTITY_NUM = {
+    cash_balance: 1, debt_balance: 1, net_position: 1, cash_accounts: 1, debt_accounts: 1
+  };
+
+  /* Accounting convention: negatives in parentheses, in the crit colour, never
+     a leading minus that is easy to miss in a column of figures. */
+  function signedMoney(v) {
+    if (v === null || v === undefined || v === '') return nil();
+    var n = Number(v);
+    if (!isFinite(n)) return nil();
+    var body = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (n < 0) return '<span class="fin-neg">($' + body + ')</span>';
+    return '$' + body;
+  }
+
+  function fmtEntityCell(key, row) {
+    var v = row[key];
+    if (key === 'entity') {
+      return '<span class="fin-etoggle">' +
+        (S.expanded === row.entity_id ? '&#9662;' : '&#9656;') + '</span>' + esc(v || '');
+    }
+    if (key === 'cash_balance' || key === 'debt_balance' || key === 'net_position') return signedMoney(v);
+    if (key === 'cash_accounts' || key === 'debt_accounts') return String(v == null ? 0 : v);
+    if (v === null || v === undefined || v === '') return nil();
+    if (key === 'as_of_date') return esc(dateOnly(v));
+    return esc(v);
+  }
+
+  function entityTable() {
+    if (S.error) {
+      return '<div class="fin-tablewrap"><div class="fin-empty"><b>That query failed.</b>' +
+        esc(S.error) + '</div></div>';
+    }
+    if (S.loading && !S.rows.length) {
+      return '<div class="fin-tablewrap"><div class="fin-loading">Reading&hellip;</div></div>';
+    }
+    if (!S.rows.length) {
+      return '<div class="fin-tablewrap"><div class="fin-empty"><b>Nothing to show</b>' +
+        (anyFilter() ? 'No entities match these filters.'
+                     : 'No entity holds a balance in this date range.') + '</div></div>';
+    }
+
+    var cols = S.columns.length ? S.columns : [['entity', 'Entity']];
+    var head = cols.map(function (c) {
+      var isSort = S.sort === c[0];
+      return '<th data-sort="' + esc(c[0]) + '"' + (ENTITY_NUM[c[0]] ? ' class="r"' : '') + '>' +
+        esc(c[1]) + (isSort ? '<span class="dir">' + (S.dir === 'asc' ? '&#9650;' : '&#9660;') + '</span>' : '') +
+        '</th>';
+    }).join('');
+
+    var body = S.rows.map(function (r) { return entityRow(r, cols); }).join('');
+
+    /* Pinned totals, over the FILTERED set — filter to one deal and this shows
+       that deal's totals, not the portfolio's. Computed server-side across
+       every matching row, so it does not change with pagination. */
+    var t = S.totals;
+    var foot = t ? '<tfoot><tr class="fin-totals">' + cols.map(function (c) {
+      var key = c[0];
+      if (key === 'entity') return '<td><b>' + Number(t.entities).toLocaleString() + ' entities</b></td>';
+      if (key === 'cash_balance') return '<td class="r"><b>' + signedMoney(t.cash) + '</b></td>';
+      if (key === 'debt_balance') return '<td class="r"><b>' + signedMoney(t.debt) + '</b></td>';
+      if (key === 'net_position') return '<td class="r"><b>' + signedMoney(t.net) + '</b></td>';
+      return '<td></td>';
+    }).join('') + '</tr></tfoot>' : '';
+
+    var pages = Math.max(1, Math.ceil(S.total / S.perPage));
+    return '<div class="fin-tablewrap">' +
+      '<div class="fin-scroll"><table class="fin-table fin-etable"><thead><tr>' + head + '</tr></thead>' +
+      '<tbody>' + body + '</tbody>' + foot + '</table></div>' +
+      '<div class="fin-foot">' +
+        '<span class="pginfo">Page ' + S.page + ' of ' + pages + '</span>' +
+        '<span class="sp"></span>' +
+        '<button class="fin-btn" id="fin-prev"' + (S.page <= 1 ? ' disabled' : '') + '>Prev</button>' +
+        '<button class="fin-btn" id="fin-next"' + (S.page >= pages ? ' disabled' : '') + '>Next</button>' +
+      '</div>' +
+    '</div>';
+  }
 
   function paint() {
     if (!host) return;
@@ -351,7 +589,8 @@ window.PortalFinancials = (function () {
         esc(S.optionsErr) + '</div></div></div>';
     }
     if (!S.options) return '<div class="fin-loading">Reading accounts&hellip;</div>';
-    return header() + problems() + tiles() + filterBar() + chips() + tabs() + tabNote() + table();
+    return header() + problems() + tiles() + filterBar() + chips() + tabs() +
+           (S.tab === 'entities' ? entityNotes() + entityTable() : tabNote() + table());
   }
 
   /* ---- the date range ----------------------------------------------------
@@ -480,6 +719,10 @@ window.PortalFinancials = (function () {
         '<input id="fin-max" type="number" step="0.01" placeholder="Max $" value="' + esc(S.max) + '">' +
         '</span>';
     }
+    if (allowed.indexOf('has_cash') >= 0) html += triControl('hasCash', 'Has cash');
+    if (allowed.indexOf('has_debt') >= 0) html += triControl('hasDebt', 'Has debt');
+    if (allowed.indexOf('cashrange') >= 0) html += rangeControl('cashMin', 'cashMax', 'Cash');
+    if (allowed.indexOf('debtrange') >= 0) html += rangeControl('debtMin', 'debtMax', 'Debt');
     return '<div class="fin-filters">' + html + '</div>';
   }
 
@@ -551,8 +794,24 @@ window.PortalFinancials = (function () {
       if (S.min !== '') out.push('<span class="fin-chip">Min: ' + esc(S.min) + '<span class="x" data-unrange="min">&times;</span></span>');
       if (S.max !== '') out.push('<span class="fin-chip">Max: ' + esc(S.max) + '<span class="x" data-unrange="max">&times;</span></span>');
     }
+    if (allowed.indexOf('has_cash') >= 0 && S.hasCash !== null) {
+      out.push('<span class="fin-chip">Has cash: ' + (S.hasCash ? 'Yes' : 'No') +
+        '<span class="x" data-untri="hasCash">&times;</span></span>');
+    }
+    if (allowed.indexOf('has_debt') >= 0 && S.hasDebt !== null) {
+      out.push('<span class="fin-chip">Has debt: ' + (S.hasDebt ? 'Yes' : 'No') +
+        '<span class="x" data-untri="hasDebt">&times;</span></span>');
+    }
+    [['cashMin', 'Cash min'], ['cashMax', 'Cash max'], ['debtMin', 'Debt min'], ['debtMax', 'Debt max']]
+      .forEach(function (pair) {
+        if (allowed.indexOf(pair[0].indexOf('cash') === 0 ? 'cashrange' : 'debtrange') < 0) return;
+        if (S[pair[0]] === '') return;
+        out.push('<span class="fin-chip">' + pair[1] + ': ' + esc(S[pair[0]]) +
+          '<span class="x" data-unnum="' + pair[0] + '">&times;</span></span>');
+      });
 
-    var noun = S.tab === 'loans' ? 'loans' : S.tab === 'accounts' ? 'accounts' : 'rows';
+    var noun = S.tab === 'entities' ? 'entities' : S.tab === 'loans' ? 'loans'
+             : S.tab === 'accounts' ? 'accounts' : 'rows';
     var shownN = Math.min(S.rows.length, S.total);
     var count = S.loading ? 'Loading&hellip;'
       : 'Showing ' + shownN.toLocaleString() + ' of ' + S.total.toLocaleString() + ' ' + noun;
@@ -650,7 +909,12 @@ window.PortalFinancials = (function () {
     var any = FILTER_DEFS.some(function (d) {
       return allowed.indexOf(d.key) >= 0 && (S.sel[d.key] || []).length;
     });
-    return any || (allowed.indexOf('range') >= 0 && (S.min !== '' || S.max !== ''));
+    return any ||
+      (allowed.indexOf('range') >= 0 && (S.min !== '' || S.max !== '')) ||
+      (allowed.indexOf('has_cash') >= 0 && S.hasCash !== null) ||
+      (allowed.indexOf('has_debt') >= 0 && S.hasDebt !== null) ||
+      (allowed.indexOf('cashrange') >= 0 && (S.cashMin !== '' || S.cashMax !== '')) ||
+      (allowed.indexOf('debtrange') >= 0 && (S.debtMin !== '' || S.debtMax !== ''));
   }
 
   /* ---- wiring ------------------------------------------------------------
@@ -686,7 +950,9 @@ window.PortalFinancials = (function () {
       b.onclick = function () {
         S.tab = b.getAttribute('data-fintab');
         S.sort = null; S.dir = null; S.page = 1;
-        if (S.tab === 'loans') loadCoverage().then(loadRows); else loadRows();
+        S.expanded = null; S.expandedRows = null;
+        if (S.tab === 'loans') loadCoverage().then(loadRows);
+        else rowsForTab();
       };
     });
 
@@ -751,11 +1017,19 @@ window.PortalFinancials = (function () {
     host.querySelectorAll('[data-unrange]').forEach(function (x) {
       x.onclick = function () { S[x.getAttribute('data-unrange')] = ''; reload(); };
     });
+    host.querySelectorAll('[data-untri]').forEach(function (x) {
+      x.onclick = function () { S[x.getAttribute('data-untri')] = null; reload(); };
+    });
+    host.querySelectorAll('[data-unnum]').forEach(function (x) {
+      x.onclick = function () { S[x.getAttribute('data-unnum')] = ''; reload(); };
+    });
 
     var clear = $('fin-clearall');
     if (clear) clear.onclick = function () {
       FILTER_DEFS.forEach(function (d) { S.sel[d.key] = []; });
       S.min = ''; S.max = '';
+      S.hasCash = null; S.hasDebt = null;
+      S.cashMin = ''; S.cashMax = ''; S.debtMin = ''; S.debtMax = '';
       reload();
     };
 
@@ -768,15 +1042,39 @@ window.PortalFinancials = (function () {
         var k = th.getAttribute('data-sort');
         if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc';
         else { S.sort = k; S.dir = isNumericCol(k) ? 'desc' : 'asc'; }
-        S.page = 1; loadRows();
+        S.page = 1; rowsForTab();
       };
     });
 
     var prev = $('fin-prev'), next = $('fin-next');
-    if (prev) prev.onclick = function () { if (S.page > 1) { S.page--; loadRows(); } };
+    if (prev) prev.onclick = function () { if (S.page > 1) { S.page--; rowsForTab(); } };
     if (next) next.onclick = function () {
-      if (S.page < Math.ceil(S.total / S.perPage)) { S.page++; loadRows(); }
+      if (S.page < Math.ceil(S.total / S.perPage)) { S.page++; rowsForTab(); }
     };
+
+    /* Expanding a row. .onclick per paint is fine and stacking is impossible:
+       paint() replaces the whole subtree, so these elements are new each time. */
+    host.querySelectorAll('[data-entity]').forEach(function (tr) {
+      tr.onclick = function () {
+        var id = tr.getAttribute('data-entity');
+        if (S.expanded === id) { S.expanded = null; S.expandedRows = null; paint(); return; }
+        S.expanded = id;
+        loadEntityAccounts(id);
+      };
+    });
+
+    host.querySelectorAll('[data-tri]').forEach(function (b) {
+      b.onclick = function () {
+        var raw = b.getAttribute('data-val');
+        S[b.getAttribute('data-tri')] = raw === 'null' ? null : (raw === 'true');
+        reload();
+      };
+    });
+
+    ['cashMin', 'cashMax', 'debtMin', 'debtMax'].forEach(function (k) {
+      var el = $('fin-' + k);
+      if (el) el.onchange = function () { S[k] = this.value; reload(); };
+    });
   }
 
   /* Bound once at module scope, not per paint, for the same reason as above. */
@@ -794,8 +1092,8 @@ window.PortalFinancials = (function () {
      the file is exactly what is on screen — the FULL result set, not the
      current page, because the server ignores page/per_page on this route. */
   function doExport(format) {
-    var url = API + '/export?tab=' + encodeURIComponent(S.tab) +
-      '&format=' + encodeURIComponent(format) +
+    var url = (S.tab === 'entities' ? API + '/summary/entities/export?' : API + '/export?tab=' + encodeURIComponent(S.tab) + '&') +
+      'format=' + encodeURIComponent(format) +
       (S.sort ? '&sort=' + encodeURIComponent(S.sort) + '&dir=' + encodeURIComponent(S.dir || '') : '') +
       '&' + qs();
     var a = document.createElement('a');
@@ -818,11 +1116,11 @@ window.PortalFinancials = (function () {
       paint();
       loadOptions().then(function (o) {
         if (!o) { paint(); return; }
-        Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(loadRows);
+        Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(rowsForTab);
       });
     } else {
       paint();
-      loadRows();
+      rowsForTab();
     }
   }
 
@@ -834,7 +1132,7 @@ window.PortalFinancials = (function () {
     S.coverage = null;
     if (host && host.isConnected) {
       loadOptions().then(function () {
-        Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(loadRows);
+        Promise.all([loadSummary(), S.tab === 'loans' ? loadCoverage() : null]).then(rowsForTab);
       });
     }
   }
