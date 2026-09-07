@@ -263,6 +263,42 @@ function ptask(id, name, status, sync) {
   check('a link to the old screen lands on Overview',
     await page.evaluate(() => [brand, view]), ['folio', 'overview']);
 
+  /* Reports & Financials is where the plan tiers actually survived the first
+     pass: a "Revenue by plan" card splitting $3,308 of MRR across Scale,
+     Growth and Starter. None of those exist - `subscription_plan` is 0 rows -
+     and Folio's Overview renders this same view, so it was the most-seen
+     screen in the brand. */
+  await page.evaluate(() => { setBrand('folio'); setView('reports'); });
+  check('Reports & Financials names no plan or tier',
+    await page.evaluate(() => {
+      const t = document.getElementById('content').textContent;
+      return (t.match(/plan|pricing|starter|growth|scale/gi) || []);
+    }), []);
+  /* And it still paints - removing one of two cards from a two-column grid
+     left the survivor at half width until the grid class changed with it. */
+  check('and it still renders its MRR trend',
+    /MRR trend/.test(await page.locator('#content').textContent()), true);
+
+  /* ICON NAMES ARE STRINGS, AND A MISSING ONE IS SILENT.
+     The nav declares its icon as `ic:'card'`, but the views pass icon names as
+     plain arguments - kpi('card', 'Past due', …). Removing the `card` glyph
+     alongside the nav entry that named it therefore broke App Users, where
+     `I['card']` became undefined and rendered as nothing at all. Grepping the
+     nav form said "one use" and it was wrong.
+
+     This reads the source rather than the screen because the wrong answer is
+     an EMPTY STRING: nothing throws, nothing logs, and the tile just loses its
+     glyph on a screen no assertion happened to visit. */
+  const src = fs.readFileSync(path.join(ROOT, 'public', 'portal.html'), 'utf8');
+  const defined = new Set([...src.matchAll(/^ {2}([a-z0-9]+):_svg\(/gm)].map(m => m[1]));
+  const named = new Set([
+    ...[...src.matchAll(/(?:kpi|card|pill)\('([a-z0-9]+)'/g)].map(m => m[1]),
+    ...[...src.matchAll(/ic:'([a-z0-9]+)'/g)].map(m => m[1]),
+    ...[...src.matchAll(/I\.([a-z0-9]+)/g)].map(m => m[1]),
+  ]);
+  check('every icon the app asks for by name exists',
+    [...named].filter(n => !defined.has(n)).sort(), []);
+
   // ------------------------------------------------------------ brand marks
   console.log('\nBrand marks');
   await page.goto(BASE, { waitUntil: 'domcontentloaded' });

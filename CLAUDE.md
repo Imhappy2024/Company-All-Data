@@ -1375,6 +1375,27 @@ is now `['financials']` alone. A binding to a view that no longer exists can
 never match, so it is not a live bug — it just reads as coverage that is not
 there.
 
+**The plan tiers also lived on Reports & Financials**, which is the screen Folio
+actually looks at — `V.overview()` renders it for that brand — and they survived
+the first pass. A "Revenue by plan" card split $3,308 of MRR across the same
+Scale / Growth / Starter, two clients each. That card is gone too, and its grid
+dropped from `g2` to a single column so the surviving MRR trend is not left at
+half width.
+
+### Removing the `card` icon broke App Users, silently
+Worth reading before deleting any icon. The nav declares its glyph as
+`ic:'card'`, but **the views pass icon names as plain string arguments** —
+`kpi('card','Past due',…)` on App Users, `card('card','Revenue by plan',…)` here
+— so grepping the nav form counted one use and there were three. `I['card']`
+became `undefined`, which renders as nothing: no throw, no console line, just a
+tile that quietly lost its glyph on a screen nothing happened to assert against.
+
+The icon is restored, and `test-portal-nav.js` now reads portal.html and checks
+that **every icon named anywhere** (`ic:'x'`, `kpi('x'`, `card('x'`, `I.x`)
+exists in the `_svg` map. That check was mutation-tested: deleting the glyph
+makes it fail with `["card"]`. It reads the source rather than the DOM on
+purpose — the failure is an empty string on whichever screen you did not visit.
+
 **The `plans` catalog row is left alone**, and `test-portal-nav.js` still
 *grants* it. A `dashboard_module` row outliving a screen is normal here; what
 is worth pinning is that a live grant cannot put a removed item back, and that

@@ -455,6 +455,7 @@ const I={
   gauge:_svg('<path d="M2.6 11.2a5.5 5.5 0 1 1 10.8 0"/><path d="M8 11.2 10.6 8.6"/>'),
   org:_svg('<rect x="6" y="1.8" width="4" height="3.1" rx=".6"/><rect x="1.8" y="11.1" width="4" height="3.1" rx=".6"/><rect x="10.2" y="11.1" width="4" height="3.1" rx=".6"/><path d="M8 4.9v2.9M3.8 11.1V9.3h8.4v1.8M8 9.3V7.8"/>'),
   plug:_svg('<path d="M5.8 2v3M10.2 2v3M4.4 5h7.2v2a3.6 3.6 0 0 1-7.2 0z"/><path d="M8 10.6V14"/>'),
+  card:_svg('<rect x="1.8" y="3.6" width="12.4" height="8.8" rx="1.3"/><path d="M1.8 6.4h12.4"/>'),
   lock:_svg('<rect x="2.8" y="7" width="10.4" height="6.6" rx="1.3"/><path d="M5.1 7V5.1a2.9 2.9 0 0 1 5.8 0V7"/>'),
   /* One person, and a door-with-arrow. `users` (a group) and `lock` (a padlock)
      were the nearest existing shapes and both say the wrong thing here. */
@@ -932,7 +933,12 @@ const V={
   reports(){
     const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
     return `<div class="kpis">${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('trend','ARR',moneyk(mrr*12),'run rate','up')}${kpi('users','Active users',SUBS.filter(s=>s.status==='active').length,'')}${kpi('gauge','Net revenue retention','104%','','up')}</div>`+
-    `<div class="grid g2">${card('trend','MRR trend',null,barChart([['Apr',2600,'#0d9488'],['May',2900,'#0d9488'],['Jun',3100,'#0d9488'],['Jul',3308,'#0d9488']]))}${card('card','Revenue by plan',null,tbl([{t:'Plan'},{t:'Clients',r:1},{t:'MRR',r:1}],[['Scale',2,2200],['Growth',2,860],['Starter',2,248]].map(r=>`<tr><td>${r[0]}</td><td class="r">${r[1]}</td><td class="r">${money(r[2])}</td></tr>`).join('')),true)}</div>`;
+    /* Revenue by plan is gone with Plans & Pricing. It broke down $3,308 of
+       MRR across Scale / Growth / Starter, and none of those three tiers exist:
+       `subscription_plan` is 0 rows and the one real subscription has a NULL
+       `subscription_plan_id`. A single card, so the grid is not left half
+       empty. */
+    `<div class="grid">${card('trend','MRR trend',null,barChart([['Apr',2600,'#0d9488'],['May',2900,'#0d9488'],['Jun',3100,'#0d9488'],['Jul',3308,'#0d9488']]))}</div>`;
   },
   pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
   borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
