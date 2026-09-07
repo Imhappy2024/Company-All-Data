@@ -44,18 +44,17 @@ api = edit(api, `async function api(url, options){
    and forgetting on one is how another brand's leads reach the screen. */
 async function api(url, options){
   url = scopeUrl(url);
+  /* The caller's Supabase token rides along, because the send route decides
+     whose address goes on the message from the VERIFIED session rather than
+     from anything the browser claims. Reads do not need it, but attaching it
+     in one place beats remembering which calls do. */
+  options = await withAuth(options);
   const r = await fetch(url, options);`, 'api scope');
 
-api = edit(api, `const post = (url, body) => api(url, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(body || {})
-});`,
-`/* No post. This service holds no GHL credential, so every write path in the
-   transplanted code below is neutralised rather than left to fail against a
-   404. Calling it is a bug, so it says so instead of silently no-opping. */
-const post = () => Promise.reject(new Error('This dashboard is read-only: no GHL credential is configured.'));`,
-'post');
+/* post() is command-center's, unchanged. Sending works here: the GHL token and
+   location environment pairs are set on Railway and ghl-send.js uses them.
+   Only ONE route accepts a POST — /leads/:id/message — and the router refuses
+   every other non-GET, so the default stays closed. */
 
 /* One banner, not a map across views. */
 api = edit(api, `const BANNERS = { inbox: 'ib-banner', leads: 'ld-banner' };`,
@@ -86,30 +85,26 @@ let ld = leads;
    naming neither the real cause nor the file. Anything that has to hold across
    all four extracts belongs after they are joined. */
 
-/* The composer. Everything it does is a POST, and there is no credential. The
-   thread stays; the reply box becomes a line saying why it is not there. */
-ld = edit(ld, `      + '<div class="composer">'
-        + '<div class="chanrow">' + CHANNELS.map(c =>
-            '<button class="chan' + (LD.channel === c.k ? ' on' : '') + '" data-chan="' + c.k + '">'
-            + c.label + '</button>').join('') + '</div>'`,
-`      /* READ-ONLY. command-center composes here because it holds a GHL Private
-         Integration Token per location; this service holds none, so the
-         controls are absent rather than present and failing. */
-      + '<div class="composer readonly">'
-        + '<div class="chanrow">' + CHANNELS.map(c =>
-            '<span class="chan' + (LD.channel === c.k ? ' on' : '') + '">'
-            + c.label + '</span>').join('') + '</div>'`, 'composer chanrow');
+/* The composer STAYS. GHL_TOKEN_<NAME>/GHL_LOCATION_<NAME> are set on
+   Railway, so sending works — see ghl-send.js. command-center's own
+   canSend(loc) already hides Send on a sub-account with no token, and
+   /api/ghl/locations now reports a real `sendable` rather than a flat false,
+   so that check does the right thing with no edit here.
 
-const composerTail = ld.indexOf(`        + (LD.channel === 'email'`);
-const composerEnd  = ld.indexOf(`      + '</div>';`, composerTail);
-if (composerTail < 0 || composerEnd < 0) misses.push('composer body');
-else {
-  ld = ld.slice(0, composerTail) +
-`        + '<div class="ronote">Replying is not available here: this dashboard reads '
-        + 'the GHL mirror in Supabase and holds no GHL send credential. '
-        + 'Messages arrive through the n8n pipeline.</div>'
-` + ld.slice(composerEnd);
-}
+   What does change is the From line. command-center offers a picker over the
+   sub-account's mirrored sender addresses; this sends as the SIGNED-IN PERSON,
+   which is the whole point of the change, so the picker becomes a statement of
+   who that is. The server is the authority — it reads the caller's verified
+   identity and ignores anything the browser claims — and this only has to say
+   the same thing on screen. */
+ld = edit(ld, `function senderControl(loc){
+  const s = loc.senders;`,
+`function senderControl(loc){
+  /* Sends go out as the signed-in person. The address is stated rather than
+     chosen, because the server takes it from the verified session and would
+     ignore a different one picked here. */
+  if (SEND_AS) return 'Sending as ' + escL(SEND_AS);
+  const s = loc.senders;`, 'senderControl');
 
 /* Live updates. command-center's /api/ghl/events is a Postgres NOTIFY fan-out
    that this service does not run, and an EventSource pointed at a 404 retries
@@ -261,9 +256,11 @@ const HEAD = `/* Leads (GHL) — command-center's Leads screen, transplanted.
       scope, and putting it in the one helper every call already goes through is
       what makes it impossible to omit on one of them.
 
-   2. \`post()\` throws. This service holds no GHL credential, so the composer is
-      replaced by a line saying why, and any write path that survives says so
-      loudly rather than 404ing quietly.
+   2. \`api()\` also attaches the caller's Supabase bearer token, because the
+      send route takes the sender's address from the VERIFIED session and
+      ignores anything the browser claims. The composer is command-center's,
+      unchanged, except that the From picker becomes a statement — "Sending as
+      <you>" — since there is nothing left to pick.
 
    3. The EventSource on /api/ghl/events is a stub. That route is a Postgres
       NOTIFY fan-out command-center runs and this service does not; an
@@ -302,6 +299,24 @@ window.PortalGHL = (function () {
 let SCOPE_COMPANY = null;
 let SCOPE_BRAND = '';
 
+/* The signed-in person's address, for the composer's From line. The SERVER is
+   the authority — it reads the caller's verified identity and ignores whatever
+   the browser says — so this is a label, never an input. */
+let SEND_AS = '';
+
+/* One place that attaches the Supabase bearer, so no call site has to
+   remember. Returns the options untouched when there is no session: reads work
+   signed-out and the send route answers 401 on its own terms. */
+async function withAuth(options){
+  try {
+    if (!window.PortalSession) return options;
+    const s = await window.PortalSession.getSession();
+    if (!s || !s.access_token) return options;
+    return { ...(options || {}), headers: { ...((options || {}).headers || {}),
+             Authorization: 'Bearer ' + s.access_token } };
+  } catch (e) { return options; }
+}
+
 function scopeUrl(url){
   if (typeof url !== 'string' || url.indexOf('/api/ghl') !== 0) return url;
   if (!SCOPE_COMPANY) return url;
@@ -331,6 +346,16 @@ function mount(el, opts){
   const changed = o.companyId !== SCOPE_COMPANY;
   SCOPE_COMPANY = o.companyId || null;
   SCOPE_BRAND = o.brandName || '';
+
+  /* Who the composer says it is sending as. Read from the session rather than
+     passed in, so it cannot drift from the address the server will actually
+     use — the server takes it from the same session and ignores the browser. */
+  if (window.PortalSession) {
+    window.PortalSession.getSession().then(function (sess) {
+      const email = sess && sess.user && sess.user.email;
+      if (email && email !== SEND_AS) { SEND_AS = email; if (LD.sel) drawLeadDetail(); }
+    }).catch(function () {});
+  }
 
   el.innerHTML = MARKUP;
 

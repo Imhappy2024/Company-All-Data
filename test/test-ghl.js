@@ -149,13 +149,67 @@ const json = r => JSON.parse(r.body.toString('utf8'));
   const server = await serve();
   const get = u => req(server, 'GET', u);
 
-  /* 1. Read-only. */
+  /* 1. Read-only APART FROM ONE ROUTE. Sending is the single side effect this
+        feature is allowed to have; everything else answers from the mirror. */
   for (const m of ['POST', 'PUT', 'PATCH', 'DELETE']) {
-    await checkAsync('the router refuses ' + m, async () => {
+    await checkAsync('the router refuses ' + m + ' on a read route', async () => {
       const r = await req(server, m, '/api/ghl/leads');
       assert.strictEqual(r.status, 405, 'got ' + r.status);
     });
   }
+
+  for (const m of ['PUT', 'PATCH', 'DELETE']) {
+    await checkAsync('the send path accepts POST only, not ' + m, async () => {
+      const r = await req(server, m, '/api/ghl/leads/' + LW + ':c1/message');
+      assert.strictEqual(r.status, 405, 'got ' + r.status);
+    });
+  }
+
+  await checkAsync('POST to the send route is not blanket-refused', async () => {
+    const r = await req(server, 'POST', '/api/ghl/leads/' + LW + ':c1/message');
+    assert.notStrictEqual(r.status, 405, 'the method guard is still blocking the one write route');
+  });
+
+  /* 2. Sending needs a VERIFIED session, because the sender's address comes
+        from it. A decoded JWT body is not a signature check. */
+  await checkAsync('sending without a session is refused', async () => {
+    const r = await req(server, 'POST', '/api/ghl/leads/' + LW + ':c1/message');
+    assert.strictEqual(r.status, 401, 'got ' + r.status);
+    const j = JSON.parse(r.body.toString('utf8'));
+    assert.strictEqual(j.kind, 'auth');
+    assert.ok(/own address/i.test(j.error), 'the reason should say why a session is needed: ' + j.error);
+  });
+
+  check('the identity check calls Supabase rather than decoding the token', () => {
+    /* Reading the payload out of a JWT proves nothing — anyone can craft one —
+       and this decides whose name goes on a message to a customer. */
+    const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'ghl-api.js'), 'utf8');
+    const fn = src.slice(src.indexOf('async function callerIdentity'), src.indexOf('/* Which locations'));
+    assert.ok(/auth\/v1\/user/.test(fn), 'callerIdentity does not verify against Supabase Auth');
+    assert.ok(!/atob|Buffer\.from\([^)]*base64/.test(fn), 'callerIdentity decodes the token instead of verifying it');
+  });
+
+  check('no send token configured means no location is sendable', () => {
+    /* The sandbox has no GHL_TOKEN_* pair, which is the same state as a
+       sub-account nobody has connected. */
+    const send = require('../ghl-send');
+    assert.strictEqual(send.sendableLocationIds().size, 0);
+    assert.strictEqual(send.tokenFor(LW), null);
+  });
+
+  check('a token declared without its location is reported, not silently used', () => {
+    const report = require('../ghl-send').credentialReport();
+    assert.ok(Array.isArray(report.problems), 'credentialReport should list malformed pairs');
+  });
+
+  check('the GHL channel map covers what the composer offers', () => {
+    const { CHANNEL_TO_GHL } = require('../ghl-send');
+    for (const k of ['sms', 'email', 'wa', 'fb']) {
+      assert.ok(CHANNEL_TO_GHL[k], 'no GHL type for channel ' + k);
+    }
+    assert.strictEqual(CHANNEL_TO_GHL.email, 'Email');
+    assert.strictEqual(CHANNEL_TO_GHL.sms, 'SMS');
+  });
 
   await checkAsync('no statement it ever issues contains a write verb', async () => {
     seen.length = 0;

@@ -48,6 +48,10 @@
 const express = require('express');
 const db = require('./supabase-db');
 const G = require('./ghl-data');
+const SEND = require('./ghl-send');
+
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY || '';
 
 const WRITE_SQL = /\b(insert|update|delete|truncate|drop|alter|create|grant|revoke|copy|merge)\b/i;
 
@@ -164,10 +168,17 @@ function shapeLead(row){
 function ghlRoutes() {
   const r = express.Router();
 
+  /* Read-only except for one route. POST /leads/:id/message reaches GHL to
+     send, which is the single side effect this feature is allowed to have —
+     everything else answers out of the Supabase mirror. Naming the exception
+     here rather than dropping the guard keeps the default closed. */
+  const SEND_PATH = /^\/leads\/[^/]+\/message\/?$/;
+
   r.use((req, res, next) => {
-    if (req.method !== 'GET' && req.method !== 'HEAD') {
-      return res.status(405).set('Allow', 'GET, HEAD')
-        .json({ error: 'The GHL API is read-only. This service holds no GHL credential.' });
+    const isSend = req.method === 'POST' && SEND_PATH.test(req.path);
+    if (req.method !== 'GET' && req.method !== 'HEAD' && !isSend) {
+      return res.status(405).set('Allow', 'GET, HEAD, POST /leads/:id/message')
+        .json({ error: 'The GHL API is read-only apart from sending a message.' });
     }
     if (!db.enabled) {
       return res.status(503).json({
@@ -190,6 +201,31 @@ function ghlRoutes() {
     const v = String(req.query.company_id || '').trim();
     return UUID_RE.test(v) ? v : null;
   };
+
+  /* WHO is calling, verified against Supabase Auth.
+
+     This asks Supabase to validate the token rather than decoding it here. A
+     JWT payload is base64, not a signature check — anyone can craft one — and
+     the answer decides whose email goes on a message to a customer. Financials
+     can afford an unverified read for an export label; this cannot.
+
+     Returns null on anything unverifiable, so the caller answers 401 rather
+     than sending as nobody. */
+  async function callerIdentity(req) {
+    const m = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
+    if (!m || !SUPABASE_URL || !SUPABASE_ANON_KEY) return null;
+    try {
+      const r2 = await fetch(SUPABASE_URL + '/auth/v1/user', {
+        headers: { apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + m[1].trim() },
+      });
+      if (!r2.ok) return null;
+      const u = await r2.json();
+      return (u && u.email) ? { id: u.id, email: u.email } : null;
+    } catch (err) {
+      console.error('[ghl] could not verify the caller:', err.message);
+      return null;
+    }
+  }
 
   /* Which locations this request may read, and which of them it asked for.
      `location` narrows WITHIN the brand and can never widen past it: the
@@ -227,8 +263,11 @@ function ghlRoutes() {
   r.get('/locations', async (req, res) => {
     try {
       const { all, companyId } = await scope(req);
+      const sendable = SEND.sendableLocationIds();
       res.json({
-        locations: all.map(a => ({ ...a, sendable: false })),
+        /* sendable drives the composer and the sidebar's "read-only" note. It
+           is a real credential check now, not a flat false. */
+        locations: all.map(a => ({ ...a, sendable: sendable.has(a.id) })),
         /* Stated rather than implied. Liquid Lending has no GHL sub-account,
            and "no locations" has to be distinguishable from "the scope did not
            resolve" or the empty screen means two different things. */
@@ -368,6 +407,156 @@ function ghlRoutes() {
         tasks,
         appointments,
         conversations
+      });
+    } catch (err) { fail(res, err); }
+  });
+
+  /* ---- sending -----------------------------------------------------------
+
+     The one route here that writes anything, and the one call in this feature
+     that reaches GHL rather than Supabase, because GHL owns delivery.
+
+     IT SENDS AS THE SIGNED-IN PERSON. `emailFrom` is the caller's own address,
+     VERIFIED against Supabase Auth rather than decoded out of the JWT: this is
+     an authorisation decision — whose name goes on a message to a customer —
+     and an unverified decode would let anyone paste a token body and send as
+     anyone. `exportedBy` in financials-api.js can afford an unverified read
+     because it only labels a spreadsheet; this cannot.
+  --------------------------------------------------------------------------- */
+
+  r.post('/leads/:id/message', express.json({ limit: '1mb' }), async (req, res) => {
+    try {
+      const who = await callerIdentity(req);
+      if (!who) {
+        return res.status(401).json({
+          error: 'Sign in to send. A message goes out under your own address, so it needs a verified session.',
+          kind: 'auth',
+        });
+      }
+
+      const found = await loadLead(req.params.id, companyOf(req));
+      if (found.error) return res.status(found.status).json({ error: found.error });
+
+      const { locationId, contactId } = found;
+      if (!contactId) {
+        return res.status(400).json({ error: 'This lead has no contact in GHL, so there is nobody to message.' });
+      }
+
+      const b = req.body || {};
+      const channel = String(b.channel || 'sms').toLowerCase();
+      const type = SEND.CHANNEL_TO_GHL[channel];
+      if (!type) {
+        return res.status(400).json({
+          error: 'channel must be one of ' + Object.keys(SEND.CHANNEL_TO_GHL).join(', '),
+        });
+      }
+
+      const isEmail = channel === 'email';
+      const text = String(b.body == null ? '' : b.body).trim();
+      const html = String(b.html == null ? '' : b.html).trim();
+      const subject = String(b.subject == null ? '' : b.subject).trim();
+
+      if (!text && !html) return res.status(400).json({ error: 'Nothing to send.' });
+
+      /* Blocked here with a reason rather than sent without one and quietly
+         filed by GHL as '(no subject)'. */
+      if (isEmail && !subject) {
+        return res.status(400).json({ error: 'A subject is required for email.', kind: 'validation', field: 'subject' });
+      }
+
+      /* Being listed and being sendable are different things. A sub-account is
+         readable because the pipeline ingested it; sending needs a token. Said
+         BEFORE the attempt, because the alternative is a bare 401 from GHL that
+         reads like the message was rejected rather than never sent. */
+      if (!SEND.sendableLocationIds().has(locationId)) {
+        return res.status(400).json({
+          error: 'No GHL send token for this sub-account. Reading works without one; sending needs '
+            + 'GHL_TOKEN_<NAME> paired with GHL_LOCATION_<NAME>=' + locationId
+            + ' and the conversations/message.write scope.',
+          kind: 'validation',
+        });
+      }
+
+      let sent;
+      try {
+        sent = await SEND.sendMessage(SEND.tokenFor(locationId), {
+          type,
+          contactId,
+          message: isEmail ? undefined : text,
+          html: isEmail ? (html || text) : undefined,
+          subject: isEmail ? subject : undefined,
+          /* The signed-in person's own address.
+
+             NOT validated against the sub-account's known senders first, and
+             that is deliberate. GHL is the only authority on which addresses it
+             has verified, the mirror's `ghl_location.email` holds one address
+             per location (LeavenWealth's is lauren@wellspentconsulting.com),
+             and `ghl_user` is empty for LeavenWealth entirely — so a local
+             check would refuse every send this dashboard exists to make, on
+             data that cannot answer the question. GHL decides, and its refusal
+             is passed back verbatim. */
+          emailFrom: isEmail ? who.email : undefined,
+          emailTo: isEmail ? (String(b.to || '').trim() || undefined) : undefined,
+          emailCc: isEmail ? b.cc : undefined,
+          emailBcc: isEmail ? b.bcc : undefined,
+        });
+      } catch (err) {
+        /* Surfaced, never swallowed. A silent failure on an outbound message is
+           worse than an error, because the operator believes it went. */
+        console.error('[ghl:send] failed location=%s contact=%s channel=%s by=%s: %s',
+          locationId, contactId, channel, who.email, err.message);
+        const status = err.kind === 'auth' ? 502 : (err.status && err.status < 500 ? 400 : 502);
+        return res.status(status).json({
+          error: err.kind === 'auth'
+            ? 'GHL rejected the send token for this sub-account. It has been rotated or revoked, '
+              + 'so GHL_TOKEN_* needs a fresh Private Integration Token.'
+            : err.message,
+          kind: err.kind || 'other',
+        });
+      }
+
+      /* Every send is logged. An outbound message is an action taken on a
+         customer's behalf and needs a trail independent of GHL. */
+      console.log('[ghl:send] ok location=%s contact=%s type=%s message=%s by=%s',
+        locationId, contactId, type, sent.messageId, who.email);
+
+      const sentAt = new Date().toISOString();
+
+      /* Echo suppression. GHL's own id is the key, so the OutboundMessage
+         webhook that follows carries the same id and ON CONFLICT DO NOTHING
+         makes it a no-op.
+
+         ghl_message.ghl_conversation_id is NOT NULL and conversationId is a
+         response-only field, so when GHL does not return one there is nowhere
+         to put the row. Skipped rather than invented: the webhook inserts it
+         once, which is correct, just slower. A fabricated id would split one
+         conversation into two. */
+      if (sent.conversationId) {
+        try {
+          await db.q(
+            `insert into public.ghl_message
+                    (ghl_message_id, ghl_location_id, ghl_contact_id, ghl_conversation_id,
+                     direction, message_type, body, subject, ghl_date_added, status)
+             values ($1, $2, $3, $4, 'outbound', $5, $6, $7, $8::timestamptz, 'pending')
+             on conflict (ghl_message_id) do nothing`,
+            [sent.messageId, locationId, contactId, sent.conversationId,
+             'TYPE_' + String(type).toUpperCase(),
+             isEmail ? (html || text) : text,
+             isEmail ? subject : null, sentAt]);
+        } catch (err) {
+          /* The message IS sent. Failing the request now would tell the
+             operator it was not, and they would send it again. */
+          console.error('[ghl:send] sent but not recorded (%s): %s', sent.messageId, err.message);
+        }
+      }
+
+      res.json({
+        ok: true,
+        messageId: sent.messageId,
+        conversationId: sent.conversationId,
+        recorded: Boolean(sent.conversationId),
+        from: isEmail ? who.email : null,
+        sentAt,
       });
     } catch (err) { fail(res, err); }
   });

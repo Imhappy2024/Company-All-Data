@@ -1100,16 +1100,64 @@ no opportunities by construction (both are keyed by location), so they carry a
 `noLocation` flag and the client shows the contact header with an honest reason
 instead of firing two requests that would 404.
 
-### No writes, and not by omission
-This service holds no GHL credential — there is no GHL variable in
-`.env.example` — so `sendableLocationIds` and `tokenFor` were **dropped from
-the data layer** rather than left to fail at runtime. There is no composer and
-no sync button, because a control that always fails is worse than no control.
-Refresh is a re-read; n8n owns the GHL → Supabase pipeline.
+### Sending: the one call that reaches GHL
 
-The router refuses any non-GET method (405) and every SQL string is checked for
-a write verb, same as `financials-api.js` and for the same reason: `supabase-db`
-connects as the postgres superuser.
+`ghl-send.js` + `POST /api/ghl/leads/:id/message`. Everything else on this
+screen reads the Supabase mirror; GHL owns delivery, so a send has to go to it.
+
+**Credentials come from the environment**, in the pairs command-center
+established and that are already set on Railway:
+
+    GHL_TOKEN_<NAME>  paired with  GHL_LOCATION_<NAME>=<ghl_location_id>
+
+The suffix is arbitrary and only joins the two halves. A pair missing either
+half is named in the log and skipped rather than failing boot, because reading
+works with no token at all. A Private Integration Token is not OAuth: nothing
+renews it, so a 401 is surfaced as "rotate the token", never retried.
+
+**The router is read-only apart from this one route.** `SEND_PATH` names the
+exception explicitly so the default stays closed; every other non-GET is 405.
+
+### It sends as the signed-in person, and the identity is VERIFIED
+`emailFrom` is the caller's own address, read by asking Supabase Auth
+(`GET /auth/v1/user`) to validate the bearer token — **not** by decoding the
+JWT. A JWT payload is base64, not a signature; anyone can craft one, and this
+decides whose name goes on a message to a customer. (`exportedBy` in
+financials-api.js can afford an unverified read because it only labels a
+spreadsheet. This cannot.) No session means 401, never a send as nobody.
+
+The browser sends the same address on the composer's From line, but only as a
+label — the server takes it from the session and ignores whatever arrives.
+
+### The sender address is NOT validated locally, deliberately
+command-center checks `emailFrom` against the sub-account's mirrored addresses
+first. Doing that here would refuse every send this screen exists to make:
+
+| | |
+|---|---|
+| `ghl_location.email` for LeavenWealth | `lauren@wellspentconsulting.com` |
+| `ghl_user` rows for LeavenWealth | **0** |
+| `jay@leavenwealth.com` in `ghl_user` | absent from every location |
+
+The mirror simply cannot answer "is this a verified sender". GHL is the only
+authority, so the send is attempted and **GHL's own refusal is passed back
+verbatim** — its messages are specific ("Invalid emailFrom") and actionable,
+where a local guess would just be wrong.
+
+**Expect email sends to be rejected until the address is verified in GHL**, or
+until the ingest fills `ghl_user` for LeavenWealth. SMS is unaffected: it has no
+From to verify and GHL uses the sub-account's own number.
+
+### A send is recorded, but only when GHL returns a conversation id
+`ghl_message.ghl_conversation_id` is NOT NULL and `conversationId` is a
+response-only field, so when GHL omits it there is nowhere to put the row. It is
+**skipped rather than invented** — a fabricated id splits one conversation in
+two — and the OutboundMessage webhook inserts it later, which is correct, just
+slower. `ON CONFLICT DO NOTHING` on GHL's own message id is what makes that
+webhook a no-op rather than a duplicate.
+
+If the insert fails, the request still succeeds: the message **is** sent, and
+reporting failure would have the operator send it twice.
 
 ### Tests
     node test/test-ghl.js     # 31 checks, no database needed
@@ -1422,7 +1470,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
     node test/test-financials.js # financials: read-only, filters, export provenance
-    node test/test-ghl.js        # GHL leads: brand scoping, read-only guard
+    node test/test-ghl.js        # GHL leads: brand scoping, send guards
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
