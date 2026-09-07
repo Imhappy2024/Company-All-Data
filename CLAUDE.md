@@ -1445,6 +1445,69 @@ score.
 Money exports as a bare number and a null gross exports **empty, not 0**, so a
 spreadsheet SUM cannot count a failed payment as a free sale.
 
+### Reports & Financials and App Users are the same module
+Three Folio screens, one module, one set of endpoints — `mount()` (Financials:
+table, funnel, export), `mountReports()` (Reports & Financials, which is also
+Folio's **Overview**) and `mountUsers()` (App Users: the same table without the
+funnel). One module because the alternative already happened: Folio reported
+`$2,369 MRR` on one screen and one subscriber at $1,000 on another, a nav click
+apart.
+
+**What Reports & Financials was.** It ran **no query at all**. MRR $2,369, ARR
+$28.4K, "Active users 4" and NRR 104% were computed from the six invented
+subscribers in a `SUBS` array, and the MRR trend charted Apr–Jul at
+2600/2900/3100/3308 — four invented months. Two tells were visible without
+reading the code:
+
+- **The bars looked identical.** `barChart` scales to the maximum, so those
+  values render at 79/88/94/100% of a 150px box: ~10px apart, which reads as
+  one placeholder shape. The only real payment is dated **17 Aug 2026**.
+- **"Active users 4"** is the same number as `lead.is_client`, which §2.2 of
+  the spec forbids counting. It was **not** that query — the page issued none
+  — it was four of six invented rows that happened to land on 4. Same remedy,
+  different diagnosis, and worth stating: the figure was not wired to anything
+  at all.
+
+**ARR and NRR were not replaced with real versions.** ARR would be MRR × 12 off
+a billing period nobody has confirmed; NRR needs a prior period to retain.
+Neither is computable, so neither is displayed. A test asserts the client
+contains no `ARR`, no retention figure, and no `* 12`.
+
+`SUBS` is deleted. App Users renders the §4.1 subscriber table instead — the
+six invented companies, 774 units billed and the "Past due 1" tile are gone.
+
+### Dates are formatted from the ISO string, never the viewer's timezone
+`longDate()` parses `YYYY-MM-DD` off the front of the value and maps the month
+itself. `paid_at` is a **timestamptz** and the real payment is
+`2026-08-17T19:06:40Z`, so `toLocaleDateString` on that instant renders
+**"18 Aug 2026" for any reader east of UTC** — including Manila, where this is
+read. A payment's date is a business fact, not a moment converted into wherever
+the browser happens to be, and the acceptance check says 17 Aug.
+
+This was caught by rendering under `TZ=Asia/Manila`, not by review. A test
+asserts `toLocaleDateString` appears nowhere in the module.
+
+### The funnel breakdown order is display-only
+`PIPELINE_ORDER` puts the stage line in funnel order (Qualified → Demo
+Scheduled → Demo Complete → Closed Won → Onboard Initiated). **No count comes
+from it.** `lead.pipeline_stage` is free text with no ordinal, so a stage the
+list does not know is **appended, never dropped** — an unknown stage is a lead
+somebody should see.
+
+### The spec says "6 in pipeline" and the answer is 8
+`FOLIO_FINANCIAL_DASHBOARD_SPEC` §1.5 says "Six have a pipeline stage" and then
+lists five stages summing to **eight**; §7 repeats the 6. The live database
+agrees with the breakdown, not the total:
+
+    Closed Won 3 · Demo Complete 2 · Demo Scheduled 1 · Onboard Initiated 1 · Qualified 1
+
+Most likely the 6 is a stale count from before two leads gained a stage. The
+page therefore **computes** `staged_leads` and prints the breakdown directly
+beneath it, so the two can never disagree on screen — rendering "6 in pipeline"
+above a list that adds to 8 would be visibly self-contradictory. Raised with
+Jay twice; if 6 is right, the definition of "in pipeline" needs to say which
+stages it excludes.
+
 ### Folio still cannot reach the screen
 Its `financials` `dashboard_module` row does not exist, so the nav item cannot
 appear. See "Folio Excel has no `financials` catalog row" above and
@@ -1854,7 +1917,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
-    node test/test-folio-financials.js # Folio: test payments, is_client, no tiles
+    node test/test-folio-financials.js # Folio: test payments, is_client, no tiles or invented metrics
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability

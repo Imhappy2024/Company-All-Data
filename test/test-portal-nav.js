@@ -263,21 +263,26 @@ function ptask(id, name, status, sync) {
   check('a link to the old screen lands on Overview',
     await page.evaluate(() => [brand, view]), ['folio', 'overview']);
 
-  /* Reports & Financials is where the plan tiers actually survived the first
-     pass: a "Revenue by plan" card splitting $3,308 of MRR across Scale,
-     Growth and Starter. None of those exist - `subscription_plan` is 0 rows -
-     and Folio's Overview renders this same view, so it was the most-seen
-     screen in the brand. */
-  await page.evaluate(() => { setBrand('folio'); setView('reports'); });
-  check('Reports & Financials names no plan or tier',
-    await page.evaluate(() => {
-      const t = document.getElementById('content').textContent;
-      return (t.match(/plan|pricing|starter|growth|scale/gi) || []);
-    }), []);
-  /* And it still paints - removing one of two cards from a two-column grid
-     left the survivor at half width until the grid class changed with it. */
-  check('and it still renders its MRR trend',
-    /MRR trend/.test(await page.locator('#content').textContent()), true);
+  /* Folio's Reports & Financials, and App Users, are now LIVE - both painted
+     by portal-folio-fin.js from /api/folio/financials. Between them they used
+     to carry every invented figure in the brand: MRR $2,369, ARR $28.4K, NRR
+     104%, "Active users 4", 774 units billed, six invented companies, and an
+     Apr-Jul MRR trend whose only real payment is dated 17 Aug 2026.
+
+     This harness answers every /api/* with 503, so the module renders its
+     error state. That is exactly what makes the check strong: a screen with
+     no data available must show NO figure at all, and any $ or % appearing
+     here is a number that came from the file rather than the database. */
+  for (const [v, id] of [['reports', 'folioReportsNative'], ['subscribers', 'folioUsersNative']]) {
+    await page.evaluate((view) => { setBrand('folio'); setView(view); }, v);
+    check('folio ' + v + ' renders the live container',
+      await page.locator('#' + id).count(), 1);
+    const text = await page.locator('#content').textContent();
+    check('folio ' + v + ' bakes no figure',
+      (text.match(/\$[\d,]+|\d+(\.\d+)?%/g) || []), []);
+    check('folio ' + v + ' names no invented tier or metric',
+      (text.match(/starter|growth|scale|\bARR\b|retention|MoM/gi) || []), []);
+  }
 
   /* ICON NAMES ARE STRINGS, AND A MISSING ONE IS SILENT.
      The nav declares its icon as `ic:'card'`, but the views pass icon names as

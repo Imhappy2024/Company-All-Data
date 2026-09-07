@@ -305,9 +305,19 @@ function folioFinancialsRoutes() {
            from public.transaction t
           where t.tenant_id = $1 and t.entity_id = $2::uuid and t.source_system = 'whop'`, T());
 
+      /* Revenue to date, the Whop cut, and the net — all three, because the
+         fee is 4% of this volume and the gross alone hides it. Every figure
+         here EXCLUDES the two $1 card tests, and `first_paid_at` is what lets
+         the screen say why there is no trend instead of just omitting one. */
       const [pay] = await q(
         `select count(*)::int as payments,
-                coalesce(sum(sp.usd_total), 0) as collected_usd
+                coalesce(sum(sp.usd_total), 0)         as collected_usd,
+                coalesce(sum(sp.fee_amount), 0)        as fees_usd,
+                coalesce(sum(sp.amount_after_fees), 0) as net_usd,
+                coalesce(sum(sp.refunded_amount), 0)   as refunded_usd,
+                min(sp.paid_at) as first_paid_at,
+                max(sp.paid_at) as last_paid_at,
+                count(distinct date_trunc('month', sp.paid_at))::int as months
            from public.sales_payment sp
           where sp.tenant_id = $1 and sp.company_id = $2::uuid
             and sp.status = 'paid' and not ${IS_TEST}`, C());
@@ -326,11 +336,25 @@ function folioFinancialsRoutes() {
         mrr_assumed: m.period_unknown > 0,
         currency: m.currencies > 1 ? 'mixed' : (m.currency || 'USD'),
         as_of: new Date().toISOString(),
-        /* Stated, not implied: there is one month of payment history, so
-           there is no trend to draw and no MoM figure to compute. */
-        history: { payments: pay.payments, collected_usd: Number(pay.collected_usd),
-                   trend_available: false,
-                   trend_note: 'One month of payment history — no trend shown.' },
+        /* Stated, not implied: `months` is COUNTED, so "no trend" is a fact
+           about the data rather than a hardcoded sentence that would keep
+           saying "one month" forever. It flips on its own at the second
+           month's payment, and the note names the count either way. */
+        history: {
+          payments: pay.payments,
+          collected_usd: Number(pay.collected_usd),
+          fees_usd: Number(pay.fees_usd),
+          net_usd: Number(pay.net_usd),
+          refunded_usd: Number(pay.refunded_usd),
+          first_paid_at: pay.first_paid_at,
+          last_paid_at: pay.last_paid_at,
+          months: pay.months,
+          trend_available: pay.months > 1,
+          trend_note: pay.months <= 1
+            ? `No trend available — ${pay.months === 1 ? 'one month' : 'no months'} `
+              + 'of payment history.'
+            : `${pay.months} months of payment history.`,
+        },
         ledger: {
           rows: led.rows,
           inflow: Number(led.inflow),

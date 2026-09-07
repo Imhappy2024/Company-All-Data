@@ -147,12 +147,20 @@ const fakeDb = {
       return Promise.resolve({ rows: [{ rows: 1, inflow: '1000.00', outflow: '0' }] });
     }
 
-    /* Collected payments, for the reconciliation and the history note. */
+    /* Collected payments: revenue to date, the Whop cut, the net, and the
+       month count that decides whether a trend exists at all. */
     if (/count\(\*\)::int as payments/.test(sql) && /sales_payment/.test(sql)) {
       const rows = PAYMENTS.filter(p => p.status === 'paid' && !isTest(p));
+      const months = new Set(rows.map(p => String(p.paid_at).slice(0, 7)));
       return Promise.resolve({ rows: [{
         payments: rows.length,
         collected_usd: rows.reduce((t, p) => t + num(p.usd_total), 0).toFixed(2),
+        fees_usd: rows.reduce((t, p) => t + num(p.fee_amount), 0).toFixed(2),
+        net_usd: rows.reduce((t, p) => t + num(p.amount_after_fees), 0).toFixed(2),
+        refunded_usd: '0.00',
+        first_paid_at: rows.map(p => p.paid_at).sort()[0] || null,
+        last_paid_at: rows.map(p => p.paid_at).sort().pop() || null,
+        months: months.size,
       }] });
     }
 
@@ -478,10 +486,84 @@ function strings(o, out) {
       'a period-over-period field is published');
   });
 
+  /* ---- Reports & Financials -------------------------------------------
+     The page that replaced the hardcoded one. Every figure on it comes from
+     these three fields, so they have to be present and they have to exclude
+     the test rows. */
+  await checkAsync('the summary carries revenue, the Whop fee and the net', async () => {
+    const s = json(await get('/summary'));
+    assert.strictEqual(s.history.collected_usd, 1000, 'revenue to date');
+    assert.strictEqual(s.history.fees_usd, 40.37, 'Whop fees to date');
+    assert.strictEqual(s.history.net_usd, 959.63, 'net');
+    /* Gross minus fee must equal net, or one of the three is from a different
+       row set than the others. */
+    assert.strictEqual(Math.round((s.history.collected_usd - s.history.fees_usd) * 100) / 100,
+      s.history.net_usd, 'the three figures do not reconcile');
+  });
+
+  await checkAsync('the fee and net exclude the test payments too', async () => {
+    /* The tests carry a 0.42 fee and 0.58 net. If either leaks, the fee reads
+       40.79 and the net 960.21 - which is what the first version of this
+       screen showed. */
+    const s = json(await get('/summary'));
+    assert.notStrictEqual(s.history.fees_usd, 40.79, 'the test fee leaked into fees to date');
+    assert.notStrictEqual(s.history.net_usd, 960.21, 'the test net leaked into net');
+  });
+
+  await checkAsync('the first payment date is 2026-08-17 and the month count is counted', async () => {
+    const s = json(await get('/summary'));
+    assert.ok(String(s.history.first_paid_at).indexOf('2026-08-17') === 0, s.history.first_paid_at);
+    assert.strictEqual(s.history.months, 1);
+    assert.strictEqual(s.history.trend_available, false);
+    /* Counted, not hardcoded: the note has to name the month count so it stops
+       saying "one month" the moment there are two. */
+    assert.ok(/one month/i.test(s.history.trend_note), s.history.trend_note);
+  });
+
   /* Read from the front-end SOURCE, because "no tiles" is a property of the
      screen and no API response can enforce it. */
   const UI = fs.readFileSync(path.join(__dirname, '..', 'public', 'portal-folio-fin.js'), 'utf8');
-  const BODY = UI.slice(UI.indexOf('window.PortalFolioFin'));
+  /* Comments are stripped, or these checks read the prose that explains why a
+     thing is absent and conclude it is present. The module documents why it
+     shows no ARR and why it does not call toLocaleDateString; both sentences
+     name the thing they rule out. */
+  const decomment = t => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
+  const BODY = decomment(UI.slice(UI.indexOf('window.PortalFolioFin')));
+
+  check('the reports view builds no tile, no KPI row and no chart', () => {
+    assert.ok(!/class="kpis/.test(BODY), 'a KPI row is rendered');
+    assert.ok(!/class="bars/.test(BODY), 'a bar chart is rendered');
+    assert.ok(/mountReports/.test(BODY), 'the reports view is missing');
+  });
+
+  check('the reports view publishes no ARR and no retention figure', () => {
+    /* ARR would be MRR x 12 off a billing period nobody has confirmed, and
+       NRR needs a prior period to retain. Neither is computable. */
+    assert.ok(!/\bARR\b/.test(BODY), 'an ARR figure is rendered');
+    assert.ok(!/\bNRR\b|retention/i.test(BODY), 'a retention figure is rendered');
+    assert.ok(!/\* 12|\*12|\/ 12|\/12/.test(BODY), 'a figure is annualised in the client');
+  });
+
+  /* A payment's date is a business fact, not an instant to be converted into
+     the reader's timezone. paid_at is 2026-08-17T19:06:40Z, so
+     toLocaleDateString renders "18 Aug 2026" anywhere east of UTC. */
+  check('dates are formatted from the ISO string, not the viewer timezone', () => {
+    assert.ok(!/toLocaleDateString/.test(BODY),
+      'a date is formatted through the viewer timezone');
+  });
+
+  /* And the same rule at the source: portal.html must not still hold the
+     invented figures behind the old page. */
+  const PORTAL = decomment(fs.readFileSync(path.join(__dirname, '..', 'public', 'portal.html'), 'utf8'));
+  check('portal.html no longer computes Folio reports from a baked array', () => {
+    assert.ok(/reports\(\)\{return '<div id="folioReportsNative"><\/div>';\},/.test(PORTAL),
+      'V.reports() does not render the live container');
+    /* The three specific fabrications that were on that page. */
+    assert.ok(!/'ARR'/.test(PORTAL), 'the ARR tile is still there');
+    assert.ok(!/Net revenue retention/i.test(PORTAL), 'the NRR tile is still there');
+    assert.ok(!/\['Apr',2600/.test(PORTAL), 'the invented MRR trend is still there');
+    assert.ok(!/\+8% MoM/.test(PORTAL), 'a MoM figure is still there');
+  });
   check('the screen builds no tiles', () => {
     assert.ok(!/class="fin-tiles/.test(BODY), 'a tile grid is rendered');
     assert.ok(!/class="fin-tile/.test(BODY), 'a tile is rendered');

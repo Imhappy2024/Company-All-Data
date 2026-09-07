@@ -780,14 +780,6 @@ const TOOLS=[
   {n:'Supabase',cat:'Database',plan:'Pro',cost:25,user:'dev@leavenwealth.com',brand:'all'},
   {n:'Meta Ads Manager',cat:'Advertising',plan:'—',cost:0,user:'ads@leadliai.com',brand:'leadli'},
 ];
-const SUBS=[
-  {n:'Bluebird Property Mgmt',units:340,plan:'Scale',amt:1360,status:'active',pay:'paid'},
-  {n:'Redwood Residential',units:120,plan:'Growth',amt:540,status:'active',pay:'paid'},
-  {n:'Cornerstone Realty',units:64,plan:'Growth',amt:320,status:'active',pay:'due'},
-  {n:'Harbor Homes LLC',units:28,plan:'Starter',amt:149,status:'active',pay:'paid'},
-  {n:'Prairie Rentals',units:210,plan:'Scale',amt:840,status:'past_due',pay:'overdue'},
-  {n:'Elm Street Holdings',units:12,plan:'Starter',amt:99,status:'trial',pay:'trial'},
-];
 const TXNS=[{d:'Jul 14',desc:'Bookkeeping retainer - client A',dir:'in',amt:7500},{d:'Jul 12',desc:'Monthly loan interest',dir:'out',amt:3100},{d:'Jul 10',desc:'July rent - Midwest 1',dir:'in',amt:12600},{d:'Jul 06',desc:'Landscaping - monthly',dir:'out',amt:540},{d:'Jul 03',desc:'Meta Ads - Leadli',dir:'out',amt:6100},{d:'Jul 02',desc:'July rent - Lincoln',dir:'in',amt:10150}];
 const TASKS=[
   {t:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'todo',prio:'high',due:'Jul 25',who:7},
@@ -925,21 +917,30 @@ const V={
   leads(){return '<div id="ghlNative"></div>';},
   appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
   ads(){ setTimeout(function(){loadAds(false);},0); return `<div id="adsBody">${renderAdsBody()}</div>`; },
-  subscribers(){
-    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
-    return `<div class="kpis">${kpi('users','Active users',SUBS.filter(s=>s.status!=='trial').length,'subscribers')}${kpi('grid','Units billed',SUBS.reduce((a,s)=>a+s.units,0).toLocaleString(),'')}${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('card','Past due','1','follow up','down')}</div>`+
-    card('users','App users / subscribers',SUBS.length,tbl([{t:'Client'},{t:'Units',r:1},{t:'Plan'},{t:'Amount / mo',r:1},{t:'Status'},{t:'Payment'}],SUBS.map(s=>`<tr><td>${esc(s.n)}</td><td class="r">${s.units}</td><td>${pill(s.plan,'blue')}</td><td class="r">${money(s.amt)}</td><td>${pill(s.status.replace('_',' '),s.status==='active'?'green':s.status==='trial'?'gray':'rose')}</td><td>${pill(s.pay,s.pay==='paid'?'green':s.pay==='due'?'amber':s.pay==='trial'?'gray':'rose')}</td></tr>`).join('')),true);
-  },
-  reports(){
-    const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
-    return `<div class="kpis">${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('trend','ARR',moneyk(mrr*12),'run rate','up')}${kpi('users','Active users',SUBS.filter(s=>s.status==='active').length,'')}${kpi('gauge','Net revenue retention','104%','','up')}</div>`+
-    /* Revenue by plan is gone with Plans & Pricing. It broke down $3,308 of
-       MRR across Scale / Growth / Starter, and none of those three tiers exist:
-       `subscription_plan` is 0 rows and the one real subscription has a NULL
-       `subscription_plan_id`. A single card, so the grid is not left half
-       empty. */
-    `<div class="grid">${card('trend','MRR trend',null,barChart([['Apr',2600,'#0d9488'],['May',2900,'#0d9488'],['Jun',3100,'#0d9488'],['Jul',3308,'#0d9488']]))}</div>`;
-  },
+  /* App Users, live. For a SaaS the list of app users IS the subscriber list,
+     so this is the §4.1 table from the Folio spec, rendered by the same module
+     as Financials and reading the same endpoint.
+
+     What was here was the page the spec names in §2.1: six invented companies
+     (Bluebird Property Mgmt, Redwood Residential, Cornerstone Realty, Harbor
+     Homes, Prairie Rentals, Elm Street Holdings), invented Starter/Growth/Scale
+     plans, 774 units billed, "$2,369 MRR +8% MoM" and a "Past due 1" tile.
+     None of it was in the database, and with Reports & Financials now queried
+     it would have contradicted it one nav click away. */
+  subscribers(){return '<div id="folioUsersNative"></div>';},
+  /* Folio's Reports & Financials, live. Every figure on it comes from a
+     query against Whop billing - see "Folio Excel financials" in CLAUDE.md.
+
+     What was here ran NO query at all. MRR $2,369, ARR $28.4K, "Active users
+     4" and NRR 104% were all computed from the six invented subscribers in
+     the SUBS array, and the MRR trend charted Apr-Jul at 2600/2900/3100/3308
+     - four made-up months whose bars land ~10px apart, which is why they read
+     as one placeholder shape. The only real payment is dated 17 Aug 2026.
+
+     ARR and NRR are not replaced with real versions: ARR would be MRR x 12
+     off a billing period nobody has confirmed, and NRR needs a prior period
+     to retain. A figure that cannot be computed is not displayed. */
+  reports(){return '<div id="folioReportsNative"></div>';},
   pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
   borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
   tracker(){
@@ -1410,8 +1411,13 @@ function render(){
      generic header naming the brand). Declared here because both the class
      line below and pageH read it. */
   const finNative = view==='financials' && FINANCIALS_BUILT[brand];
+  /* Folio's Reports & Financials, which is also its Overview. Like the built
+     Financials screen it renders its own header, so the generic one is
+     suppressed - one screen carries one title. */
+  const folioReports = brand==='folio' && (view==='reports' || view==='overview');
+  const folioUsers = brand==='folio' && view==='subscribers';
   const info=embed?embedInfo():null;
-  content.className='content'+(embed?' wide embed-lean':((view==='properties'||finNative||view==='leads')?' wide':''));
+  content.className='content'+(embed?' wide embed-lean':((view==='properties'||finNative||folioReports||folioUsers||view==='leads')?' wide':''));
   /* Read-only means read-only: no New button where the level is 'read'. The
      database refuses the write anyway, but a button that always fails is worse
      than no button. canWrite() resolves inside the current brand's scope.
@@ -1425,7 +1431,7 @@ function render(){
     : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
   /* The built Financials screen renders its own header; the placeholder does
      not, so it keeps the generic one that names the brand. */
-  const pageH=(embed||view==='properties'||finNative||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
+  const pageH=(embed||view==='properties'||finNative||folioReports||folioUsers||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
   content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
   /* The native Tasks screen must be painted after innerHTML replaces the
      container, not from inside the template string. brandSpaces and BRANDS are
@@ -1442,6 +1448,17 @@ function render(){
   if(view==='leads' && window.PortalGHL){
     PortalGHL.mount(document.getElementById('ghlNative'),
                     {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
+  }
+  /* Folio's Reports & Financials, and its Overview, which renders the same
+     view. Same module as the Financials table, so the two screens read the
+     same endpoints and cannot show different money for one brand. */
+  if(brand==='folio' && (view==='reports' || view==='overview') && window.PortalFolioFin){
+    PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
+  }
+  /* App Users is the subscriber table, from the same module and the same
+     endpoint - so it cannot disagree with Reports about how many there are. */
+  if(brand==='folio' && view==='subscribers' && window.PortalFolioFin){
+    PortalFolioFin.mountUsers(document.getElementById('folioUsersNative'));
   }
   if(view==='financials' && FINANCIALS_BUILT[brand]==='folio' && window.PortalFolioFin){
     PortalFolioFin.mount(document.getElementById('folioFinNative'));

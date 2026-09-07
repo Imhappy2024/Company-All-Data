@@ -60,6 +60,7 @@ window.PortalFolioFin = (function () {
   ];
 
   var S = {
+    mode: 'financials',     /* 'financials' = the table; 'reports' = the summary */
     summary: null, subs: null, funnel: null, options: null, dateScope: null,
     sel: { status: [], payment_status: [], billing_period: [], plan: [], provider: [] },
     openPanel: null,
@@ -130,19 +131,22 @@ window.PortalFolioFin = (function () {
   function load() {
     S.loading = true; S.error = null;
     paint();
-    return Promise.all([
-      getJson(API + '/summary'),
-      getJson(API + '/subscribers?' + qs()),
-      getJson(API + '/funnel')
-    ]).then(function (out) {
+    /* Reports is a summary of the same two endpoints the Financials screen
+       reads, so the two screens cannot report different money. It has no
+       table, so it does not ask for the subscriber list. */
+    var wants = [getJson(API + '/summary'), getJson(API + '/funnel')];
+    if (S.mode !== 'reports') wants.push(getJson(API + '/subscribers?' + qs()));
+    return Promise.all(wants).then(function (out) {
       S.summary = out[0];
-      S.subs = out[1].rows || [];
-      S.options = out[1].options || null;
-      S.dateScope = out[1].date_scope || null;
-      S.funnel = out[2];
-      /* A filter change can hide the row whose payments are open. */
-      if (S.expanded && !S.subs.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
-      S.payments = {};
+      S.funnel = out[1];
+      if (out[2]) {
+        S.subs = out[2].rows || [];
+        S.options = out[2].options || null;
+        S.dateScope = out[2].date_scope || null;
+        /* A filter change can hide the row whose payments are open. */
+        if (S.expanded && !S.subs.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
+        S.payments = {};
+      }
     }).catch(function (e) {
       S.error = e.message;
     }).then(function () {
@@ -162,15 +166,105 @@ window.PortalFolioFin = (function () {
 
   /* ---- render ----------------------------------------------------------- */
 
-  function paint() { if (host) { host.innerHTML = view(); wire(); } }
+  /* Three screens, one module, one set of endpoints — so Folio cannot report
+     one number for its money on one screen and a different one next door.
+     That is not hypothetical: App Users showed "$2,369 MRR · +8% MoM" off six
+     invented subscribers while the real answer was one subscriber at $1,000. */
+  function paint() {
+    if (!host) return;
+    host.innerHTML = S.mode === 'reports' ? reportsView() : view();
+    wire();
+  }
 
-  function view() {
+  function shell(body) {
     if (S.error) {
       return '<div class="fin-problem"><div><b>Folio financials could not load.</b><div>' +
         esc(S.error) + '</div></div></div>';
     }
     if (!S.summary) return '<div class="fin-loading">Reading Whop billing&hellip;</div>';
-    return header() + filters() + subscriberTable() + funnelPanel() + provenance();
+    return body();
+  }
+
+  function view() {
+    return shell(function () {
+      return header() + filters() + subscriberTable() +
+        (S.mode === 'financials' ? funnelPanel() : '') + provenance();
+    });
+  }
+
+  /* ---- Reports & Financials --------------------------------------------
+     The whole page, and every figure on it comes from a query.
+
+     It replaces a screen that ran NO queries at all: MRR $2,369, ARR $28.4K,
+     "Active users 4" and NRR 104% were computed from six invented subscribers
+     in a `SUBS` array, and the MRR trend charted Apr–Jul at 2600/2900/3100/3308
+     — four made-up months rendered ~10px apart, which is why they read as one
+     placeholder shape. The only real payment is dated 17 Aug 2026.
+
+     What is here instead: the subscriber line with its MRR caveat, revenue to
+     date with the Whop fee and the net, and the funnel. No tiles, no trend,
+     and nothing that cannot be computed. ARR is absent because it would be
+     MRR × 12 off a billing period nobody has confirmed; NRR is absent because
+     it needs a prior period to retain. */
+  function reportsView() {
+    return shell(function () {
+      var s = S.summary;
+      return '' +
+        '<div class="fin-head"><div>' +
+          '<h1 class="fin-title">Folio Excel &middot; Reports &amp; Financials</h1>' +
+          '<p class="fin-sub">Whop subscription billing</p>' +
+        '</div></div>' +
+        '<div class="fin-tablewrap"><div class="fin-pairs">' +
+          pair('Active subscribers', String(s.active_subscribers),
+               'subscription_client where status = active') +
+          pair('MRR', plain(s.mrr) +
+               (s.mrr_assumed ? ' <span class="fin-flag" title="' + esc(s.mrr_assumption) +
+                                '">assumed monthly</span>' : ''),
+               s.mrr_assumed ? s.mrr_assumption : 'billing_period is set') +
+          pair('Revenue to date', plain(s.history.collected_usd),
+               s.history.payments + ' payment' + (s.history.payments === 1 ? '' : 's') +
+               ', test rows excluded') +
+          pair('First payment', s.history.first_paid_at ? longDate(s.history.first_paid_at) : '&mdash;',
+               s.history.last_paid_at && s.history.last_paid_at !== s.history.first_paid_at
+                 ? 'most recent ' + longDate(s.history.last_paid_at) : 'the only payment') +
+          pair('Whop fees to date', plain(s.history.fees_usd), 'sum of fee_amount') +
+          pair('Net', plain(s.history.net_usd), 'sum of amount_after_fees') +
+        '</div>' +
+        /* Where a KPI row would have been. It names the reason, so the absence
+           reads as a fact about the data rather than a chart that failed. */
+        '<p class="fin-note">' + esc(s.history.trend_note) +
+          (s.mrr_assumed ? ' ' + esc(s.mrr_assumption) + '.' : '') + '</p>' +
+        '</div>' +
+        funnelPanel() +
+        provenance();
+    });
+  }
+
+  function pair(label, valueHtml, hint) {
+    return '<div class="fin-pair">' +
+      '<span class="k">' + esc(label) + '</span>' +
+      '<span class="v">' + valueHtml + '</span>' +
+      (hint ? '<span class="h">' + esc(hint) + '</span>' : '') +
+      '</div>';
+  }
+
+  /* "17 Aug 2026", formatted from the ISO DATE PART and never through the
+     viewer's timezone.
+
+     `paid_at` is a timestamptz: the real payment is 2026-08-17T19:06:40Z, and
+     toLocaleDateString on that instant renders "18 Aug 2026" for any reader
+     east of UTC. A payment's date is a business fact, not a moment converted
+     into wherever the browser happens to be - and the acceptance check says
+     17 Aug. `dateOnly` elsewhere in this file slices the string for the same
+     reason, so this keeps the two consistent. */
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function longDate(v) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v == null ? '' : v));
+    if (!m) return esc(String(v == null ? '' : v).slice(0, 10));
+    var mon = MONTHS[Number(m[2]) - 1];
+    if (!mon) return esc(m[0]);
+    return Number(m[3]) + ' ' + mon + ' ' + m[1];
   }
 
   /* The header carries the two numbers this screen has, in a sentence rather
@@ -424,6 +518,26 @@ window.PortalFolioFin = (function () {
       (d.include_test ? '<p class="fin-note">Test payments are included in this list.</p>' : '');
   }
 
+  /* The stage breakdown as one line: "Qualified 1 · Demo Scheduled 1 · …".
+
+     PIPELINE_ORDER is a DISPLAY order only — no count comes from it. `lead`
+     stores pipeline_stage as free text with no ordinal, so a stage the list
+     does not know cannot be placed in the funnel and is appended rather than
+     dropped: an unknown stage is a lead somebody should see. */
+  var PIPELINE_ORDER = ['Qualified', 'Demo Scheduled', 'Demo Complete',
+                        'Closed Won', 'Onboard Initiated'];
+  function breakdown(f) {
+    var rank = function (s) {
+      var i = PIPELINE_ORDER.indexOf(s.stage);
+      return i < 0 ? PIPELINE_ORDER.length : i;
+    };
+    return f.stages.slice().sort(function (a, b) {
+      return rank(a) - rank(b) || a.stage.localeCompare(b.stage);
+    }).map(function (s) {
+      return esc(s.stage) + ' ' + s.leads;
+    }).join(' &middot; ');
+  }
+
   /* The one panel with real volume behind it, which is the reason to build
      this page now rather than when there are more subscribers. */
   function funnelPanel() {
@@ -443,6 +557,7 @@ window.PortalFolioFin = (function () {
         '<p class="fin-sub"><b>' + f.total_leads.toLocaleString('en-US') +
           '</b> leads &rarr; <b>' + f.staged_leads + '</b> in pipeline &rarr; <b>' +
           f.paying + '</b> paying</p>' +
+        '<p class="fin-sub">' + breakdown(f) + '</p>' +
         /* Two sentences that head off two different wrong readings: that the
            missing percentage is an oversight, and that "paying" came from the
            lead flag — which reads 4 for Folio and is wrong three times over. */
@@ -580,10 +695,29 @@ window.PortalFolioFin = (function () {
   }
 
   /* ---- mount ------------------------------------------------------------ */
-  function mount(el) {
-    host = el || document.getElementById('folioFinNative');
+  function mount(el) { return mountAs('financials', el, 'folioFinNative'); }
+
+  /* Folio's Reports & Financials screen, and its Overview, which renders the
+     same view. Same module and same endpoints as the table above, so the two
+     screens cannot show different money for the same brand. */
+  function mountReports(el) { return mountAs('reports', el, 'folioReportsNative'); }
+
+  /* App Users: the subscriber list, which for a SaaS IS the list of app users.
+     Same table as Financials without the funnel underneath it. It replaced six
+     invented companies (Bluebird Property Mgmt, Redwood Residential,
+     Cornerstone Realty, Harbor Homes, Prairie Rentals, Elm Street Holdings),
+     774 units billed and $2,369 of MRR, none of which was in the database. */
+  function mountUsers(el) { return mountAs('subscribers', el, 'folioUsersNative'); }
+
+  function mountAs(m, el, id) {
+    host = el || document.getElementById(id);
     if (!host) return;
-    if (!S.summary && !S.loading) load();
+    /* A mode change needs a repaint AND, moving into either table mode, the
+       subscriber list that reports mode never fetched. */
+    var switched = S.mode !== m;
+    S.mode = m;
+    var needsRows = m !== 'reports' && !S.subs;
+    if ((!S.summary || (switched && needsRows)) && !S.loading) load();
     else paint();
   }
 
@@ -592,5 +726,6 @@ window.PortalFolioFin = (function () {
     if (host) load(); else S.summary = null;
   }
 
-  return { mount: mount, invalidate: invalidate, _state: S };
+  return { mount: mount, mountReports: mountReports, mountUsers: mountUsers,
+           invalidate: invalidate, _state: S };
 })();
