@@ -31,18 +31,17 @@
    and a bug that shows Folio's 4,643 leads under LeavenWealth does not.
 
    ---------------------------------------------------------------------------
-   NO WRITES, AND NOT JUST BY OMISSION
+   READ-ONLY APART FROM ONE ROUTE
 
-   command-center can send a message because it holds a GHL Private Integration
-   Token per location in its own accounts table. This service has no GHL
-   credential of any kind — there is no GHL variable in .env.example — so the
-   send path was not ported and `sendableLocationIds`/`tokenFor` were dropped
-   from the data layer rather than left to fail at runtime.
+   POST /leads/:id/message reaches GHL to send, because GHL owns delivery. It is
+   named explicitly in SEND_PATH so the default stays closed: every other
+   non-GET is 405, and every SQL string is checked for a write verb before it
+   reaches the pool, exactly as financials-api.js does and for the same reason —
+   `supabase-db` connects as the postgres superuser, so a stray write has no
+   database-side backstop.
 
-   The router refuses any method that is not GET or HEAD, and every SQL string
-   is checked for a write verb before it reaches the pool, exactly as
-   financials-api.js does and for the same reason: `supabase-db` connects as the
-   postgres superuser, so a stray write has no database-side backstop.
+   The send credential comes from GHL_TOKEN_<NAME> paired with
+   GHL_LOCATION_<NAME>; see ghl-send.js.
    --------------------------------------------------------------------------- */
 
 const express = require('express');
@@ -61,7 +60,25 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
    Computed here, in AGENT_TIMEZONE, because the Leads view does no date
    arithmetic — it renders the string it is handed. */
 
-const TZ = process.env.AGENT_TIMEZONE || undefined;
+/* Validated once, at load, because an unrecognised zone makes every
+   Intl.DateTimeFormat below throw a RangeError — and these run per request, so
+   a typo in a Railway variable would surface as the thread route 500ing rather
+   than as a bad setting. "CST" is accepted by Intl; "Central" is not, and the
+   difference is not guessable. Falls back to the server's own zone and says
+   so, rather than taking the feature down over a formatting preference. */
+const TZ = (() => {
+  const want = process.env.AGENT_TIMEZONE;
+  if (!want) return undefined;
+  try {
+    new Intl.DateTimeFormat('en-CA', { timeZone: want }).format(new Date());
+    return want;
+  } catch (err) {
+    console.warn('[ghl] AGENT_TIMEZONE=%s is not a time zone Node recognises (%s). '
+      + 'Falling back to the server zone. Use an IANA name like America/Chicago.',
+      want, err.message);
+    return undefined;
+  }
+})();
 
 const asDate = v => { const d = v ? new Date(v) : null; return d && !isNaN(d) ? d : null; };
 const dayKey = d => new Intl.DateTimeFormat('en-CA', { timeZone: TZ, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);

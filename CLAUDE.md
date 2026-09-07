@@ -1194,6 +1194,52 @@ as coverage that is not there. `insurance_policy` still refreshes `overview`.
 "Investors" card, because it is a card on a dashboard rather than a menu. Say
 the word and it goes too.
 
+## Railway variables: what belongs, and what takes the app down
+
+**`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one
+variable that reliably breaks the deploy, in two different ways:
+
+| value | result |
+|---|---|
+| a number Railway is not routing to | boots fine, unreachable — **"Application failed to respond"** |
+| anything non-numeric | `listen EACCES` and the process dies at boot |
+
+This was verified by reproducing both. If the app is up in the logs but the URL
+returns Railway's error page, check `PORT` before anything else.
+
+### Everything this service reads
+`AGENT_TIMEZONE`, `CLICKUP_API_TOKEN`, `CLICKUP_LIST_ID`, `CLICKUP_TEAM_ID`,
+`CLICKUP_OAUTH_CLIENT_ID`, `CLICKUP_OAUTH_CLIENT_SECRET`,
+`CLICKUP_OAUTH_REDIRECT_URI`, `DATA_SOURCE`, `OWNER_EMAIL`, `PORTAL_CACHE_MS`,
+`SSE_COALESCE_MS`, `SSE_MAX_CLIENTS`, `SSE_MAX_PER_IP`, `SSE_PING_MS`,
+`SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE`, `SUPABASE_URL`,
+`SUPABASE_WEBHOOK_SECRET`, plus the `GHL_TOKEN_<NAME>` / `GHL_LOCATION_<NAME>`
+pairs.
+
+Regenerate that list rather than trusting this one:
+
+    node -e "const fs=require('fs');const s=['server.js','supabase-db.js','realtime.js','ghl-api.js','ghl-send.js','portal-api.js','portfolio-detail.js'].map(f=>fs.readFileSync(f,'utf8')).join('');console.log([...new Set([...s.matchAll(/process\.env\.([A-Z0-9_]+)/g)].map(m=>m[1]))].sort().join('\n'))"
+
+### command-center's variables are NOT this app's
+Copying that repo's `.env.example` wholesale adds 28 variables this service
+never reads — `AUTH_MODE`, `APP_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`,
+`DATABASE_URL`, `PUBLIC_URL`, the Google/Microsoft/Meta/X OAuth pairs,
+`SOCIAL_SCHEDULE*`, `MAIL_FETCH_LIMIT`, `OPUS_*`, `MEDIA_DIR` and the `CLAUDE_*`
+set. They are inert **except `PORT`**, which the two repos genuinely disagree
+about: command-center declares it, this one must let Railway supply it.
+
+Only these overlap: `SUPABASE_DB_URL`, `AGENT_TIMEZONE`, and the GHL pairs.
+
+### What does NOT crash the boot
+Worth knowing, so time is not spent on the wrong variable. A malformed or
+unreachable `SUPABASE_DB_URL` boots fine — the pool is lazy and the failure
+shows up per request. A bad `AGENT_TIMEZONE` boots fine too, and is now
+validated at load in ghl-api.js: an unrecognised zone makes every
+`Intl.DateTimeFormat` throw a `RangeError`, and since those run per request the
+symptom would have been the thread route 500ing rather than a bad setting.
+`CST` is accepted by Intl; `Central` is not, and the difference is not
+guessable — so it falls back to the server zone and logs why.
+
 ## Security model (RLS) — DO NOT WEAKEN
 - All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
   writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
