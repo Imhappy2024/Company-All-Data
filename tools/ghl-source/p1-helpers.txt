@@ -1,0 +1,41 @@
+const initials = n => n.replace(/^To:\s*/,'').split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
+
+function makeSplitter(wrapId, gutterId, def){
+  const gut = document.getElementById(gutterId);
+  const wrap = document.getElementById(wrapId);
+  if (!gut || !wrap) return;
+  const MIN = 22, MAX = 66;
+  let dragging = false;
+
+  const setPct = p => wrap.style.setProperty('--split', Math.min(MAX, Math.max(MIN, p)).toFixed(2) + '%');
+  const current = () => parseFloat(getComputedStyle(wrap).getPropertyValue('--split')) || def;
+
+  gut.addEventListener('pointerdown', e => {
+    dragging = true;
+    gut.classList.add('drag');
+    gut.setPointerCapture(e.pointerId);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+  });
+  gut.addEventListener('pointermove', e => {
+    if (!dragging) return;
+    const r = wrap.getBoundingClientRect();
+    setPct(((e.clientX - r.left) / r.width) * 100);
+  });
+  const stop = () => {
+    if (!dragging) return;
+    dragging = false;
+    gut.classList.remove('drag');
+    document.body.style.userSelect = '';
+    document.body.style.cursor = '';
+  };
+  gut.addEventListener('pointerup', stop);
+  gut.addEventListener('pointercancel', stop);
+  gut.addEventListener('dblclick', () => setPct(def));
+  gut.addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')  { setPct(current() - 3); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { setPct(current() + 3); e.preventDefault(); }
+    if (e.key === 'Home')       { setPct(def); e.preventDefault(); }
+  });
+  setPct(def);
+}

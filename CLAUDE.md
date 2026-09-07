@@ -997,12 +997,55 @@ Replaces the baked `V.leads()` — six hardcoded rows grouped by lead provider.
 |---|---|---|
 | Data layer | `lib/ghl-data.js` | `ghl-data.js` |
 | Routes | `routes/ghl.js` (918 lines) | `ghl-api.js` (read-only, rewritten) |
-| Section JS + CSS | inline in `public/index.html` | `public/portal-ghl.{js,css}` |
+| Section JS | the LEADS block of `public/index.html` | `public/portal-ghl.js` |
+| Section CSS | inline in `public/index.html` | `public/portal-ghl.css` |
 
-The data layer is a real port (`ghlQuery` → `db.q`, ESM → CJS). The **routes
-were rewritten**, not ported: command-center's file drags in its webhook
-receiver, rate limiter, OAuth provider stack and send path, and none of that
-can work here.
+The data layer and **the whole front end are transplants**, not rewrites. The
+routes were rewritten, because command-center's file drags in its webhook
+receiver, rate limiter, OAuth provider stack and send path and none of that can
+work here.
+
+### The front end is BUILT, not hand-written — regenerate it, do not edit it
+    node tools/build-ghl.cjs                       # public/portal-ghl.js
+    CC_ANALYZE=<cc checkout> node tools/build-ghl-css.cjs   # public/portal-ghl.css
+
+`tools/ghl-source/` holds the exact slices lifted out of command-center: the
+1,214-line LEADS block, its markup, and the four helpers it reaches for
+(`initials`, `makeSplitter`, `api`/`banner`, `loadThread`). The build script IS
+the diff — every adaptation is one `edit()` call with a comment saying why, and
+it **fails loudly** if a needle stops matching rather than silently skipping it.
+
+Editing `public/portal-ghl.js` by hand works until the next regeneration
+silently discards it.
+
+**This screen was first written from scratch to "the same layout" and that was
+wrong** — a hand-made approximation of a layout is not that layout, and it did
+not look like it. If a future port is tempting to rewrite, transplant it.
+
+What the build changes, and only this:
+1. `api()` injects `company_id` into every `/api/ghl` URL — the brand scope, in
+   the one helper all ten call sites already go through.
+2. `post()` throws; the composer becomes a line saying why. No GHL credential.
+3. The `EventSource` on `/api/ghl/events` is a stub — that route is a Postgres
+   NOTIFY fan-out this service does not run, and an EventSource pointed at a 404
+   retries forever. portal-realtime.js drives the refresh instead.
+4. `CAL.demo` folds to `false`; `mountLeadSubnav` moves the sub-account list
+   inside the section, because it hung off command-center's own left nav.
+5. `money()` renders **dollars, not pesos** — command-center prices in ₱, and a
+   value with the wrong symbol is a wrong number.
+6. An IIFE exposing `window.PortalGHL` plus `mount(host, {companyId, brandName})`,
+   and the parse-time wiring moves into `wireLeads()` because the portal builds
+   a view on navigation.
+7. The section ships with `class="view on"`. `.view` is `display:none` until
+   something adds `.on`, and command-center's view switcher is what did — here
+   the whole screen would render and be invisible.
+
+### The CSS is extracted and SCOPED
+539 rules, every selector prefixed `#ghlNative`. command-center styles `.card`,
+`.btn`, `.empty`, `.thread` and `.view` at the top level and so does the portal;
+unscoped, these restyle the whole application. Rules are matched by class name
+against the transplanted source rather than parsed out of it, because the JS
+builds most of its markup by concatenation.
 
 ### It reads the same Supabase project
 command-center's `ghlDbUrl()` is `SUPABASE_DB_URL` — the same

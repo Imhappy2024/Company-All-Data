@@ -1,167 +1,3 @@
-/* Leads (GHL) — command-center's Leads screen, transplanted.
-
-   This file is command-center's actual implementation, not a rewrite of it:
-   the LEADS section of its public/index.html (1,214 lines) plus the four
-   helpers it reaches out to — initials, makeSplitter, api/banner, loadThread.
-   Assembled by .build-ghl.cjs so the diff against the original stays readable.
-
-   ---------------------------------------------------------------------------
-   WHAT CHANGED, AND ONLY THIS
-
-   1. `api()` injects `company_id` into every /api/ghl URL. That is the brand
-      scope, and putting it in the one helper every call already goes through is
-      what makes it impossible to omit on one of them.
-
-   2. `post()` throws. This service holds no GHL credential, so the composer is
-      replaced by a line saying why, and any write path that survives says so
-      loudly rather than 404ing quietly.
-
-   3. The EventSource on /api/ghl/events is a stub. That route is a Postgres
-      NOTIFY fan-out command-center runs and this service does not; an
-      EventSource pointed at a 404 retries forever. portal-realtime.js already
-      refreshes this view when lead / ghl_message / ghl_opportunity change.
-
-   4. `CAL.demo` folds to false — CAL is the calendar view's state and is not
-      part of this screen.
-
-   5. An IIFE exposing window.PortalGHL, plus mount(host, {companyId,
-      brandName}), because the portal builds a view on navigation while
-      command-center's markup is in the document from first paint.
-
-   Everything else — the stage bar, the split list, the reader, the tabs, the
-   IndexedDB cache, the delta cursor, the search-later queue, the splitter — is
-   the original code.
-
-   ---------------------------------------------------------------------------
-   THE DATA, VERIFIED LIVE 2026-09-07
-
-     LeavenWealth  r7zMur27ESvHGQpOWI2F  1,231 leads  31 opps    0 messages
-     Leadli AI     sR79W8mCX3gd5pWKG5wU  2,538 leads   0 opps    0 messages
-     Folio Excel   xvWwoC1KQ1cOtw8Qf3Ez  4,643 leads   8 opps  111 messages
-     Liquid Lending — no sub-account; 8 leads carrying only a company_id
-
-   Only Folio has messages, so an empty thread under the other brands is the
-   ingest rather than this screen. Most leads have no stage — 28 of
-   LeavenWealth's 1,231 — because a stage belongs to an opportunity.
-   --------------------------------------------------------------------------- */
-
-window.PortalGHL = (function () {
-'use strict';
-
-/* The brand, set by mount(). Read by scopeUrl on every request. */
-let SCOPE_COMPANY = null;
-let SCOPE_BRAND = '';
-
-function scopeUrl(url){
-  if (typeof url !== 'string' || url.indexOf('/api/ghl') !== 0) return url;
-  if (!SCOPE_COMPANY) return url;
-  return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'company_id=' + encodeURIComponent(SCOPE_COMPANY);
-}
-
-/* Every /api/ghl call carries the current brand. Injecting it HERE rather than
-   at the ~10 call sites is what makes it impossible to forget on one of them —
-   and forgetting on one is how another brand's leads reach the screen. */
-async function api(url, options){
-  url = scopeUrl(url);
-  const r = await fetch(url, options);
-  const body = await r.json().catch(() => ({}));
-  if (!r.ok) {
-    /* The status and the payload ride along on the error. A 409 from a lead
-       stage write carries the stage GHL actually holds, and the handler needs
-       both to tell a conflict apart from a plain failure. */
-    const err = new Error(body.error || `${r.status} ${r.statusText}`);
-    err.status = r.status;
-    err.body = body;
-    throw err;
-  }
-  return body;
-}
-
-/* No post. This service holds no GHL credential, so every write path in the
-   transplanted code below is neutralised rather than left to fail against a
-   404. Calling it is a bug, so it says so instead of silently no-opping. */
-const post = () => Promise.reject(new Error('This dashboard is read-only: no GHL credential is configured.'));
-
-const msgUrl = m => `/api/mail/${encodeURIComponent(m.acct)}/${encodeURIComponent(m.id)}`;
-
-/* One banner per view that has one, written to whichever view is on screen.
-
-   This was previously hardwired to the Inbox's banner. Every error raised from the
-   Leads view — a failed send, a rejected stage change, a warning that the first
-   sync had not finished — was rendered inside a hidden section. From the user's
-   side the action simply did nothing, which is the worst possible way for an error
-   to behave. */
-const BANNERS = { leads: 'ld-banner' };
-
-/* The portal only ever mounts the Leads view from this module. */
-function activeView(){ return 'leads'; }
-
-function banner(text, kind){
-  const targets = Object.values(BANNERS)
-    .map(id => document.getElementById(id))
-    .filter(Boolean);
-
-  /* Cleared everywhere, so a stale message cannot linger on a view the user
-     switches back to later. */
-  for (const el of targets) el.hidden = true;
-  if (!text) return;
-
-  const el = document.getElementById(BANNERS[activeView()])
-    /* A view with no banner of its own still gets its errors seen rather than
-       swallowed: the Inbox's is the fallback and is at least reachable. */
-    || document.getElementById(BANNERS.leads);
-  if (!el) return;
-
-  el.textContent = text;
-  el.hidden = false;
-  el.style.borderColor = kind === 'ok' ? '#4E9E7E55' : '';
-  el.style.color = kind === 'ok' ? '#4E9E7E' : '';
-}
-
-
-const initials = n => n.replace(/^To:\s*/,'').split(/\s+/).slice(0,2).map(w => w[0]).join('').toUpperCase();
-
-function makeSplitter(wrapId, gutterId, def){
-  const gut = document.getElementById(gutterId);
-  const wrap = document.getElementById(wrapId);
-  if (!gut || !wrap) return;
-  const MIN = 22, MAX = 66;
-  let dragging = false;
-
-  const setPct = p => wrap.style.setProperty('--split', Math.min(MAX, Math.max(MIN, p)).toFixed(2) + '%');
-  const current = () => parseFloat(getComputedStyle(wrap).getPropertyValue('--split')) || def;
-
-  gut.addEventListener('pointerdown', e => {
-    dragging = true;
-    gut.classList.add('drag');
-    gut.setPointerCapture(e.pointerId);
-    document.body.style.userSelect = 'none';
-    document.body.style.cursor = 'col-resize';
-  });
-  gut.addEventListener('pointermove', e => {
-    if (!dragging) return;
-    const r = wrap.getBoundingClientRect();
-    setPct(((e.clientX - r.left) / r.width) * 100);
-  });
-  const stop = () => {
-    if (!dragging) return;
-    dragging = false;
-    gut.classList.remove('drag');
-    document.body.style.userSelect = '';
-    document.body.style.cursor = '';
-  };
-  gut.addEventListener('pointerup', stop);
-  gut.addEventListener('pointercancel', stop);
-  gut.addEventListener('dblclick', () => setPct(def));
-  gut.addEventListener('keydown', e => {
-    if (e.key === 'ArrowLeft')  { setPct(current() - 3); e.preventDefault(); }
-    if (e.key === 'ArrowRight') { setPct(current() + 3); e.preventDefault(); }
-    if (e.key === 'Home')       { setPct(def); e.preventDefault(); }
-  });
-  setPct(def);
-}
-
-
 /* ================= LEADS =================
    LOCATIONS are GHL sub-accounts. Every write here is optimistic: update local
    state, fire the API call, revert on failure. GHL webhooks push the other way.
@@ -270,7 +106,7 @@ const saveLocationsCache = () => CC_CACHE.set('ghl:locations', LOCATIONS);
 /* Paint from cache before the first network round trip. Resolved once, and
    load() waits on it so the first fetch can be a delta rather than everything. */
 const CACHE_READY = (async () => {
-  if (false) return;
+  if (CAL.demo) return;
   const [locs, leads] = await Promise.all([CC_CACHE.get('ghl:locations'), CC_CACHE.get('ghl:leads')]);
   if (Array.isArray(locs) && locs.length) LOCATIONS = locs;
   if (leads?.leads?.length) { LEADS = leads.leads; GHL_CURSOR = leads.cursor || null; }
@@ -306,7 +142,7 @@ const DETAIL = {};
 const LOC_UNKNOWN = { id: null, name: 'Unknown account', short: '—',
   color: 'var(--dimmer)', brand: null, sendable: false, senders: null };
 const locById = id => LOCATIONS.find(l => l.id === id) || LOC_UNKNOWN;
-const money = n => '$' + n.toLocaleString();
+const money = n => '\u20b1' + n.toLocaleString();
 
 /* A lead with no opportunity has no stage \u2014 stage belongs to an opportunity, not
    to a person, and 3,288 of Folio's 3,296 leads have none. */
@@ -378,15 +214,14 @@ function drawLeadSearch(){
 /* ---------- submenu ---------- */
 let ldSubEl = null;
 function mountLeadSubnav(){
-  const stages = document.getElementById('ld-stages');
-  if (!stages) return;
-  /* Rebuilt on every mount, so a re-entry cannot leave two of them. */
-  const old = document.getElementById('ld-subnav');
-  if (old) old.remove();
+  const item = document.querySelector('.navitem[data-target="leads"]');
+  if (!item) return;
   ldSubEl = document.createElement('div');
   ldSubEl.className = 'subnav';
-  ldSubEl.id = 'ld-subnav';
-  stages.before(ldSubEl);
+  ldSubEl.hidden = true;
+  item.after(ldSubEl);
+  document.querySelectorAll('.navitem').forEach(b =>
+    b.addEventListener('click', () => { ldSubEl.hidden = b.dataset.target !== 'leads'; }));
 }
 
 function drawLeadSubnav(){
@@ -452,7 +287,7 @@ function drawStages(){
     pool.reduce((s, l) => s + l.value, 0));
 
   /* Demo mode has no server to count for it, so it counts what it invented. */
-  const counted = false
+  const counted = CAL.demo
     ? STAGES.map(s => {
         const set = pool.filter(l => l.stageName === s.name);
         return { ...s, count: set.length, value: set.reduce((n, l) => n + l.value, 0) };
@@ -783,7 +618,7 @@ function detailSections(l){
 /* Fetched once per lead and cached, because the Details tab is switched back and
    forth and none of this changes between two clicks. */
 async function loadDetail(id){
-  if (false || !id || DETAIL[id]) return;
+  if (CAL.demo || !id || DETAIL[id]) return;
   try {
     DETAIL[id] = await api('/api/ghl/leads/' + encodeURIComponent(id) + '/detail');
     if (LD.sel === id && LD.tab === 'fields') drawLeadDetail();
@@ -888,19 +723,28 @@ function drawLeadDetail(){
     body = '<div class="thread">' + (msgs ||
         '<div class="empty"><b>No messages</b><small>Start the conversation below. '
         + 'It posts through GHL on the channel you pick.</small></div>') + '</div>'
-      /* READ-ONLY. command-center composes here because it holds a GHL Private
-         Integration Token per location; this service holds none, so the
-         controls are absent rather than present and failing. */
-      + '<div class="composer readonly">'
+      + '<div class="composer">'
         + '<div class="chanrow">' + CHANNELS.map(c =>
-            '<span class="chan' + (LD.channel === c.k ? ' on' : '') + '">'
-            + c.label + '</span>').join('') + '</div>'
+            '<button class="chan' + (LD.channel === c.k ? ' on' : '') + '" data-chan="' + c.k + '">'
+            + c.label + '</button>').join('') + '</div>'
         /* The channel switches the form. Email needs a header set; SMS and
            WhatsApp do not, and showing Subject on an SMS would be a field that
            goes nowhere \u2014 GHL only reads it on an Email send. */
-        + '<div class="ronote">Replying is not available here: this dashboard reads '
-        + 'the GHL mirror in Supabase and holds no GHL send credential. '
-        + 'Messages arrive through the n8n pipeline.</div>'
+        + (LD.channel === 'email'
+            ? '<div class="ehead">'
+              + '<label>To<input id="ld-to" value="' + escL(l.email || '') + '"'
+              + ' placeholder="nobody@example.com"></label>'
+              + '<label>Cc<input id="ld-cc" placeholder="optional"></label>'
+              + '<label>Bcc<input id="ld-bcc" placeholder="optional"></label>'
+              + '<label class="wide">Subject<input id="ld-subj" placeholder="Required for email"></label>'
+              + '</div>'
+            : '')
+        + '<textarea id="ld-msg" placeholder="Message ' + escL(l.name.split(' ')[0]) + ' by '
+        + escL((CHANNELS.find(c => c.k === LD.channel) || {}).label) + '\u2026"></textarea>'
+        + '<div class="crow"><button class="btn primary" data-lact="send"'
+        + (canSend(loc) ? '' : ' disabled style="opacity:.45;cursor:not-allowed"') + '>Send</button>'
+        + '<button class="btn" data-lact="note">Log a note</button>'
+        + '<span class="cfrom" style="margin-left:auto">' + senderControl(loc) + '</span></div>'
       + '</div>';
   } else {
     const f = (k, v, key) => '<div class="frow"><span class="k">' + k + '</span><span class="v">'
@@ -1190,12 +1034,13 @@ function drawLeads(){ drawLeadSubnav(); drawLeadHeader(); drawStages(); drawLead
    discovered locations itself. It reads a mirror now: sub-accounts arrive from
    ghl_location and the only meaningful action left is re-reading it. */
 
+mountLeadSubnav();
 
 /* Stage cards for whatever location is selected. Separate from load() because
    the counts come from every opportunity in the location, not from the capped
    lead list, and they only change when the selection does. */
 async function loadStages(){
-  if (false) return;
+  if (CAL.demo) return;
   try {
     const q = LD.loc === 'all' ? '' : '?location=' + encodeURIComponent(LD.loc);
     const out = await api('/api/ghl/stages' + q);
@@ -1211,7 +1056,7 @@ async function loadStages(){
 /* Ingest health, for the header marker. Read once per load; there is nothing to
    poll for because nothing here starts a run. */
 async function loadIngest(){
-  if (false) return;
+  if (CAL.demo) return;
   try {
     const out = await api('/api/ghl/sync');
     INGEST = out.ingest || null;
@@ -1229,10 +1074,8 @@ async function loadIngest(){
    sidebar without a reload, existing rows untouched). lead and ghl_message
    arrive in later steps and will branch off the same stream. */
 function startLiveUpdates(){
-  if (false || !window.EventSource) return;
-    /* No EventSource. /api/ghl/events does not exist in this service — see the
-     note above — and portal-realtime.js drives the refresh instead. */
-  const es = { close(){}, addEventListener(){}, set onerror(_){}, set onopen(_){} };
+  if (CAL.demo || !window.EventSource) return;
+  const es = new EventSource('/api/ghl/events');
 
   /* Events are queued and flushed together 400ms later. One lead changing is
      one fetch; the ingest pipeline re-upserting three thousand is ONE delta
@@ -1324,9 +1167,6 @@ function startLiveUpdates(){
   /* No onerror handling on purpose: EventSource reconnects itself, honouring
      the server's retry hint, and a transient drop needs no UI. */
 }
-/* Everything below ran at parse time in command-center. See the note above. */
-function wireLeads(){
-  mountLeadSubnav();
 startLiveUpdates();
 
 /* Re-reads Supabase. Not a re-sync: it asks the database what it holds now. */
@@ -1357,8 +1197,7 @@ startLiveUpdates();
   };
 }
 
-const refreshBtn = document.getElementById('ld-refresh');
-  if (refreshBtn) refreshBtn.onclick = async e => {
+document.getElementById('ld-refresh').onclick = async e => {
   const b = e.currentTarget;
   b.textContent = 'Refreshing…'; b.disabled = true;
   try {
@@ -1372,166 +1211,3 @@ const refreshBtn = document.getElementById('ld-refresh');
 
 makeSplitter('ld-wrap', 'ld-gutter', 34);
 
-
-}
-
-
-let loading = false;
-
-async function load(){
-  if (loading) return;
-  loading = true;
-  /* So the first fetch after a reload can be a delta against the cached cursor
-     rather than a full read of every lead. */
-  await CACHE_READY;
-  try {
-    const [locs, leads, sync] = await Promise.allSettled([
-      api('/api/ghl/locations'),
-      /* Every location, every stage: both filters are applied in the browser,
-         and a delta only makes sense over one stable set. ?since= asks for rows
-         changed after the newest we hold; Refresh forces the full read. */
-      api('/api/ghl/leads' + (GHL_CURSOR && !FORCE_FULL ? '?since=' + encodeURIComponent(GHL_CURSOR) : '')),
-      api('/api/ghl/sync')
-    ]);
-
-    const val = (r, key, fallback) =>
-      r.status === 'fulfilled' && r.value ? (r.value[key] ?? fallback) : fallback;
-
-    /* An empty sidebar has two causes — an empty table and a failed query — and
-       rendering both as "Not ingested yet" sends the reader debugging the
-       ingest when the server could not reach the database at all. */
-    GHL_ERR = locs.status === 'rejected'
-      ? (locs.reason?.body?.detail || locs.reason?.message || 'request failed')
-      : null;
-    LOCATIONS = val(locs, 'locations', []);
-
-    /* A delta merges into what is held; a full read replaces it. Either way the
-       cursor advances and the cache is written, so the next reload paints from
-       this and asks only for what follows. */
-    if (leads.status === 'fulfilled' && leads.value) {
-      if (leads.value.delta) mergeLeads(leads.value.leads || []);
-      else LEADS = leads.value.leads || [];
-      advanceCursor(leads.value);
-      saveLeadsCache();
-    }
-    if (locs.status === 'fulfilled' && locs.value) saveLocationsCache();
-    INGEST = val(sync, 'ingest', null);
-
-    if (LD.sel && LEADS.some(l => l.id === LD.sel)) await loadThread(LD.sel);
-
-    drawLeads();
-    /* Stage cards last, and only after LOCATIONS is populated: the counts are
-       scoped to the selected location and there is nothing to scope to before
-       that. Not awaited, because the list should not wait on it. */
-    loadStages();
-    loadIngest();
-  } catch (err) {
-    banner('Could not load leads: ' + err.message);
-    drawLeads();
-  } finally {
-    loading = false;
-  }
-}
-
-
-async function loadThread(id){
-  if (CAL.demo || !id) return;
-
-  /* Cached first, so opening a conversation you have read before is instant,
-     then the network answer replaces it. */
-  if (!THREADS[id]) {
-    const c = await CC_CACHE.get('ghl:thread:' + id);
-    if (c?.thread) {
-      THREADS[id] = c.thread; ACTIVITY[id] = c.activity || []; PENDING[id] = c.pending || [];
-      if (LD.sel === id) drawLeadDetail();
-    }
-  }
-
-  try {
-    const out = await api('/api/ghl/leads/' + encodeURIComponent(id) + '/thread');
-    THREADS[id] = out.thread || [];
-    ACTIVITY[id] = out.activity || [];
-    PENDING[id] = out.pending || [];
-    CC_CACHE.set('ghl:thread:' + id, { thread: THREADS[id], activity: ACTIVITY[id], pending: PENDING[id] });
-    if (LD.sel === id) redrawDetailKeepingDraft();
-  } catch (err) {
-    banner('Could not load the conversation: ' + err.message);
-  }
-}
-
-/* A live message arriving while a reply is half-typed must not wipe the reply.
-   drawLeadDetail rebuilds the composer from scratch, so the draft is lifted out
-   and put back. */
-function redrawDetailKeepingDraft(){
-  const keep = {};
-  for (const id of ['ld-msg', 'ld-subj', 'ld-to', 'ld-cc', 'ld-bcc']) {
-    const el = document.getElementById(id);
-    if (el && el.value) keep[id] = el.value;
-  }
-  const active = document.activeElement?.id;
-  drawLeadDetail();
-  for (const [id, v] of Object.entries(keep)) {
-    const el = document.getElementById(id);
-    if (el) el.value = v;
-  }
-  if (active && keep[active]) document.getElementById(active)?.focus();
-}
-
-/* The OAuth callback returns to /#inbox?connected=<email> or ?error=<msg>. Show
-   it once, then strip the query so a refresh does not repeat it. */
-
-/* ---- mounting -----------------------------------------------------------
-
-   command-center's markup is in the document from first paint and this code
-   wired itself against it at parse time. The portal builds a view on
-   navigation, so the markup is injected here and the wiring runs after.
-
-   Changing brand is a different dataset, not a filter over the same one, so
-   everything is dropped and refetched. */
-
-const MARKUP = "  <section class=\"view on\" id=\"v-leads\">\n    <div class=\"vhead\">\n      <div><h1 id=\"ld-title\">All locations</h1><p id=\"ld-sub\">Reading from Supabase…</p></div>\n      <div style=\"display:flex;gap:8px;align-items:center\">\n        <!-- Searches every lead in scope, not the page on screen: the list is\n             capped at the most recently active few hundred and the one you are\n             looking for is usually not among them. -->\n        <div class=\"ldsearch\">\n          <span class=\"ic\">⌕</span>\n          <input id=\"ld-q\" type=\"search\" autocomplete=\"off\" spellcheck=\"false\"\n                 placeholder=\"Search name, email, phone, tag…\">\n          <button class=\"x\" id=\"ld-qclear\" hidden title=\"Clear\">×</button>\n        </div>\n        <span class=\"synced\" id=\"ld-synced\"></span>\n        <!-- Refresh only. There is nothing to connect and nothing to re-sync:\n             the ingest pipeline owns GHL -> Supabase, and this is a re-read. -->\n        <button class=\"btn\" id=\"ld-refresh\">Refresh</button>\n      </div>\n    </div>\n\n    <!-- Leads has its own banner. Errors used to route to the Inbox's, which is\n         inside a hidden view, so a failed send reported itself where nobody could\n         see it and read as \"nothing happened\". -->\n    <div class=\"err\" id=\"ld-banner\" hidden></div>\n\n    <div class=\"stagebar\" id=\"ld-stages\"></div>\n\n    <div class=\"mailwrap\" id=\"ld-wrap\">\n      <div class=\"card flush maillist\">\n        <div class=\"cardhead\"><h3 id=\"ld-listtitle\">Leads</h3><span class=\"eyebrow\" id=\"ld-listcount\">—</span></div>\n        <div id=\"ld-list\"></div>\n      </div>\n      <div class=\"gutter\" id=\"ld-gutter\" role=\"separator\" aria-orientation=\"vertical\"\n           aria-label=\"Resize lead list\" tabindex=\"0\" title=\"Drag to resize, double-click to reset\"></div>\n      <div class=\"card flush reader\" id=\"ld-detail\" hidden></div>\n    </div>\n  </section>\n\n  <!-- PROPERTIES -->";
-
-let mounted = false;
-
-function mount(el, opts){
-  if (!el) return;
-  const o = opts || {};
-  const changed = o.companyId !== SCOPE_COMPANY;
-  SCOPE_COMPANY = o.companyId || null;
-  SCOPE_BRAND = o.brandName || '';
-
-  el.innerHTML = MARKUP;
-
-  if (changed) {
-    /* Every cached list, thread and cursor belongs to the brand it was read
-       for. Keeping any of it across a switch is how one brand's leads end up
-       under another's name. */
-    LOCATIONS = [];
-    LEADS = [];
-    for (const k of Object.keys(THREADS)) delete THREADS[k];
-    for (const k of Object.keys(ACTIVITY)) delete ACTIVITY[k];
-    for (const k of Object.keys(PENDING)) delete PENDING[k];
-    STAGES = [];
-    GHL_CURSOR = null;
-    GHL_ERR = null;
-    INGEST = null;
-    LD.sel = null; LD.loc = 'all'; LD.stage = 'all'; LD.q = '';
-    ldSubEl = null;
-  }
-
-  wireLeads();
-  drawLeads();
-  load();
-}
-
-/* portal-realtime.js calls this when lead / ghl_message / ghl_opportunity
-   changes. The cursor is dropped so the next read is a full one rather than a
-   delta against a cursor that predates the change. */
-function invalidate(){
-  GHL_CURSOR = null;
-  FORCE_FULL = true;
-  load().finally(() => { FORCE_FULL = false; });
-}
-
-return { mount, invalidate, state: LD };
-})();

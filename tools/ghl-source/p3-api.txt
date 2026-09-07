@@ -1,0 +1,58 @@
+async function api(url, options){
+  const r = await fetch(url, options);
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    /* The status and the payload ride along on the error. A 409 from a lead
+       stage write carries the stage GHL actually holds, and the handler needs
+       both to tell a conflict apart from a plain failure. */
+    const err = new Error(body.error || `${r.status} ${r.statusText}`);
+    err.status = r.status;
+    err.body = body;
+    throw err;
+  }
+  return body;
+}
+
+const post = (url, body) => api(url, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(body || {})
+});
+
+const msgUrl = m => `/api/mail/${encodeURIComponent(m.acct)}/${encodeURIComponent(m.id)}`;
+
+/* One banner per view that has one, written to whichever view is on screen.
+
+   This was previously hardwired to the Inbox's banner. Every error raised from the
+   Leads view — a failed send, a rejected stage change, a warning that the first
+   sync had not finished — was rendered inside a hidden section. From the user's
+   side the action simply did nothing, which is the worst possible way for an error
+   to behave. */
+const BANNERS = { inbox: 'ib-banner', leads: 'ld-banner' };
+
+function activeView(){
+  const on = document.querySelector('.view.on');
+  return on ? on.id.replace(/^v-/, '') : 'inbox';
+}
+
+function banner(text, kind){
+  const targets = Object.values(BANNERS)
+    .map(id => document.getElementById(id))
+    .filter(Boolean);
+
+  /* Cleared everywhere, so a stale message cannot linger on a view the user
+     switches back to later. */
+  for (const el of targets) el.hidden = true;
+  if (!text) return;
+
+  const el = document.getElementById(BANNERS[activeView()])
+    /* A view with no banner of its own still gets its errors seen rather than
+       swallowed: the Inbox's is the fallback and is at least reachable. */
+    || document.getElementById(BANNERS.inbox);
+  if (!el) return;
+
+  el.textContent = text;
+  el.hidden = false;
+  el.style.borderColor = kind === 'ok' ? '#4E9E7E55' : '';
+  el.style.color = kind === 'ok' ? '#4E9E7E' : '';
+}

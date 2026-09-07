@@ -1,0 +1,39 @@
+  <section class="view" id="v-leads">
+    <div class="vhead">
+      <div><h1 id="ld-title">All locations</h1><p id="ld-sub">Reading from Supabase…</p></div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <!-- Searches every lead in scope, not the page on screen: the list is
+             capped at the most recently active few hundred and the one you are
+             looking for is usually not among them. -->
+        <div class="ldsearch">
+          <span class="ic">⌕</span>
+          <input id="ld-q" type="search" autocomplete="off" spellcheck="false"
+                 placeholder="Search name, email, phone, tag…">
+          <button class="x" id="ld-qclear" hidden title="Clear">×</button>
+        </div>
+        <span class="synced" id="ld-synced"></span>
+        <!-- Refresh only. There is nothing to connect and nothing to re-sync:
+             the ingest pipeline owns GHL -> Supabase, and this is a re-read. -->
+        <button class="btn" id="ld-refresh">Refresh</button>
+      </div>
+    </div>
+
+    <!-- Leads has its own banner. Errors used to route to the Inbox's, which is
+         inside a hidden view, so a failed send reported itself where nobody could
+         see it and read as "nothing happened". -->
+    <div class="err" id="ld-banner" hidden></div>
+
+    <div class="stagebar" id="ld-stages"></div>
+
+    <div class="mailwrap" id="ld-wrap">
+      <div class="card flush maillist">
+        <div class="cardhead"><h3 id="ld-listtitle">Leads</h3><span class="eyebrow" id="ld-listcount">—</span></div>
+        <div id="ld-list"></div>
+      </div>
+      <div class="gutter" id="ld-gutter" role="separator" aria-orientation="vertical"
+           aria-label="Resize lead list" tabindex="0" title="Drag to resize, double-click to reset"></div>
+      <div class="card flush reader" id="ld-detail" hidden></div>
+    </div>
+  </section>
+
+  <!-- PROPERTIES -->

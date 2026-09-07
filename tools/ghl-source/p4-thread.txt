@@ -1,0 +1,45 @@
+async function loadThread(id){
+  if (CAL.demo || !id) return;
+
+  /* Cached first, so opening a conversation you have read before is instant,
+     then the network answer replaces it. */
+  if (!THREADS[id]) {
+    const c = await CC_CACHE.get('ghl:thread:' + id);
+    if (c?.thread) {
+      THREADS[id] = c.thread; ACTIVITY[id] = c.activity || []; PENDING[id] = c.pending || [];
+      if (LD.sel === id) drawLeadDetail();
+    }
+  }
+
+  try {
+    const out = await api('/api/ghl/leads/' + encodeURIComponent(id) + '/thread');
+    THREADS[id] = out.thread || [];
+    ACTIVITY[id] = out.activity || [];
+    PENDING[id] = out.pending || [];
+    CC_CACHE.set('ghl:thread:' + id, { thread: THREADS[id], activity: ACTIVITY[id], pending: PENDING[id] });
+    if (LD.sel === id) redrawDetailKeepingDraft();
+  } catch (err) {
+    banner('Could not load the conversation: ' + err.message);
+  }
+}
+
+/* A live message arriving while a reply is half-typed must not wipe the reply.
+   drawLeadDetail rebuilds the composer from scratch, so the draft is lifted out
+   and put back. */
+function redrawDetailKeepingDraft(){
+  const keep = {};
+  for (const id of ['ld-msg', 'ld-subj', 'ld-to', 'ld-cc', 'ld-bcc']) {
+    const el = document.getElementById(id);
+    if (el && el.value) keep[id] = el.value;
+  }
+  const active = document.activeElement?.id;
+  drawLeadDetail();
+  for (const [id, v] of Object.entries(keep)) {
+    const el = document.getElementById(id);
+    if (el) el.value = v;
+  }
+  if (active && keep[active]) document.getElementById(active)?.focus();
+}
+
+/* The OAuth callback returns to /#inbox?connected=<email> or ?error=<msg>. Show
+   it once, then strip the query so a refresh does not repeat it. */
