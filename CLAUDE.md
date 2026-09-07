@@ -1070,15 +1070,40 @@ ingest, not a broken screen, and the empty state says so.
 **Most leads have no stage** — 28 of LeavenWealth's 1,231. Stage belongs to an
 opportunity, not a person; the chip is absent rather than defaulted to "new".
 
-### Financials is LeavenWealth's, and the nav says so
-The Financials screen excludes Leadli and Folio from every table, tile and
-export. Under another brand it therefore showed that brand's name above another
-brand's money — "Leadli AI / Financials" over $225.42M of LeavenWealth debt.
+### EVERY brand has a Financials item; only some have a Financials SCREEN
+The built screen is LeavenWealth's — it excludes Leadli and Folio from every
+table, tile and export — so pointing another brand at it showed that brand's
+name above another brand's money: "Leadli AI / Financials" over $225.42M of
+LeavenWealth debt.
 
-`financials` was removed from `CORE` (the shared workspace block) and from the
-Leadli and Liquid menus. **Executive Board and LeavenWealth list it explicitly.**
-The other brands get their own view when there is one to give them; adding the
-item back before then re-creates the same lie.
+The nav item is back on all five menus, because every brand is getting a view.
+What gates the SCREEN is `FINANCIALS_BUILT` in portal.html (`{all, leavenwealth}`
+today). A brand not in it gets a placeholder that names what is missing and
+**carries no figures at all** — a test asserts the placeholder contains no
+`$`, because the failure being prevented is a real total under the wrong name.
+
+Add a brand to `FINANCIALS_BUILT` the day its own view ships, not before.
+
+`finNative` is declared at the top of `render()`, above `content.className` —
+the first version declared it fourteen lines lower and `let` in a block is
+hoisted but not initialised, so every render threw a ReferenceError.
+
+### Folio Excel has no `financials` catalog row — the item cannot appear
+A nav item only shows when `dash_my_access()` returns a level for it, which
+comes from a `dashboard_module` row. Verified 2026-09-07: `financials` exists
+for exec, LeavenWealth, Leadli AI and Liquid Lending — and **not for Folio
+Excel**, which never had the item so was never seeded.
+
+`migrations/20260907_folio_financials_module.sql` adds it (additive, reversible,
+sort 85 between Folio's `tools` and `documents`). **`migrations/` is
+review-only here and is not applied automatically**, so Folio's item stays
+invisible until someone runs it.
+
+This was found by a test, not by reading: the per-brand loop passed for Leadli
+and Liquid and failed for Folio, and the difference was in the catalog rather
+than the code. The test now asserts the gap explicitly and leaves Folio out of
+the loop, so a green suite still means something — and applying the migration
+makes that assertion fail, which is the reminder to move Folio in.
 
 ### There is NO sub-account selector, and the title is the brand
 command-center is one dashboard over an agency's several sub-accounts, so it

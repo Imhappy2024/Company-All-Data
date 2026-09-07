@@ -487,6 +487,14 @@ const BRANDS={
 /* portal brand id -> Supabase company_id (CLAUDE.md) */
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
 const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
+/* Which brands have a Financials SCREEN, as opposed to a Financials nav item.
+   Every brand has the item; the built screen is LeavenWealth's and excludes
+   Leadli and Folio at the API level, so pointing another brand at it would put
+   that brand's name above another brand's money — which is exactly what
+   "Leadli AI / Financials" over $225.42M of LeavenWealth debt looked like.
+
+   Add a brand here the same day its own view ships, not before. */
+const FINANCIALS_BUILT={all:1,leavenwealth:1};
 
 /* ===========================================================================
    PERMISSION GATE. Everything below reads the single dash_my_access() payload
@@ -593,11 +601,12 @@ const CORE=[
   {id:'team',ic:'users',label:'Team'},
   {id:'departments',ic:'org',label:'Departments'},
   {id:'tools',ic:'wrench',label:'Tools & Apps'},
-  /* NO financials here. The Financials screen is LeavenWealth's: it excludes
-     Leadli and Folio from every table, tile and export, so under another brand
-     it would show that brand's name above another brand's money. LeavenWealth
-     lists it explicitly, and the other brands get their own view when there is
-     one to give them. */
+  /* Every brand carries a Financials item. What differs is the SCREEN behind
+     it: the built one is LeavenWealth's (it excludes Leadli and Folio at the
+     API level), so FINANCIALS_BUILT below decides whether a brand gets it or
+     an honest placeholder. A nav item is a promise about structure; the
+     placeholder is what keeps it from being a promise about numbers. */
+  {id:'financials',ic:'dollar',label:'Financials'},
   {id:'documents',ic:'file',label:'Documents'},
 ];
 /* Users & Roles in EVERY workspace, under an Admin heading. Executive Board already
@@ -606,10 +615,10 @@ const CORE=[
 const ADMIN_SECTION=[{lbl:'Admin'},{id:'access',ic:'lock',label:'Users & Roles'}];
 const MENUS={
   all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
-  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,{id:'financials',ic:'dollar',label:'Financials'},...ADMIN_SECTION],
-  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
+  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
 };
 
 /* ---- data (mirrors seeded Supabase) ---- */
@@ -975,7 +984,20 @@ const V={
      not be made live even in principle, because `transaction` is empty pending
      the Buildium/AppFolio sync. Same arrangement as Properties and Tasks: a
      container here, painted by the module from render(). */
-  financials(){return '<div id="financialsNative"></div>';},
+  /* One container, two outcomes. A brand with its own view gets the module
+     mounted into it by render(); a brand without one gets a placeholder that
+     names what is missing rather than borrowing LeavenWealth's figures. */
+  financials(){
+    if (FINANCIALS_BUILT[brand]) return '<div id="financialsNative"></div>';
+    const b=BRANDS[brand];
+    return `<div class="placeholder">${I.dollar}
+      <div><b>${esc(b.name)} financials are not set up yet</b>
+      <p style="max-width:46ch;margin:8px auto 0;line-height:1.6;color:var(--text2)">
+      The built view reads LeavenWealth's accounts, entities and loan balances, and
+      deliberately excludes the other brands &mdash; so showing it here would put
+      ${esc(b.name)}'s name above LeavenWealth's money. ${esc(b.name)} gets its own
+      view, shaped to how this business actually reports.</p></div></div>`;
+  },
   documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
   tasks(){
     /* Overview and Property Tasks are still /ops embeds (rendered in #embedHost).
@@ -1374,8 +1396,13 @@ function render(){
   const content=document.getElementById('content');
   const host=document.getElementById('embedHost');
   const embed=isEmbedView();
+  /* Whether Financials renders the BUILT screen (which brings its own header
+     and wants the wide grid) or the not-set-up placeholder (which keeps the
+     generic header naming the brand). Declared here because both the class
+     line below and pageH read it. */
+  const finNative = view==='financials' && FINANCIALS_BUILT[brand];
   const info=embed?embedInfo():null;
-  content.className='content'+(embed?' wide embed-lean':((view==='properties'||view==='financials'||view==='leads')?' wide':''));
+  content.className='content'+(embed?' wide embed-lean':((view==='properties'||finNative||view==='leads')?' wide':''));
   /* Read-only means read-only: no New button where the level is 'read'. The
      database refuses the write anyway, but a button that always fails is worse
      than no button. canWrite() resolves inside the current brand's scope.
@@ -1387,7 +1414,9 @@ function render(){
   const newBtn = view==='access'
     ? (canSeeAccess()?`<button class="btn" onclick="PortalUsers.openAdd()">${I.plus} Invite user</button>`:'')
     : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
-  const pageH=(embed||view==='properties'||view==='financials'||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
+  /* The built Financials screen renders its own header; the placeholder does
+     not, so it keeps the generic one that names the brand. */
+  const pageH=(embed||view==='properties'||finNative||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
   content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
   /* The native Tasks screen must be painted after innerHTML replaces the
      container, not from inside the template string. brandSpaces and BRANDS are
@@ -1405,7 +1434,7 @@ function render(){
     PortalGHL.mount(document.getElementById('ghlNative'),
                     {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
   }
-  if(view==='financials' && window.PortalFinancials){
+  if(view==='financials' && FINANCIALS_BUILT[brand] && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
   if(view==='properties' && window.PortalProperties){

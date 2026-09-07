@@ -128,6 +128,13 @@ function ptask(id, name, status, sync) {
           'insurance', 'tasks', 'leads', 'team', 'departments', 'tools', 'financials', 'documents']),
         'c0000000-0000-4000-8000-000000000001': w(['overview', 'leads', 'appointments', 'ads',
           'tasks', 'team', 'departments', 'tools', 'financials', 'documents']),
+        /* Folio has NO 'financials' here, and that mirrors the live catalog
+           rather than being an oversight: dashboard_module carries a financials
+           row for exec, LeavenWealth, Leadli and Liquid but not for Folio
+           (verified 2026-09-07). Adding it here to make a check pass would hide
+           the gap the check exists to show.
+           migrations/20260907_folio_financials_module.sql adds the row; add it
+           to this list in the same commit that applies it. */
         'c0000000-0000-4000-8000-000000000002': w(['overview', 'subscribers', 'plans', 'reports',
           'tasks', 'leads', 'team', 'departments', 'tools', 'documents']),
         'c0000000-0000-4000-8000-000000000004': w(['overview', 'pipeline', 'borrowers', 'tasks',
@@ -182,6 +189,48 @@ function ptask(id, name, status, sync) {
   check('Properties is not gated', await page.locator('.pa-gate-card').count(), 0);
   await page.evaluate(() => setView('financials'));
   check('Financials is not gated', await page.locator('.pa-gate-card').count(), 0);
+
+  /* ---- Financials: one nav item everywhere, one BUILT screen ------------
+     Every brand carries the item, because every brand is getting a view. Only
+     the brands whose view exists get the built one — it reads LeavenWealth's
+     accounts and excludes the other brands at the API level, so pointing
+     Leadli at it put "Leadli AI / Financials" above $225.42M of LeavenWealth
+     debt.
+
+     These assert the promise rather than the current contents of
+     FINANCIALS_BUILT: adding a brand there the day its view ships should make
+     one of these fail and be updated deliberately. */
+  console.log('\nFinancials is per-brand');
+  check('LeavenWealth gets the built screen',
+    await page.locator('#financialsNative').count(), 1);
+  check('and no generic page header over it',
+    await page.locator('.page-h .page-t').count(), 0);
+
+  /* Folio is absent here on purpose. Its `financials` dashboard_module row does
+     not exist, so the nav item cannot appear no matter what MENUS says — the
+     item is permission-gated and the catalog is what grants it. That is a data
+     gap, not a code one; the check further down asserts it explicitly. */
+  for (const b of ['leadli', 'liquid']) {
+    await page.evaluate(brand => { setBrand(brand); setView('financials'); }, b);
+    check(b + ' does NOT get the built screen',
+      await page.locator('#financialsNative').count(), 0);
+    check(b + ' says its financials are not set up',
+      /not set up yet/.test(await page.locator('#content').textContent()), true);
+    /* The placeholder keeps the generic header, so the brand is named. */
+    check(b + ' keeps a header naming the screen',
+      await page.locator('.page-h .page-t').count(), 1);
+    /* The whole point: the screen that was wrong showed a real total under the
+       wrong name, so the placeholder carries no figures at all. */
+    check(b + ' placeholder carries no figures',
+      /\$[\d,]/.test(await page.locator('#content').textContent()), false);
+  }
+
+  /* The Folio gap, asserted rather than assumed. Applying
+     migrations/20260907_folio_financials_module.sql flips this and the check
+     fails, which is the reminder to move Folio into the loop above. */
+  await page.evaluate(() => { setBrand('folio'); setView('financials'); });
+  check('Folio cannot reach Financials until its catalog row exists',
+    /not set up yet/.test(await page.locator('#content').textContent()), false);
 
   // ------------------------------------------------------------ brand marks
   console.log('\nBrand marks');
