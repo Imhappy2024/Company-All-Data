@@ -1,54 +1,78 @@
-/* Folio Excel financials — Whop billing.
+/* Folio Excel financials — Whop subscription billing.
 
-   Reads /api/folio-financials. Reuses the `fin-` classes from
+   Reads /api/folio/financials. Reuses the `fin-` classes from
    portal-financials.css so this reads as the same product as the LeavenWealth
-   screen without a second stylesheet — the layout is shared, the data model is
-   not.
+   screen without a second stylesheet: the layout components are shared, the
+   data model is not.
 
    ---------------------------------------------------------------------------
-   WHY A SEPARATE SCREEN
+   THERE ARE NO KPI TILES ON THIS SCREEN, AND THAT IS THE POINT.
 
-   Every relation the LeavenWealth screen reads is EMPTY for Folio (verified
-   2026-09-07): 0 financial accounts, 0 deals, 0 transactions, 0 statements. A
-   brand filter on that screen would have worked and shown zeros forever, which
-   reads as "Folio has no money" rather than "those are the wrong tables".
+   Folio has exactly ONE paying customer and ONE month of payment history. A
+   tile reading "MRR $1,000 · +8% MoM" cannot be computed from that — there is
+   no prior month to compare against. The App Users page this replaces showed
+   precisely that figure with six invented subscribers behind it (Bluebird
+   Property Mgmt, Redwood Residential, Cornerstone Realty…), invented
+   Starter/Growth/Scale plans, 774 units and $2,369 of MRR. None of it existed.
 
-   Folio's money is Whop billing: three payments and one subscription.
+   Putting a real number into the same shape is the same mistake with better
+   inputs. So: a header line, the subscriber table, the payments under it, and
+   the funnel. Tiles when there are two months to compare and more than one
+   row.
+
+   An earlier version of this file DID have four tiles, and they also counted
+   the two $1 card tests — $1,001 gross where the real figure is $1,000. Both
+   faults are gone.
 
    ---------------------------------------------------------------------------
-   TWO THINGS THIS SCREEN SAYS OUT LOUD
+   WHAT THE SCREEN REFUSES TO SHOW
 
-   1. THERE IS NO MRR. subscription_client.billing_period is NULL on the only
-      row, along with number_of_units, next_billing_date and the plan link (and
-      subscription_plan is empty). A $1,000 subscription with no period is
-      either $1,000 a month or $1,000 a year — a twelvefold difference — so the
-      tile shows the amount and says the period is missing instead of picking
-      one. `mrr_derivable` comes from the server; nothing here computes around
-      it.
+   - Units, Plan and Billing period all read "Not set". The values appear to
+     sit in GHL custom fields on the linked lead, keyed by OPAQUE IDS WITH NO
+     NAMES, and the likely reading is units 1600 / period Monthly / plan
+     "Founding Customer" — inferred from the values, never confirmed from a
+     field name. Rendering 1600 as units on that basis would be a guess
+     wearing four digits of precision.
 
-   2. GROSS AND NET ARE BOTH SHOWN. Whop's fee is 4% of this volume ($40.79 on
-      $1,001), which is the difference between what customers paid and what
-      landed. One figure alone invites the other question.
+   - No conversion percentage on the funnel. One customer.
 
-   sales_payment and whop_payment hold the SAME three payments. The server
-   reads only the first; the raw Whop record is fetched per-payment for card
-   and billing detail and can never reach a total.
+   - The two $1 card tests are OUT by default. Including them turns one payment
+     into three and $1,000 into $1,001. The toggle is explicit, and the
+     provisional way test rows are identified is stated next to it.
+
+   MRR is $1,000 and the header says "assumed monthly" beside it, because
+   subscription_client.billing_period is NULL and $1,000 a month against
+   $1,000 a year is a twelvefold difference. The assumption sentence comes from
+   the server (`mrr_assumption`) so the screen cannot state a different one.
    --------------------------------------------------------------------------- */
 
 window.PortalFolioFin = (function () {
   'use strict';
 
-  var API = '/api/folio-financials';
+  var API = '/api/folio/financials';
+
+  var FILTER_DEFS = [
+    { key: 'status', label: 'Status' },
+    { key: 'payment_status', label: 'Payment status' },
+    { key: 'billing_period', label: 'Billing period' },
+    { key: 'plan', label: 'Plan' },
+    { key: 'provider', label: 'Provider' }
+  ];
 
   var S = {
-    tab: 'payments',
-    summary: null, payments: null, subs: null,
-    loading: false, error: null,
-    openWhop: null, whop: null,
-    loadedAt: null
+    summary: null, subs: null, funnel: null, options: null, dateScope: null,
+    sel: { status: [], payment_status: [], billing_period: [], plan: [], provider: [] },
+    openPanel: null,
+    dateFrom: '', dateTo: '',
+    includeTest: false,
+    expanded: null,          /* subscriber id whose payments are open */
+    payments: {},            /* subscriber id -> payload */
+    payLoading: null,
+    loading: false, error: null
   };
 
   var host = null;
+  var docBound = false;
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) {
@@ -63,14 +87,20 @@ window.PortalFolioFin = (function () {
     if (!isFinite(n)) return nil();
     return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
-  /* Plain, not abbreviated. Folio's volume is in the hundreds and "$1.0K"
-     would lose the only interesting digits. */
-  function moneyTile(v) {
+  /* Plain, never abbreviated. Folio's volume is in the hundreds and "$1.0K"
+     would throw away the only interesting digits. */
+  function plain(v) {
     var n = Number(v);
-    if (!isFinite(n)) return '—';
+    if (!isFinite(n)) return '&mdash;';
     return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
   function dateOnly(v) { return v ? String(v).slice(0, 10) : null; }
+
+  /* "Not set" is a statement, not a blank cell — and the tooltip says where
+     the value actually is and why it is not being shown. */
+  function notSet(reason) {
+    return '<span class="fin-flag" title="' + esc(reason || '') + '">Not set</span>';
+  }
 
   function getJson(url) {
     return fetch(url, { headers: { Accept: 'application/json' } }).then(function (r) {
@@ -81,23 +111,53 @@ window.PortalFolioFin = (function () {
     });
   }
 
+  /* Repeated array params, never comma-joined: business names contain commas
+     and ampersands ("J & M Property Management, Inc.") and the compact form
+     cannot be un-split after Express has decoded it. */
+  function qs() {
+    var out = [];
+    FILTER_DEFS.forEach(function (d) {
+      (S.sel[d.key] || []).forEach(function (v) {
+        out.push(encodeURIComponent(d.key) + '[]=' + encodeURIComponent(v));
+      });
+    });
+    if (S.dateFrom) out.push('from=' + encodeURIComponent(S.dateFrom));
+    if (S.dateTo) out.push('to=' + encodeURIComponent(S.dateTo));
+    if (S.includeTest) out.push('include_test=true');
+    return out.join('&');
+  }
+
   function load() {
     S.loading = true; S.error = null;
     paint();
     return Promise.all([
       getJson(API + '/summary'),
-      getJson(API + '/payments'),
-      getJson(API + '/subscriptions')
+      getJson(API + '/subscribers?' + qs()),
+      getJson(API + '/funnel')
     ]).then(function (out) {
       S.summary = out[0];
-      S.payments = out[1].rows || [];
-      S.subs = out[2].rows || [];
-      S.loadedAt = Date.now();
+      S.subs = out[1].rows || [];
+      S.options = out[1].options || null;
+      S.dateScope = out[1].date_scope || null;
+      S.funnel = out[2];
+      /* A filter change can hide the row whose payments are open. */
+      if (S.expanded && !S.subs.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
+      S.payments = {};
     }).catch(function (e) {
       S.error = e.message;
     }).then(function () {
       S.loading = false; paint();
     });
+  }
+
+  function loadPayments(id) {
+    S.payLoading = id;
+    paint();
+    return getJson(API + '/subscribers/' + encodeURIComponent(id) + '/payments?' +
+                   'include_test=' + (S.includeTest ? 'true' : 'false'))
+      .then(function (j) { S.payments[id] = j; })
+      .catch(function (e) { S.payments[id] = { error: e.message }; })
+      .then(function () { S.payLoading = null; paint(); });
   }
 
   /* ---- render ----------------------------------------------------------- */
@@ -110,226 +170,427 @@ window.PortalFolioFin = (function () {
         esc(S.error) + '</div></div></div>';
     }
     if (!S.summary) return '<div class="fin-loading">Reading Whop billing&hellip;</div>';
-    return header() + tiles() + notes() + tabs() +
-      (S.tab === 'payments' ? paymentsTable() : subsTable());
+    return header() + filters() + subscriberTable() + funnelPanel() + provenance();
   }
 
+  /* The header carries the two numbers this screen has, in a sentence rather
+     than in tiles — and the MRR assumption sits immediately beside the MRR,
+     not in a footnote. */
   function header() {
+    var s = S.summary;
+    var subs = s.active_subscribers;
+    var bits = [
+      '<b>' + esc(String(subs)) + ' active subscriber' + (subs === 1 ? '' : 's') + '</b>',
+      '<b>' + plain(s.mrr) + ' MRR</b>' +
+        (s.mrr_assumed ? ' <span class="fin-flag" title="' + esc(s.mrr_assumption) +
+                         '">assumed monthly</span>' : '')
+    ];
     return '' +
       '<div class="fin-head">' +
         '<div>' +
-          '<h1 class="fin-title">Financials</h1>' +
-          '<p class="fin-sub">Folio Excel &middot; Whop billing</p>' +
-        '</div>' +
-        '<div class="fin-headtools">' +
-          '<button class="fin-btn" id="ff-refresh">Refresh</button>' +
+          '<h1 class="fin-title">Folio Excel &middot; Whop billing</h1>' +
+          '<p class="fin-sub">' + bits.join(' &middot; ') + '</p>' +
+          /* Said out loud, because the absence of a chart is otherwise
+             indistinguishable from one that failed to load. */
+          '<p class="fin-note">' + esc(s.history.trend_note) + ' ' +
+            esc(s.mrr_assumption) + '.</p>' +
         '</div>' +
       '</div>';
   }
 
-  function tiles() {
+  function optionsFor(key) {
+    var raw = (S.options && S.options[key]) || [];
+    return raw.filter(function (v) { return v !== null && v !== undefined; })
+      .map(String).sort();
+  }
+
+  function msControl(def) {
+    var sel = S.sel[def.key] || [];
+    var open = S.openPanel === def.key;
+    var opts = optionsFor(def.key);
+    var list = opts.length
+      ? opts.map(function (o) {
+          var on = sel.indexOf(o) >= 0;
+          return '<label class="fin-ms-opt">' +
+            '<input type="checkbox" data-msk="' + esc(def.key) + '" value="' + esc(o) + '"' +
+              (on ? ' checked' : '') + '>' +
+            '<span class="n">' + esc(o) + '</span></label>';
+        }).join('')
+      : '<div class="fin-ms-none">No values recorded</div>';
+
+    return '<span class="fin-ms">' +
+      '<button class="fin-ms-btn' + (sel.length ? ' on' : '') + '" data-msbtn="' + esc(def.key) + '">' +
+        esc(def.label) + (sel.length ? ' (' + sel.length + ')' : '') +
+        '<span class="caret">&#9660;</span>' +
+      '</button>' +
+      '<div class="fin-ms-panel' + (open ? ' open' : '') + '" data-mspanel="' + esc(def.key) + '">' +
+        '<div class="fin-ms-list">' + list + '</div>' +
+        '<div class="fin-ms-foot">' +
+          '<button data-msnone="' + esc(def.key) + '">Clear</button>' +
+        '</div>' +
+      '</div></span>';
+  }
+
+  function filters() {
+    var chips = [];
+    FILTER_DEFS.forEach(function (d) {
+      (S.sel[d.key] || []).forEach(function (v) {
+        chips.push('<span class="fin-chip">' + esc(d.label) + ': ' + esc(v) +
+          '<button data-unchip="' + esc(d.key) + '" data-val="' + esc(v) + '">&times;</button></span>');
+      });
+    });
+    if (S.dateFrom || S.dateTo) {
+      /* The fallback is an entity, so it goes in AFTER esc() — inside it the
+         ampersand would be escaped and the reader would see "&hellip;". */
+      chips.push('<span class="fin-chip">Paid: ' + (esc(S.dateFrom) || '&hellip;') + ' to ' +
+        (esc(S.dateTo) || '&hellip;') + '<button data-cleardates="1">&times;</button></span>');
+    }
+    if (S.includeTest) {
+      chips.push('<span class="fin-chip">Test payments included' +
+        '<button data-notest="1">&times;</button></span>');
+    }
+
+    return '' +
+      '<div class="fin-filters">' +
+        FILTER_DEFS.map(msControl).join('') +
+        '<span class="fin-daterange">' +
+          '<input class="fin-qsel" type="date" id="ff-from" aria-label="Paid from" value="' + esc(S.dateFrom) + '">' +
+          '<span class="sep">to</span>' +
+          '<input class="fin-qsel" type="date" id="ff-to" aria-label="Paid to" value="' + esc(S.dateTo) + '">' +
+        '</span>' +
+        /* Explicit, defaulting to off, and it says what turning it on costs. */
+        '<label class="fin-tri-opt" title="Two $1 card tests. Off by default: including them reports 3 payments and $1,001 against a real 1 and $1,000.">' +
+          '<input type="checkbox" id="ff-test"' + (S.includeTest ? ' checked' : '') + '> Include test payments' +
+        '</label>' +
+        '<span class="fin-headtools">' +
+          '<button class="fin-btn" id="ff-x-subs">Export subscribers</button>' +
+          '<button class="fin-btn" id="ff-x-pay">Export payments</button>' +
+        '</span>' +
+      '</div>' +
+      (chips.length ? '<div class="fin-chips">' + chips.join('') +
+        '<button class="fin-chip-clear" id="ff-clear">Clear all</button></div>' : '') +
+      (S.dateScope ? '<p class="fin-note">' + esc(S.dateScope) + '</p>' : '');
+  }
+
+  var SUB_COLS = [
+    ['business', 'Business'], ['contact', 'Contact'], ['units', 'Units'],
+    ['plan', 'Plan'], ['amount', 'Amount / mo'], ['billing_period', 'Billing period'],
+    ['status', 'Status'], ['payment_status', 'Payment status'],
+    ['start_date', 'Since'], ['last_payment_at', 'Last payment']
+  ];
+  var NUMERIC = { units: 1, amount: 1 };
+
+  function subCell(key, row) {
+    if (key === 'business') {
+      /* subscription_client.company, which is GHL-sourced and authoritative.
+         NOT sales_payment.customer_name, which is Whop's billing-address
+         version: "J & M Real Estate and Property Management Brandi". */
+      return '<span class="fin-etoggle">' + (S.expanded === row.id ? '&#9662;' : '&#9656;') +
+        '</span>' + esc(row.business || '') +
+        /* One click to the CRM record behind the subscription. */
+        (row.lead_id ? ' <a class="fin-flag" href="#brand=folio&view=leads"' +
+          ' title="Open the linked GHL lead" data-lead="' + esc(row.lead_id) + '">lead</a>' : '');
+    }
+    if (key === 'contact') {
+      return esc(row.contact || '') +
+        (row.email ? '<div class="fin-sub">' + esc(row.email) + '</div>' : '');
+    }
+    /* Units, plan and billing period are NULL on the only subscriber, and are
+       named as such rather than left blank or filled from a guess. */
+    if (row.not_set && row.not_set.indexOf(key) >= 0) {
+      return notSet(row.not_set_reason) +
+        (key === 'billing_period' && S.summary && S.summary.mrr_assumed
+          ? ' <span class="fin-sub">assumed monthly</span>' : '');
+    }
+    if (key === 'amount') {
+      return money(row.amount) + (row.currency && row.currency !== 'USD'
+        ? ' <span class="fin-sub">' + esc(row.currency) + '</span>' : '');
+    }
+    if (key === 'start_date' || key === 'last_payment_at') {
+      return row[key] ? esc(dateOnly(row[key])) : nil();
+    }
+    var v = row[key];
+    if (v === null || v === undefined || v === '') return nil();
+    return esc(v);
+  }
+
+  function subscriberTable() {
+    if (!S.subs) return '';
+    if (!S.subs.length) {
+      return '<div class="fin-empty">No subscriber matches these filters.' +
+        (S.dateFrom || S.dateTo
+          ? ' The date range is on payments, so a subscriber with no payment in it is not listed.'
+          : '') + '</div>';
+    }
+    var head = SUB_COLS.map(function (c) {
+      return '<th' + (NUMERIC[c[0]] ? ' class="r"' : '') + '>' + esc(c[1]) + '</th>';
+    }).join('');
+
+    var body = S.subs.map(function (row) {
+      var open = S.expanded === row.id;
+      var tr = '<tr class="fin-erow' + (open ? ' open' : '') + '" data-sub="' + esc(row.id) + '">' +
+        SUB_COLS.map(function (c) {
+          return '<td' + (NUMERIC[c[0]] ? ' class="r"' : '') + '>' + subCell(c[0], row) + '</td>';
+        }).join('') + '</tr>';
+      if (!open) return tr;
+      return tr + '<tr class="fin-exp"><td colspan="' + SUB_COLS.length + '">' +
+        paymentsPanel(row) + '</td></tr>';
+    }).join('');
+
+    return '<div class="fin-tablewrap"><div class="fin-scroll">' +
+      '<table class="fin-table fin-etable"><thead><tr>' + head + '</tr></thead><tbody>' + body +
+      '</tbody></table></div>' +
+      '<div class="fin-foot"><span class="fin-count">' + S.subs.length +
+        ' subscriber' + (S.subs.length === 1 ? '' : 's') + '</span>' +
+      '<span class="fin-sub">Click a row for its payment history</span></div></div>';
+  }
+
+  var PAY_COLS = [
+    ['paid_at', 'Paid'], ['payment_id', 'Payment'], ['billing_reason', 'Reason'],
+    ['gross', 'Gross'], ['fee', 'Fee'], ['net', 'Net'],
+    ['status', 'Status'], ['card', 'Card']
+  ];
+  var PAY_NUM = { gross: 1, fee: 1, net: 1 };
+
+  function payCell(key, p) {
+    if (key === 'paid_at') return p.paid_at ? esc(dateOnly(p.paid_at)) : nil();
+    if (key === 'payment_id') {
+      return '<span class="fin-mono">' + esc(p.payment_id) + '</span>' +
+        (p.receipt_number ? '<div class="fin-sub">receipt ' + esc(p.receipt_number) + '</div>' : '');
+    }
+    if (key === 'gross') {
+      /* usd_total is null until money moves. Rendering 0 for a failed payment
+         would claim it was free, so the amount that was ATTEMPTED is shown
+         instead, labelled as charged. */
+      return p.gross === null
+        ? nil() + ' <span class="fin-sub">charged ' +
+            (p.charged === null ? '&mdash;' : plain(p.charged)) + '</span>'
+        : money(p.gross);
+    }
+    if (key === 'fee' || key === 'net') return p[key] === null ? nil() : money(p[key]);
+    if (key === 'billing_reason') {
+      return esc(p.billing_reason || '') +
+        (p.one_off ? ' <span class="fin-sub">one-off</span>' : '');
+    }
+    if (key === 'status') {
+      var label = esc(p.status) + (p.substatus && p.substatus !== p.status
+        ? ' / ' + esc(p.substatus) : '');
+      /* A failed renewal is the earliest churn signal there is, so it stays in
+         the list with its reason rather than being filtered out of sight. */
+      if (p.failed) {
+        return '<span class="fin-neg">' + label + '</span>' +
+          (p.failure_message
+            ? '<div class="fin-sub">' + esc(p.failure_message) + '</div>'
+            : '<div class="fin-sub">no decline reason recorded</div>');
+      }
+      return label + (p.is_test ? ' <span class="fin-flag">test</span>' : '');
+    }
+    if (key === 'card') return p.card ? esc(p.card) : nil();
+    var v = p[key];
+    return v === null || v === undefined || v === '' ? nil() : esc(v);
+  }
+
+  function paymentsPanel(row) {
+    if (S.payLoading === row.id) return '<div class="fin-loading">Reading payments&hellip;</div>';
+    var d = S.payments[row.id];
+    if (!d) return '<div class="fin-loading">Reading payments&hellip;</div>';
+    if (d.error) return '<div class="fin-problem"><div>' + esc(d.error) + '</div></div>';
+    if (!d.rows.length) {
+      return '<div class="fin-empty">No payment recorded against ' +
+        esc(row.external_subscription_id || 'this subscription') + '.</div>';
+    }
+
+    var head = PAY_COLS.map(function (c) {
+      return '<th' + (PAY_NUM[c[0]] ? ' class="r"' : '') + '>' + esc(c[1]) + '</th>';
+    }).join('');
+    var body = d.rows.map(function (p) {
+      return '<tr' + (p.failed ? ' class="muted"' : '') + '>' + PAY_COLS.map(function (c) {
+        return '<td' + (PAY_NUM[c[0]] ? ' class="r"' : '') + '>' + payCell(c[0], p) + '</td>';
+      }).join('') + '</tr>';
+    }).join('');
+
+    var t = d.totals;
+    return '<table class="fin-sub-table"><thead><tr>' + head + '</tr></thead>' +
+      '<tbody>' + body + '</tbody>' +
+      /* Gross, fee and net as three figures. Whop's cut is 4% of this volume
+         and it is the difference between what the customer paid and what
+         landed; one number alone invites the other question. */
+      '<tfoot><tr class="fin-totals"><td colspan="3">Collected (' + t.payments +
+        ' payment' + (t.payments === 1 ? '' : 's') + ')</td>' +
+        '<td class="r">' + money(t.gross) + '</td>' +
+        '<td class="r">' + money(t.fee) + '</td>' +
+        '<td class="r">' + money(t.net) + '</td>' +
+        '<td colspan="2"></td></tr></tfoot></table>' +
+      (d.include_test ? '<p class="fin-note">Test payments are included in this list.</p>' : '');
+  }
+
+  /* The one panel with real volume behind it, which is the reason to build
+     this page now rather than when there are more subscribers. */
+  function funnelPanel() {
+    var f = S.funnel;
+    if (!f) return '';
+    var max = f.stages.reduce(function (a, s) { return Math.max(a, s.leads); }, 0) || 1;
+    var rows = f.stages.map(function (s) {
+      return '<tr><td>' + esc(s.stage) + '</td>' +
+        '<td class="r">' + s.leads + '</td>' +
+        '<td><span class="fin-bar" style="width:' +
+          Math.max(6, Math.round(s.leads / max * 100)) + '%"></span></td></tr>';
+    }).join('');
+
+    return '<div class="fin-tablewrap">' +
+      '<div class="fin-head"><div>' +
+        '<h2 class="fin-title">Funnel</h2>' +
+        '<p class="fin-sub"><b>' + f.total_leads.toLocaleString('en-US') +
+          '</b> leads &rarr; <b>' + f.staged_leads + '</b> in pipeline &rarr; <b>' +
+          f.paying + '</b> paying</p>' +
+        /* Two sentences that head off two different wrong readings: that the
+           missing percentage is an oversight, and that "paying" came from the
+           lead flag — which reads 4 for Folio and is wrong three times over. */
+        '<p class="fin-note">' + esc(f.conversion_note) +
+          ' Paying comes from ' + esc(f.paying_source) + ', never lead.is_client.</p>' +
+      '</div></div>' +
+      '<div class="fin-scroll"><table class="fin-table"><thead><tr>' +
+        '<th>Stage</th><th class="r">Leads</th><th></th></tr></thead>' +
+        '<tbody>' + rows + '</tbody></table></div>' +
+      '<div class="fin-foot"><span class="fin-count">' +
+        f.no_stage.toLocaleString('en-US') + ' with no stage</span></div></div>';
+  }
+
+  /* The caveats, once, at the bottom — where they do not compete with the
+     numbers but are still on the same screen as them. */
+  function provenance() {
     var s = S.summary;
-    /* Gross beside net, because the fee is the difference between what the
-       customer paid and what arrived, and either figure alone invites the
-       other question. */
-    return '<div class="fin-tiles">' +
-      tile('cash', 'Collected (net)', moneyTile(s.net_usd),
-           'after ' + money(s.fees_usd).replace(/<[^>]*>/g, '') + ' in fees') +
-      tile('', 'Gross', moneyTile(s.gross_usd),
-           s.collected_count + ' of ' + s.payments + ' payments collected') +
-      tile('debt', 'Outstanding', moneyTile(s.outstanding_usd),
-           s.outstanding_count + (s.outstanding_count === 1 ? ' payment not collected' : ' payments not collected')) +
-      subscriptionTile(s) +
-      '</div>';
-  }
-
-  /* The one tile that has to refuse to answer. */
-  function subscriptionTile(s) {
-    if (!s.active_subscriptions) {
-      return tile('', 'Subscriptions', '0', 'none active');
+    /* Each entry is already HTML: the numbers come from plain() and the one
+       piece of server text is escaped where it is added. Escaping the whole
+       sentence afterwards would turn its own &mdash; into visible markup. */
+    var out = [];
+    if (s.ledger) {
+      out.push('Ledger: ' + s.ledger.rows + ' Whop transaction' + (s.ledger.rows === 1 ? '' : 's') +
+        ', ' + plain(s.ledger.inflow) + ' in &mdash; ' +
+        (s.ledger.reconciles
+          ? 'reconciles with collected payments.'
+          : 'does NOT match collected payments (' + plain(s.history.collected_usd) + ').'));
     }
-    if (s.mrr_derivable) {
-      return tile('', 'Recurring', moneyTile(s.active_amount),
-                  s.active_subscriptions + ' active');
-    }
-    return '<div class="fin-tile" title="subscription_client.billing_period is null, so a monthly figure cannot be derived">' +
-      '<div class="k">Subscriptions</div>' +
-      '<div class="v">' + moneyTile(s.active_amount) + '</div>' +
-      '<div class="d">' + s.active_subscriptions +
-        (s.active_subscriptions === 1 ? ' active &middot; ' : ' active &middot; ') +
-        '<span style="color:var(--warn-ink)">no billing period recorded</span></div>' +
-      '</div>';
-  }
-
-  function tile(cls, label, value, sub) {
-    return '<div class="fin-tile ' + cls + '">' +
-      '<div class="k">' + esc(label) + '</div>' +
-      '<div class="v">' + value + '</div>' +
-      (sub ? '<div class="d">' + sub + '</div>' : '') +
-      '</div>';
-  }
-
-  function notes() {
-    var s = S.summary, out = '';
-
-    /* The reason this screen exists rather than the LeavenWealth one. Stated
-       once, at the top, because "no cash accounts" and "$0 cash" are different
-       claims and only one of them is true here. */
-    var na = s.not_applicable || {};
-    out += '<div class="fin-note">Folio has <b>no bank or loan accounts, deals, ' +
-      'transactions or statements</b> &mdash; ' +
-      na.accounts + ' accounts, ' + na.deals + ' deals, ' + na.transactions + ' transactions. ' +
-      'The cash-and-debt screen is LeavenWealth’s and would show zeros here forever, ' +
-      'so this reads Whop billing instead.</div>';
-
-    if (!s.mrr_derivable && s.active_subscriptions) {
-      out += '<div class="fin-note warn"><b>No MRR is shown, deliberately.</b> ' +
-        'The active subscription has no <code>billing_period</code>, so ' +
-        moneyTile(s.active_amount) + ' is either monthly or annual &mdash; a twelvefold ' +
-        'difference. Set the period in <code>subscription_client</code> and a recurring ' +
-        'figure appears on its own.</div>';
-    }
-    return out;
-  }
-
-  function tabs() {
-    var t = [['payments', 'Payments', (S.payments || []).length],
-             ['subscriptions', 'Subscriptions', (S.subs || []).length]];
-    return '<div class="fin-tabs">' + t.map(function (x) {
-      return '<button class="fin-tab' + (S.tab === x[0] ? ' active' : '') + '" data-fftab="' + x[0] + '">' +
-        x[1] + '<span class="n">' + x[2] + '</span></button>';
-    }).join('') + '</div>';
-  }
-
-  function paymentsTable() {
-    var rows = S.payments || [];
-    if (!rows.length) {
-      return '<div class="fin-tablewrap"><div class="fin-empty">' +
-        '<b>No payments yet</b>Nothing has been billed through Whop for Folio.</div></div>';
-    }
-    var head = ['Customer', 'Product', 'Status', 'Gross', 'Fee', 'Net', 'Paid', '']
-      .map(function (h, i) { return '<th' + (i >= 3 && i <= 5 ? ' class="r"' : '') + '>' + h + '</th>'; }).join('');
-
-    var body = rows.map(function (p) {
-      /* An uncollected payment shows its `total` in the Gross column and
-         nothing in Net, because usd_total and amount_after_fees are both null
-         until money moves — rendering 0 there would claim it was free. */
-      var gross = p.collected ? money(p.usd_total) : money(p.total);
-      return '<tr>' +
-        '<td>' + esc(p.customer_name || p.customer_email || '') +
-          (p.customer_email && p.customer_name ? '<div style="font-size:11px;color:var(--dimmer)">' + esc(p.customer_email) + '</div>' : '') +
-        '</td>' +
-        '<td>' + (p.product_name ? esc(p.product_name) : nil()) +
-          (p.billing_reason ? '<div style="font-size:11px;color:var(--dimmer)">' + esc(p.billing_reason) + '</div>' : '') + '</td>' +
-        '<td>' + statusPill(p) + '</td>' +
-        '<td class="r">' + gross + '</td>' +
-        '<td class="r">' + (p.collected ? money(p.fee_amount) : nil()) + '</td>' +
-        '<td class="r">' + (p.collected ? money(p.amount_after_fees) : nil()) + '</td>' +
-        '<td>' + (p.paid_at ? esc(dateOnly(p.paid_at)) : nil()) + '</td>' +
-        '<td><button class="fin-btn" data-whop="' + esc(p.external_payment_id) + '">Detail</button></td>' +
-      '</tr>' +
-      (S.openWhop === p.external_payment_id ? whopRow() : '');
-    }).join('');
-
-    return '<div class="fin-tablewrap"><div class="fin-scroll">' +
-      '<table class="fin-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>' +
-      '</div><div class="fin-foot"><span class="pginfo">' + rows.length +
-      (rows.length === 1 ? ' payment' : ' payments') + '</span></div></div>';
-  }
-
-  /* The only place whop_payment is read, and it is one row at a time so it can
-     never contribute to a total. */
-  function whopRow() {
-    if (!S.whop) return '<tr class="fin-exp"><td colspan="8"><div class="fin-loading">Reading the Whop record&hellip;</div></td></tr>';
-    var w = S.whop;
-    var f = function (k, v) {
-      return '<dt>' + esc(k) + '</dt><dd>' + (v || v === 0 ? esc(v) : nil()) + '</dd>';
-    };
-    return '<tr class="fin-exp"><td colspan="8">' +
-      '<div style="padding:10px 2px 14px">' +
-      '<div class="fin-note" style="margin-bottom:10px">Raw Whop record. Same payment as the row above &mdash; ' +
-        '<code>sales_payment</code> and <code>whop_payment</code> mirror each other, and are never summed together.</div>' +
-      '<dl class="fin-fields">' +
-        f('Receipt', w.receipt_number) +
-        f('Whop id', w.whop_payment_id) +
-        f('Status', w.status + (w.sub_status ? ' / ' + w.sub_status : '')) +
-        (w.failure_reason ? f('Failure', w.failure_reason) : '') +
-        f('Method', [w.payment_method_type, w.card_brand, w.card_last4 ? '•••• ' + w.card_last4 : null].filter(Boolean).join(' ')) +
-        f('Billing', [w.billing_city, w.billing_state, w.billing_country].filter(Boolean).join(', ')) +
-        f('Subtotal', w.subtotal) + f('Fee', w.fee) + f('Tax', w.tax_amount) +
-        f('Total incl. fees', w.total_including_fees) +
-        (Number(w.refunded_amount) ? f('Refunded', w.refunded_amount) : '') +
-        (w.promo_code ? f('Promo', w.promo_code) : '') +
-        (w.attempted_count > 1 ? f('Attempts', w.attempted_count) : '') +
-        (w.is_test ? f('Test payment', 'yes') : '') +
-      '</dl></div></td></tr>';
-  }
-
-  function statusPill(p) {
-    if (p.collected) return '<span class="fin-flag ok">' + esc(p.status || 'paid') + '</span>';
-    return '<span class="fin-flag draft">' + esc(p.status || 'open') + '</span>';
-  }
-
-  function subsTable() {
-    var rows = S.subs || [];
-    if (!rows.length) {
-      return '<div class="fin-tablewrap"><div class="fin-empty">' +
-        '<b>No subscriptions</b>Nothing in <code>subscription_client</code> for Folio.</div></div>';
-    }
-    var head = ['Client', 'Status', 'Amount', 'Period', 'Units', 'Started', 'Next bill']
-      .map(function (h, i) { return '<th' + (i === 2 ? ' class="r"' : '') + '>' + h + '</th>'; }).join('');
-    var body = rows.map(function (s) {
-      return '<tr>' +
-        '<td>' + esc(s.name || '') +
-          (s.email ? '<div style="font-size:11px;color:var(--dimmer)">' + esc(s.email) + '</div>' : '') + '</td>' +
-        '<td><span class="fin-flag ' + (s.status === 'active' ? 'ok' : 'draft') + '">' +
-          esc(s.status || '') + '</span></td>' +
-        '<td class="r">' + money(s.subscription_amount) + '</td>' +
-        /* The null that stops MRR existing. Named, not blank. */
-        '<td>' + (s.billing_period ? esc(s.billing_period)
-                 : '<span style="color:var(--warn-ink)">not recorded</span>') + '</td>' +
-        '<td>' + (s.number_of_units || s.number_of_units === 0 ? esc(s.number_of_units) : nil()) + '</td>' +
-        '<td>' + (s.start_date ? esc(dateOnly(s.start_date)) : nil()) + '</td>' +
-        '<td>' + (s.next_billing_date ? esc(dateOnly(s.next_billing_date)) : nil()) + '</td>' +
-      '</tr>';
-    }).join('');
-    return '<div class="fin-tablewrap"><div class="fin-scroll">' +
-      '<table class="fin-table"><thead><tr>' + head + '</tr></thead><tbody>' + body + '</tbody></table>' +
-      '</div></div>';
+    if (s.test_filter && s.test_filter.provisional) out.push(esc(s.test_filter.note));
+    return out.length ? '<p class="fin-note">' + out.join(' ') + '</p>' : '';
   }
 
   /* ---- wiring -----------------------------------------------------------
-     `.onclick =`, never addEventListener: paint() replaces the subtree and
-     mount() runs on every navigation back, so addEventListener would stack a
-     copy per paint and fire N requests per click. */
+     `.onclick =`, never addEventListener: paint() rebuilds this subtree on
+     every filter change and mount() runs on every navigation back, so a
+     listener added per paint stacks a copy and fires N requests per click. */
   function wire() {
-    var rf = host.querySelector('#ff-refresh');
-    if (rf) rf.onclick = function () { S.openWhop = null; S.whop = null; load(); };
+    if (!host) return;
+    var $ = function (id) { return host.querySelector('#' + id); };
 
-    host.querySelectorAll('[data-fftab]').forEach(function (b) {
-      b.onclick = function () { S.tab = b.getAttribute('data-fftab'); paint(); };
-    });
-
-    host.querySelectorAll('[data-whop]').forEach(function (b) {
-      b.onclick = function () {
-        var id = b.getAttribute('data-whop');
-        if (S.openWhop === id) { S.openWhop = null; S.whop = null; paint(); return; }
-        S.openWhop = id; S.whop = null; paint();
-        getJson(API + '/payments/' + encodeURIComponent(id) + '/whop')
-          .then(function (j) { if (S.openWhop === id) { S.whop = j.payment; paint(); } })
-          .catch(function () { if (S.openWhop === id) { S.openWhop = null; paint(); } });
+    host.querySelectorAll('[data-msbtn]').forEach(function (b) {
+      b.onclick = function (e) {
+        e.stopPropagation();
+        var k = b.getAttribute('data-msbtn');
+        S.openPanel = S.openPanel === k ? null : k;
+        paint();
       };
     });
+    /* An explicit `.open` class, never the `hidden` attribute — the ops
+       dashboard hit exactly that, a display rule elsewhere won, and the panel
+       stayed invisible with nothing in the console. */
+    host.querySelectorAll('.fin-ms-panel').forEach(function (p) {
+      p.onclick = function (e) { e.stopPropagation(); };
+    });
+    host.querySelectorAll('[data-msk]').forEach(function (cb) {
+      cb.onchange = function () {
+        var k = cb.getAttribute('data-msk'), v = cb.value;
+        var cur = S.sel[k] || [];
+        S.sel[k] = cb.checked ? cur.concat([v]) : cur.filter(function (x) { return x !== v; });
+        load();
+      };
+    });
+    host.querySelectorAll('[data-msnone]').forEach(function (b) {
+      b.onclick = function () { S.sel[b.getAttribute('data-msnone')] = []; load(); };
+    });
+    host.querySelectorAll('[data-unchip]').forEach(function (b) {
+      b.onclick = function () {
+        var k = b.getAttribute('data-unchip'), v = b.getAttribute('data-val');
+        S.sel[k] = (S.sel[k] || []).filter(function (x) { return x !== v; });
+        load();
+      };
+    });
+    var cd = host.querySelector('[data-cleardates]');
+    if (cd) cd.onclick = function () { S.dateFrom = ''; S.dateTo = ''; load(); };
+    var nt = host.querySelector('[data-notest]');
+    if (nt) nt.onclick = function () { S.includeTest = false; S.payments = {}; load(); };
+
+    var from = $('ff-from'), to = $('ff-to');
+    if (from) from.onchange = function () { S.dateFrom = from.value || ''; load(); };
+    if (to) to.onchange = function () { S.dateTo = to.value || ''; load(); };
+
+    var test = $('ff-test');
+    if (test) test.onchange = function () {
+      S.includeTest = !!test.checked;
+      /* The open payment list is scoped by the same toggle, so it has to be
+         refetched rather than left showing the previous answer. */
+      S.payments = {};
+      var reopen = S.expanded;
+      load().then(function () { if (reopen && S.expanded === reopen) loadPayments(reopen); });
+    };
+
+    var clear = $('ff-clear');
+    if (clear) clear.onclick = function () {
+      FILTER_DEFS.forEach(function (d) { S.sel[d.key] = []; });
+      S.dateFrom = ''; S.dateTo = ''; S.includeTest = false; S.payments = {};
+      load();
+    };
+
+    var xs = $('ff-x-subs');
+    if (xs) xs.onclick = function () { doExport('subscribers'); };
+    var xp = $('ff-x-pay');
+    if (xp) xp.onclick = function () { doExport('payments'); };
+
+    host.querySelectorAll('.fin-erow').forEach(function (tr) {
+      tr.onclick = function (e) {
+        /* The lead link is a link, not a row toggle. */
+        if (e.target && e.target.getAttribute && e.target.getAttribute('data-lead')) return;
+        var id = tr.getAttribute('data-sub');
+        S.expanded = S.expanded === id ? null : id;
+        if (S.expanded && !S.payments[S.expanded]) loadPayments(S.expanded);
+        else paint();
+      };
+    });
+
+    /* One document listener, bound once behind a guard. */
+    if (!docBound) {
+      docBound = true;
+      document.addEventListener('click', function () {
+        if (S.openPanel) { S.openPanel = null; paint(); }
+      });
+    }
   }
 
+  /* The file is the full filtered result set, not the page on screen, and the
+     download is a navigation so it carries no header — `exported_by` comes
+     from the server session, as it does on the LeavenWealth export. */
+  function doExport(viewName) {
+    var url = API + '/export?view=' + encodeURIComponent(viewName) + '&' + qs();
+    var a = document.createElement('a');
+    a.href = url;
+    a.rel = 'noopener';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
+  /* ---- mount ------------------------------------------------------------ */
   function mount(el) {
-    if (!el) return;
-    host = el;
-    if (S.summary) { paint(); return; }
-    load();
+    host = el || document.getElementById('folioFinNative');
+    if (!host) return;
+    if (!S.summary && !S.loading) load();
+    else paint();
   }
 
-  function invalidate() { S.summary = null; if (host && host.isConnected) load(); }
+  function invalidate() {
+    S.payments = {};
+    if (host) load(); else S.summary = null;
+  }
 
-  return { mount: mount, invalidate: invalidate, state: S };
+  return { mount: mount, invalidate: invalidate, _state: S };
 })();

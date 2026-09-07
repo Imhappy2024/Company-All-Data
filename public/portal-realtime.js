@@ -61,7 +61,10 @@
        new and feed the same Leads screen. Duplicating a key would have been
        silently destructive - the later literal wins and the earlier one is
        gone with no error - so they are merged rather than appended. */
-    lead: ['leads', 'overview'],
+    /* Also 'financials': Folio's screen reads `lead` for its funnel panel
+       (4,645 leads, 8 staged), which is the one panel there with real volume
+       behind it. */
+    lead: ['leads', 'overview', 'financials'],
     lead_provider: ['leads'],
     appointment: ['leads', 'appointments'],
     ghl_message: ['leads'],
@@ -81,10 +84,12 @@
        Both screens live at view 'financials', so both sets bind to it and the
        brand decides which module is mounted.
 
-       whop_payment is bound too even though no total reads it: the expanded
-       raw-record panel does, and a refund landing there should refresh. */
+       whop_payment is deliberately NOT bound. It holds the same three
+       payments as sales_payment and nothing on the rebuilt screen reads it, so
+       a binding here would refetch a screen that cannot change - which is the
+       cost of a wrong entry rather than a missing one. Bind it again if a raw
+       Whop panel comes back. */
     sales_payment: ['financials'],
-    whop_payment: ['financials'],
 
     financial_account: ['financials'],
     account_balance: ['financials'],

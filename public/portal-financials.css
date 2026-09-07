@@ -327,6 +327,35 @@ input.fin-qsel { font-family: var(--mono); }
 .fin-flag.draft { background: var(--warn-soft); color: var(--warn-ink);
   border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
 
+/* A bare .fin-flag had no ground of its own - only the .ok and .draft
+   variants carried one - so Folio's "Not set" and "assumed monthly" chips
+   rendered as floating text. The base is neutral; the variants still win. */
+.fin-flag {
+  background: var(--panel-3, var(--panel-2)); color: var(--dimmer);
+  border: 1px solid var(--border);
+}
+
+/* Folio's funnel bars. 4,637 of 4,645 leads have no stage, so the staged
+   figures are tiny next to the total and the bar is scaled to the largest
+   STAGE rather than to the total - otherwise every bar is one pixel and the
+   panel says nothing. Width comes from the data, inline, per row. */
+.fin-bar {
+  display: inline-block; height: 8px; border-radius: 2px;
+  background: var(--accent); opacity: .75;
+}
+
+/* A failed payment stays in the list (a failed renewal is the earliest churn
+   signal there is) but reads as secondary. Not hidden, not red - the decline
+   reason next to it is the part worth reading. */
+.fin-table tbody tr.muted td { opacity: .62; }
+
+/* An inline provider id: a payment id or a Whop membership id, which are
+   strings to be compared character by character. */
+.fin-mono {
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: -.01em;
+  color: var(--text);
+}
+
 /* The raw-provider record under an expanded payment row. */
 .fin-fields { display: grid; grid-template-columns: minmax(120px, 26%) 1fr; gap: 1px 12px; font-size: 12.5px; }
 .fin-fields dt { color: var(--dimmer); padding: 5px 0; border-bottom: 1px solid var(--border); }
