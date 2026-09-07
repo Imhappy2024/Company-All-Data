@@ -1336,8 +1336,13 @@ largest value.
 
 ### The table has five columns and NO join to `lead`
 Business name, Number of units, Amount per month, Status, Payment status.
-`lead_id` is a column **on `subscription_client`**, so the business-name link to
-the CRM record needs no join at all.
+
+**The business name is plain text, not a link.** The spec asked for it to link
+through to the lead record; that was dropped by instruction. The whole row is
+clickable and opens the payment history, so a link inside it was two different
+actions in one cell anyway. `lead_id` still rides on the payload — it is a
+column on `subscription_client` and costs nothing — so a link is one line away
+if it is ever wanted, and no join is needed either way.
 
 The join used to be there for `pipeline_stage` and a count of the lead's GHL
 custom fields; both went with the funnel. **If anything ever reads
@@ -1429,6 +1434,16 @@ Not an oversight to work around — the column does not exist. Folio's ledger ro
 are reached by `entity_id` (or `financial_account_id`), and `q()` **throws on
 any statement mentioning `transaction.company_id`**, because the alternative is
 a 42703 rendered as a 500 on a screen.
+
+**The ledger line is not on the screen.** It read "Ledger: 1 Whop transaction,
+$1,000.00 in — reconciles with collected payments", and was removed by
+instruction along with the note about the provisional test filter. Neither fact
+is lost: the reconciliation is asserted by the test suite against
+`summary.ledger.reconciles`, so a drift between the payment stream and
+`transaction` fails a test rather than waiting for a reader to notice a
+sentence, and the test-filter caveat rides in the provenance block of every CSV
+export — which is where a figure leaving this system needs its caveats.
+`/summary` still returns `ledger` and `test_filter` for those two consumers.
 
 **The Whop account is `account_kind = 'processor'`, deliberately not `bank`.**
 That is what keeps Folio revenue out of `v_cash_by_entity_quarter` and

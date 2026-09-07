@@ -221,8 +221,8 @@ window.PortalFolioFin = (function () {
          It keeps the wider table because that is what an export view is for,
          and it is the one Folio screen still unreachable (no dashboard_module
          row), so it cannot contradict anything on screen today. */
-      if (S.mode === 'subscribers') return subscriberCard() + provenance();
-      return header() + filters() + subscriberTable() + provenance();
+      if (S.mode === 'subscribers') return subscriberCard();
+      return header() + filters() + subscriberTable();
     });
   }
 
@@ -309,14 +309,6 @@ window.PortalFolioFin = (function () {
       kpiCard('users', 'Total app users', String(s.active_subscribers),
               esc('active subscription_client rows')) +
       unitsCard +
-      '</div>';
-  }
-
-  function pair(label, valueHtml, hint) {
-    return '<div class="fin-pair">' +
-      '<span class="k">' + esc(label) + '</span>' +
-      '<span class="v">' + valueHtml + '</span>' +
-      (hint ? '<span class="h">' + esc(hint) + '</span>' : '') +
       '</div>';
   }
 
@@ -429,11 +421,10 @@ window.PortalFolioFin = (function () {
       /* subscription_client.company, which is GHL-sourced and authoritative.
          NOT sales_payment.customer_name, which is Whop's billing-address
          version: "J & M Real Estate and Property Management Brandi". */
+      /* No lead link here either, for the same reason as the five-column
+         table above. */
       return '<span class="fin-etoggle">' + (S.expanded === row.id ? '&#9662;' : '&#9656;') +
-        '</span>' + esc(row.business || '') +
-        /* One click to the CRM record behind the subscription. */
-        (row.lead_id ? ' <a class="fin-flag" href="#brand=folio&view=leads"' +
-          ' title="Open the linked GHL lead" data-lead="' + esc(row.lead_id) + '">lead</a>' : '');
+        '</span>' + esc(row.business || '');
     }
     if (key === 'contact') {
       return esc(row.contact || '') +
@@ -622,15 +613,16 @@ window.PortalFolioFin = (function () {
 
   function subCell5(key, row) {
     if (key === 'business') {
-      /* The name links through to the lead, so the CRM record behind the
-         subscription is one click away. */
-      var name = esc(row.business || '');
-      var label = row.lead_id
-        ? '<a href="#brand=folio&view=leads" data-lead="' + esc(row.lead_id) +
-          '" title="Open the linked GHL lead">' + name + '</a>'
-        : name;
+      /* PLAIN TEXT, not a link. The spec asked for the name to link through to
+         the lead record; that was dropped by instruction. The whole row is
+         still clickable and opens the payment history, so a link inside it was
+         also two different actions in one cell.
+
+         `lead_id` still rides on the payload - it is a column on
+         subscription_client and costs nothing - so a link is one line away if
+         it is ever wanted. */
       return '<span class="fin-etoggle">' + (S.expanded === row.id ? '&#9662;' : '&#9656;') +
-        '</span>' + label;
+        '</span>' + esc(row.business || '');
     }
     if (key === 'units') {
       /* NULL, and named as such. The value appears to be in a GHL custom field
@@ -683,24 +675,24 @@ window.PortalFolioFin = (function () {
       '<tbody>' + body + '</tbody></table></div></div>';
   }
 
-  /* The caveats, once, at the bottom — where they do not compete with the
-     numbers but are still on the same screen as them. */
-  function provenance() {
-    var s = S.summary;
-    /* Each entry is already HTML: the numbers come from plain() and the one
-       piece of server text is escaped where it is added. Escaping the whole
-       sentence afterwards would turn its own &mdash; into visible markup. */
-    var out = [];
-    if (s.ledger) {
-      out.push('Ledger: ' + s.ledger.rows + ' Whop transaction' + (s.ledger.rows === 1 ? '' : 's') +
-        ', ' + plain(s.ledger.inflow) + ' in &mdash; ' +
-        (s.ledger.reconciles
-          ? 'reconciles with collected payments.'
-          : 'does NOT match collected payments (' + plain(s.history.collected_usd) + ').'));
-    }
-    if (s.test_filter && s.test_filter.provisional) out.push(esc(s.test_filter.note));
-    return out.length ? '<p class="fin-note">' + out.join(' ') + '</p>' : '';
-  }
+  /* THE PROVENANCE LINE IS GONE, by instruction. It read:
+
+       "Ledger: 1 Whop transaction, $1,000.00 in - reconciles with collected
+        payments. sales_payment has no is_test column. Test rows are matched
+        on a notes string plus a Whop-anonymised email; a note edit would
+        break it."
+
+     Both facts still matter and neither is lost:
+       - the ledger reconciliation is asserted by test-folio-financials.js
+         against `summary.ledger.reconciles`, so a drift between the payment
+         stream and `transaction` fails a test rather than needing a reader to
+         notice a sentence;
+       - the provisional test-payment filter is stated in the provenance block
+         of every CSV export, which is where a figure leaving this system needs
+         its caveats.
+
+     `/summary` still returns `ledger` and `test_filter` for exactly those two
+     consumers. */
 
   /* ---- wiring -----------------------------------------------------------
      `.onclick =`, never addEventListener: paint() rebuilds this subtree on
@@ -786,9 +778,9 @@ window.PortalFolioFin = (function () {
     });
 
     host.querySelectorAll('.fin-erow').forEach(function (tr) {
-      tr.onclick = function (e) {
-        /* The lead link is a link, not a row toggle. */
-        if (e.target && e.target.getAttribute && e.target.getAttribute('data-lead')) return;
+      tr.onclick = function () {
+        /* No guard needed: there is nothing clickable inside the row now that
+           the business name is plain text, so the whole row toggles. */
         var id = tr.getAttribute('data-sub');
         S.expanded = S.expanded === id ? null : id;
         if (S.expanded && !S.payments[S.expanded]) loadPayments(S.expanded);
