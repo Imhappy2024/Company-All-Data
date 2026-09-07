@@ -1,49 +1,68 @@
-/* Folio Excel financials — Whop subscription billing.
+/* Folio Excel — Reports & Financials, App Users, and the Financials export
+   screen. Whop subscription billing.
 
-   Reads /api/folio/financials. Reuses the `fin-` classes from
-   portal-financials.css so this reads as the same product as the LeavenWealth
-   screen without a second stylesheet: the layout components are shared, the
-   data model is not.
+   Reads /api/folio/financials. Three screens, ONE module, one set of
+   endpoints, so Folio cannot report one figure for its money on one screen and
+   a different one next door. That is not hypothetical — it is what was here:
+   App Users showed "$2,369 MRR · +8% MoM" from six invented subscribers while
+   the real answer was one subscriber at $1,000.
 
-   ---------------------------------------------------------------------------
-   THERE ARE NO KPI TILES ON THIS SCREEN, AND THAT IS THE POINT.
-
-   Folio has exactly ONE paying customer and ONE month of payment history. A
-   tile reading "MRR $1,000 · +8% MoM" cannot be computed from that — there is
-   no prior month to compare against. The App Users page this replaces showed
-   precisely that figure with six invented subscribers behind it (Bluebird
-   Property Mgmt, Redwood Residential, Cornerstone Realty…), invented
-   Starter/Growth/Scale plans, 774 units and $2,369 of MRR. None of it existed.
-
-   Putting a real number into the same shape is the same mistake with better
-   inputs. So: a header line, the subscriber table, the payments under it, and
-   the funnel. Tiles when there are two months to compare and more than one
-   row.
-
-   An earlier version of this file DID have four tiles, and they also counted
-   the two $1 card tests — $1,001 gross where the real figure is $1,000. Both
-   faults are gone.
+     mountReports()  Reports & Financials, and Folio's Overview:
+                     three cards and one table. Nothing else.
+     mountUsers()    App Users: the same table without the cards.
+     mount()         Financials: the wider table with filters and CSV export.
+                     Still unreachable — Folio has no `financials` catalog row.
 
    ---------------------------------------------------------------------------
-   WHAT THE SCREEN REFUSES TO SHOW
+   EVERY NUMBER COMES FROM A QUERY. IF IT CANNOT BE COMPUTED IT SAYS "Not set".
 
-   - Units, Plan and Billing period all read "Not set". The values appear to
-     sit in GHL custom fields on the linked lead, keyed by OPAQUE IDS WITH NO
-     NAMES, and the likely reading is units 1600 / period Monthly / plan
-     "Founding Customer" — inferred from the values, never confirmed from a
-     field name. Rendering 1600 as units on that basis would be a guess
-     wearing four digits of precision.
+   Never 0. Nobody has said this business manages zero units; what happened is
+   that `number_of_units` is NULL. Those are different statements and a card
+   reading "0" makes the wrong one.
 
-   - No conversion percentage on the funnel. One customer.
+   ---------------------------------------------------------------------------
+   THE THREE CARDS, AND WHAT IS DELIBERATELY NOT ON THEM
 
-   - The two $1 card tests are OUT by default. Including them turns one payment
-     into three and $1,000 into $1,001. The toggle is explicit, and the
-     provisional way test rows are identified is stated next to it.
+   Total monthly subscription ($1,000.00), Total app users (1), Total units
+   managed (Not set). No percentage, no arrow, no period-over-period figure on
+   any of them: one customer and one month of payment history leaves nothing to
+   compare against.
 
-   MRR is $1,000 and the header says "assumed monthly" beside it, because
-   subscription_client.billing_period is NULL and $1,000 a month against
-   $1,000 a year is a twelvefold difference. The assumption sentence comes from
-   the server (`mrr_assumption`) so the screen cannot state a different one.
+   Gone with the page they were on, and NOT replaced with real versions:
+     MRR trend   four invented months (Apr–Jul 2600/2900/3100/3308) whose bars
+                 land ~10px apart. The only real payment is 17 Aug 2026.
+     ARR         would be MRR × 12 off a billing period nobody has confirmed.
+     NRR         needs a prior period to retain.
+     Funnel      pipeline stages and lead counts are CRM data and belong on
+                 the Leads page. The query is preserved in a comment in
+                 folio-financials-api.js.
+
+   ---------------------------------------------------------------------------
+   THE VISUAL LANGUAGE IS THE PORTAL'S OWN
+
+   `.kpis`/`.kpi` cards, `.card`, a plain table and `.pill` badges — the markup
+   kpi(), card(), tbl() and pill() emit in portal.html, which every other
+   screen uses. Badge colours are App Users' own (active green, trialing grey,
+   past_due and cancelled rose; paid green, due amber, trial grey, overdue
+   rose) so a status reads the same here as anywhere else. The only additions
+   in portal-financials.css are the sortable header and its caret.
+
+   ---------------------------------------------------------------------------
+   THREE THINGS THIS SCREEN REFUSES TO DO
+
+   1. Show `1600` as units. The value appears to sit in a GHL custom field on
+      the linked lead, keyed by an OPAQUE ID WITH NO NAME — inferred from the
+      value, never confirmed from a field name, and there is no table anywhere
+      holding that mapping. "Not set" until Jay confirms it.
+
+   2. Count `lead.is_client`. It reads 4 for Folio and one of those is a
+      paying customer; the others are a test record, an internal contact and
+      someone still `open`. Only `subscription_client` knows who pays.
+
+   3. Show the two $1 card tests. There is no `is_test` column, so they are
+      matched on a notes string AND a Whop-anonymised email, both applied
+      together. With them in, one payment becomes three and $1,000 becomes
+      $1,001 — which is what an earlier version of this file reported.
    --------------------------------------------------------------------------- */
 
 window.PortalFolioFin = (function () {
@@ -60,8 +79,9 @@ window.PortalFolioFin = (function () {
   ];
 
   var S = {
-    mode: 'financials',     /* 'financials' = the table; 'reports' = the summary */
-    summary: null, subs: null, funnel: null, options: null, dateScope: null,
+    mode: 'financials',  /* 'reports' | 'subscribers' | 'financials' */
+    sort: 'amount', dir: 'desc',   /* the spec's default: amount per month, descending */
+    summary: null, subs: null, options: null, dateScope: null,
     sel: { status: [], payment_status: [], billing_period: [], plan: [], provider: [] },
     openPanel: null,
     dateFrom: '', dateTo: '',
@@ -95,6 +115,15 @@ window.PortalFolioFin = (function () {
     if (!isFinite(n)) return '&mdash;';
     return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+  /* Sliced off the ISO string, NEVER formatted through the viewer's timezone.
+
+     paid_at is a timestamptz and the real payment is 2026-08-17T19:06:40Z, so
+     toLocaleDateString on that instant renders 18 Aug for any reader east of
+     UTC - including Manila, where this is read. A payment's date is a business
+     fact, not a moment converted into wherever the browser happens to be, and
+     the acceptance check says 2026-08-17. Caught by rendering under
+     TZ=Asia/Manila, not by review; a test asserts toLocaleDateString appears
+     nowhere in this file. */
   function dateOnly(v) { return v ? String(v).slice(0, 10) : null; }
 
   /* "Not set" is a statement, not a blank cell — and the tooltip says where
@@ -131,22 +160,20 @@ window.PortalFolioFin = (function () {
   function load() {
     S.loading = true; S.error = null;
     paint();
-    /* Reports is a summary of the same two endpoints the Financials screen
-       reads, so the two screens cannot report different money. It has no
-       table, so it does not ask for the subscriber list. */
-    var wants = [getJson(API + '/summary'), getJson(API + '/funnel')];
-    if (S.mode !== 'reports') wants.push(getJson(API + '/subscribers?' + qs()));
-    return Promise.all(wants).then(function (out) {
+    /* Every screen reads the same two endpoints, so no two of them can report
+       different money for the brand. There is no /funnel call: pipeline data
+       is CRM data and belongs on the Leads page. */
+    return Promise.all([
+      getJson(API + '/summary'),
+      getJson(API + '/subscribers?' + qs())
+    ]).then(function (out) {
       S.summary = out[0];
-      S.funnel = out[1];
-      if (out[2]) {
-        S.subs = out[2].rows || [];
-        S.options = out[2].options || null;
-        S.dateScope = out[2].date_scope || null;
-        /* A filter change can hide the row whose payments are open. */
-        if (S.expanded && !S.subs.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
-        S.payments = {};
-      }
+      S.subs = out[1].rows || [];
+      S.options = out[1].options || null;
+      S.dateScope = out[1].date_scope || null;
+      /* A filter change can hide the row whose payments are open. */
+      if (S.expanded && !S.subs.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
+      S.payments = {};
     }).catch(function (e) {
       S.error = e.message;
     }).then(function () {
@@ -187,57 +214,102 @@ window.PortalFolioFin = (function () {
 
   function view() {
     return shell(function () {
-      return header() + filters() + subscriberTable() +
-        (S.mode === 'financials' ? funnelPanel() : '') + provenance();
+      /* App Users is the five-column list and nothing else - it is the same
+         table Reports & Financials shows, without the cards above it.
+
+         'financials' is the filter-and-export screen from the earlier spec.
+         It keeps the wider table because that is what an export view is for,
+         and it is the one Folio screen still unreachable (no dashboard_module
+         row), so it cannot contradict anything on screen today. */
+      if (S.mode === 'subscribers') return subscriberCard() + provenance();
+      return header() + filters() + subscriberTable() + provenance();
     });
   }
 
   /* ---- Reports & Financials --------------------------------------------
-     The whole page, and every figure on it comes from a query.
+     Three cards and one table. Nothing else, by instruction.
 
-     It replaces a screen that ran NO queries at all: MRR $2,369, ARR $28.4K,
-     "Active users 4" and NRR 104% were computed from six invented subscribers
-     in a `SUBS` array, and the MRR trend charted Apr–Jul at 2600/2900/3100/3308
-     — four made-up months rendered ~10px apart, which is why they read as one
-     placeholder shape. The only real payment is dated 17 Aug 2026.
+     THE VISUAL LANGUAGE IS THE PORTAL'S OWN, not a new one: `.kpis`/`.kpi`
+     cards, a `.card` wrapper, a plain table and `.pill` badges, which is what
+     kpi(), card(), tbl() and pill() in portal.html emit and what every other
+     screen in the app uses. The badge colours are the ones App Users used
+     (active green, trialing grey, anything else rose; paid green, due amber,
+     trial grey, overdue rose), so a status reads the same here as anywhere.
 
-     What is here instead: the subscriber line with its MRR caveat, revenue to
-     date with the Whop fee and the net, and the funnel. No tiles, no trend,
-     and nothing that cannot be computed. ARR is absent because it would be
-     MRR × 12 off a billing period nobody has confirmed; NRR is absent because
-     it needs a prior period to retain. */
+     WHAT IS DELIBERATELY ABSENT
+     - No percentage, arrow or period-over-period figure on any card. One
+       customer, one month of payment history, nothing to compare against.
+     - No MRR trend, ARR, NRR or conversion rate. All four were fabricated on
+       the version this replaces: MRR $2,369 and ARR $28.4K off six invented
+       subscribers, NRR 104% off nothing at all, and an Apr–Jul bar chart whose
+       only real payment is dated 17 Aug 2026.
+     - No funnel, stage list or lead count. That is CRM data and belongs on
+       the Leads page; the query it used is preserved in a comment in
+       folio-financials-api.js.
+
+     Icons come from portal.html's `I` map when this runs inside the portal and
+     are simply absent otherwise, so the module never depends on a load order
+     it cannot see. */
+  function icon(n) {
+    try { return (typeof I !== 'undefined' && I && I[n]) || ''; } catch (e) { return ''; }
+  }
+
+  /* kpi() in portal.html, reproduced: the module cannot call a helper that is
+     script-scoped in another file, so it emits the same markup instead. The
+     delta slot carries a SOURCE, never a change: `dc` (which colours a delta
+     green or red) is never passed. */
+  function kpiCard(ic, label, value, sub) {
+    return '<div class="kpi">' +
+      '<div class="k">' + icon(ic) + ' ' + esc(label) + '</div>' +
+      '<div class="v">' + value + '</div>' +
+      (sub ? '<div class="d">' + sub + '</div>' : '') +
+      '</div>';
+  }
+
   function reportsView() {
     return shell(function () {
       var s = S.summary;
-      return '' +
-        '<div class="fin-head"><div>' +
-          '<h1 class="fin-title">Folio Excel &middot; Reports &amp; Financials</h1>' +
-          '<p class="fin-sub">Whop subscription billing</p>' +
-        '</div></div>' +
-        '<div class="fin-tablewrap"><div class="fin-pairs">' +
-          pair('Active subscribers', String(s.active_subscribers),
-               'subscription_client where status = active') +
-          pair('MRR', plain(s.mrr) +
-               (s.mrr_assumed ? ' <span class="fin-flag" title="' + esc(s.mrr_assumption) +
-                                '">assumed monthly</span>' : ''),
-               s.mrr_assumed ? s.mrr_assumption : 'billing_period is set') +
-          pair('Revenue to date', plain(s.history.collected_usd),
-               s.history.payments + ' payment' + (s.history.payments === 1 ? '' : 's') +
-               ', test rows excluded') +
-          pair('First payment', s.history.first_paid_at ? longDate(s.history.first_paid_at) : '&mdash;',
-               s.history.last_paid_at && s.history.last_paid_at !== s.history.first_paid_at
-                 ? 'most recent ' + longDate(s.history.last_paid_at) : 'the only payment') +
-          pair('Whop fees to date', plain(s.history.fees_usd), 'sum of fee_amount') +
-          pair('Net', plain(s.history.net_usd), 'sum of amount_after_fees') +
-        '</div>' +
-        /* Where a KPI row would have been. It names the reason, so the absence
-           reads as a fact about the data rather than a chart that failed. */
-        '<p class="fin-note">' + esc(s.history.trend_note) +
-          (s.mrr_assumed ? ' ' + esc(s.mrr_assumption) + '.' : '') + '</p>' +
-        '</div>' +
-        funnelPanel() +
-        provenance();
+      return cards(s) + subscriberCard();
     });
+  }
+
+  function cards(s) {
+    /* Card 1. The PLAIN sum of subscription_amount, which is what "total
+       monthly subscription" means. The caveat sits in the sub-line because
+       billing_period is NULL: calling $1,000 a monthly total is an assumption,
+       and if a period ever says otherwise the sub-line says that instead. */
+    var amount = plain(s.monthly_subscription);
+    var amountSub = s.non_monthly > 0
+      ? esc(s.non_monthly + ' subscription' + (s.non_monthly === 1 ? '' : 's') +
+            ' not billed monthly - this total is not a monthly figure')
+      : (s.period_unknown > 0
+          ? esc('assumed monthly - billing_period not set on ' + s.period_unknown +
+                ' of ' + s.active_subscribers)
+          : 'billing_period: monthly');
+
+    /* Card 3. NULL means nobody has recorded a unit count, which is not the
+       same as zero, so the card says "Not set". A partial total states its own
+       coverage rather than quietly under-reporting. */
+    var unitsKnown = s.units_known || 0;
+    var unitsCard;
+    if (!unitsKnown) {
+      unitsCard = kpiCard('grid', 'Total units managed', 'Not set',
+        esc('number_of_units is not recorded on ' +
+            (s.active_subscribers === 1 ? 'the subscriber' : 'any subscriber')));
+    } else {
+      unitsCard = kpiCard('grid', 'Total units managed',
+        Number(s.units_managed).toLocaleString('en-US'),
+        unitsKnown < s.active_subscribers
+          ? esc('from ' + unitsKnown + ' of ' + s.active_subscribers + ' subscribers')
+          : 'all subscribers reporting');
+    }
+
+    return '<div class="kpis">' +
+      kpiCard('dollar', 'Total monthly subscription', amount, amountSub) +
+      kpiCard('users', 'Total app users', String(s.active_subscribers),
+              esc('active subscription_client rows')) +
+      unitsCard +
+      '</div>';
   }
 
   function pair(label, valueHtml, hint) {
@@ -248,28 +320,6 @@ window.PortalFolioFin = (function () {
       '</div>';
   }
 
-  /* "17 Aug 2026", formatted from the ISO DATE PART and never through the
-     viewer's timezone.
-
-     `paid_at` is a timestamptz: the real payment is 2026-08-17T19:06:40Z, and
-     toLocaleDateString on that instant renders "18 Aug 2026" for any reader
-     east of UTC. A payment's date is a business fact, not a moment converted
-     into wherever the browser happens to be - and the acceptance check says
-     17 Aug. `dateOnly` elsewhere in this file slices the string for the same
-     reason, so this keeps the two consistent. */
-  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  function longDate(v) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(v == null ? '' : v));
-    if (!m) return esc(String(v == null ? '' : v).slice(0, 10));
-    var mon = MONTHS[Number(m[2]) - 1];
-    if (!mon) return esc(m[0]);
-    return Number(m[3]) + ' ' + mon + ' ' + m[1];
-  }
-
-  /* The header carries the two numbers this screen has, in a sentence rather
-     than in tiles — and the MRR assumption sits immediately beside the MRR,
-     not in a footnote. */
   function header() {
     var s = S.summary;
     var subs = s.active_subscribers;
@@ -518,57 +568,119 @@ window.PortalFolioFin = (function () {
       (d.include_test ? '<p class="fin-note">Test payments are included in this list.</p>' : '');
   }
 
-  /* The stage breakdown as one line: "Qualified 1 · Demo Scheduled 1 · …".
+  /* ---- the subscriber table -------------------------------------------
+     Five columns, per the spec, in the portal's own table and badges. It is
+     the App Users list as well: for a SaaS, the people who pay you ARE the
+     app users, and both screens render this one function so they cannot
+     disagree about how many there are.
 
-     PIPELINE_ORDER is a DISPLAY order only — no count comes from it. `lead`
-     stores pipeline_stage as free text with no ordinal, so a stage the list
-     does not know cannot be placed in the funnel and is appended rather than
-     dropped: an unknown stage is a lead somebody should see. */
-  var PIPELINE_ORDER = ['Qualified', 'Demo Scheduled', 'Demo Complete',
-                        'Closed Won', 'Onboard Initiated'];
-  function breakdown(f) {
-    var rank = function (s) {
-      var i = PIPELINE_ORDER.indexOf(s.stage);
-      return i < 0 ? PIPELINE_ORDER.length : i;
-    };
-    return f.stages.slice().sort(function (a, b) {
-      return rank(a) - rank(b) || a.stage.localeCompare(b.stage);
-    }).map(function (s) {
-      return esc(s.stage) + ' ' + s.leads;
-    }).join(' &middot; ');
+     `company` is the business name and it is GHL-sourced and authoritative.
+     NOT sales_payment.customer_name, which is Whop's billing-address version
+     ("J & M Real Estate and Property Management Brandi"). */
+  var SORTS = [
+    { key: 'business', label: 'Business name' },
+    { key: 'units', label: 'Number of units', r: 1 },
+    { key: 'amount', label: 'Amount per month', r: 1 },
+    { key: 'status', label: 'Status' },
+    { key: 'payment_status', label: 'Payment status' }
+  ];
+
+  /* Badge colours as App Users had them: active is good, a trial is neutral,
+     anything else needs looking at. Unknown values fall through to grey rather
+     than to a colour that would assert something about a state nobody has
+     defined. */
+  function statusPill(v) {
+    var t = String(v == null ? '' : v);
+    var c = t === 'active' ? 'green'
+          : (t === 'trialing' || t === 'trial') ? 'gray'
+          : (t === 'past_due' || t === 'cancelled') ? 'rose' : 'gray';
+    return t ? '<span class="pill ' + c + '">' + esc(t.replace(/_/g, ' ')) + '</span>' : nil();
+  }
+  function payPill(v) {
+    var t = String(v == null ? '' : v);
+    var c = t === 'paid' ? 'green'
+          : t === 'due' ? 'amber'
+          : t === 'trial' ? 'gray'
+          : t === 'overdue' ? 'rose' : 'gray';
+    return t ? '<span class="pill ' + c + '">' + esc(t.replace(/_/g, ' ')) + '</span>' : nil();
   }
 
-  /* The one panel with real volume behind it, which is the reason to build
-     this page now rather than when there are more subscribers. */
-  function funnelPanel() {
-    var f = S.funnel;
-    if (!f) return '';
-    var max = f.stages.reduce(function (a, s) { return Math.max(a, s.leads); }, 0) || 1;
-    var rows = f.stages.map(function (s) {
-      return '<tr><td>' + esc(s.stage) + '</td>' +
-        '<td class="r">' + s.leads + '</td>' +
-        '<td><span class="fin-bar" style="width:' +
-          Math.max(6, Math.round(s.leads / max * 100)) + '%"></span></td></tr>';
+  function sortedSubs() {
+    var rows = (S.subs || []).slice();
+    var k = S.sort, dir = S.dir === 'asc' ? 1 : -1;
+    return rows.sort(function (a, b) {
+      var x = a[k], y = b[k];
+      /* Nulls last in BOTH directions: `number_of_units` is null on every row
+         today, and a null that sorts to the top of a descending column looks
+         like the largest value. */
+      if (x === null || x === undefined) return y === null || y === undefined ? 0 : 1;
+      if (y === null || y === undefined) return -1;
+      if (typeof x === 'number' && typeof y === 'number') return (x - y) * dir;
+      return String(x).localeCompare(String(y)) * dir;
+    });
+  }
+
+  function subCell5(key, row) {
+    if (key === 'business') {
+      /* The name links through to the lead, so the CRM record behind the
+         subscription is one click away. */
+      var name = esc(row.business || '');
+      var label = row.lead_id
+        ? '<a href="#brand=folio&view=leads" data-lead="' + esc(row.lead_id) +
+          '" title="Open the linked GHL lead">' + name + '</a>'
+        : name;
+      return '<span class="fin-etoggle">' + (S.expanded === row.id ? '&#9662;' : '&#9656;') +
+        '</span>' + label;
+    }
+    if (key === 'units') {
+      /* NULL, and named as such. The value appears to be in a GHL custom field
+         keyed by an opaque id (1600, probably units) - inferred from the value,
+         never confirmed from a field name, so it is not displayed. */
+      return row.units === null || row.units === undefined
+        ? notSet(row.not_set_reason)
+        : Number(row.units).toLocaleString('en-US');
+    }
+    if (key === 'amount') {
+      return money(row.amount) + (row.currency && row.currency !== 'USD'
+        ? ' <span class="fin-sub">' + esc(row.currency) + '</span>' : '');
+    }
+    if (key === 'status') return statusPill(row.status);
+    if (key === 'payment_status') return payPill(row.payment_status);
+    var v = row[key];
+    return v === null || v === undefined || v === '' ? nil() : esc(v);
+  }
+
+  function subscriberCard() {
+    var rows = sortedSubs();
+    if (!rows.length) {
+      return '<div class="card"><div class="card-h">' + icon('users') +
+        ' App users</div><div class="card-b">' +
+        '<div class="fin-empty">No subscriber recorded for Folio Excel.</div></div></div>';
+    }
+
+    var head = SORTS.map(function (c) {
+      var on = S.sort === c.key;
+      return '<th class="' + (c.r ? 'r ' : '') + 'fin-sortable' + (on ? ' on' : '') + '"' +
+        ' data-sort="' + esc(c.key) + '">' + esc(c.label) +
+        (on ? '<span class="fin-caret">' + (S.dir === 'asc' ? '&#9650;' : '&#9660;') + '</span>' : '') +
+        '</th>';
     }).join('');
 
-    return '<div class="fin-tablewrap">' +
-      '<div class="fin-head"><div>' +
-        '<h2 class="fin-title">Funnel</h2>' +
-        '<p class="fin-sub"><b>' + f.total_leads.toLocaleString('en-US') +
-          '</b> leads &rarr; <b>' + f.staged_leads + '</b> in pipeline &rarr; <b>' +
-          f.paying + '</b> paying</p>' +
-        '<p class="fin-sub">' + breakdown(f) + '</p>' +
-        /* Two sentences that head off two different wrong readings: that the
-           missing percentage is an oversight, and that "paying" came from the
-           lead flag — which reads 4 for Folio and is wrong three times over. */
-        '<p class="fin-note">' + esc(f.conversion_note) +
-          ' Paying comes from ' + esc(f.paying_source) + ', never lead.is_client.</p>' +
-      '</div></div>' +
-      '<div class="fin-scroll"><table class="fin-table"><thead><tr>' +
-        '<th>Stage</th><th class="r">Leads</th><th></th></tr></thead>' +
-        '<tbody>' + rows + '</tbody></table></div>' +
-      '<div class="fin-foot"><span class="fin-count">' +
-        f.no_stage.toLocaleString('en-US') + ' with no stage</span></div></div>';
+    var body = rows.map(function (row) {
+      var open = S.expanded === row.id;
+      var tr = '<tr class="fin-erow' + (open ? ' open' : '') + '" data-sub="' + esc(row.id) + '">' +
+        SORTS.map(function (c) {
+          return '<td' + (c.r ? ' class="r"' : '') + '>' + subCell5(c.key, row) + '</td>';
+        }).join('') + '</tr>';
+      if (!open) return tr;
+      return tr + '<tr class="fin-exp"><td colspan="' + SORTS.length + '">' +
+        paymentsPanel(row) + '</td></tr>';
+    }).join('');
+
+    return '<div class="card"><div class="card-h">' + icon('users') + ' App users' +
+      '<span class="badge">' + rows.length + '</span></div>' +
+      '<div class="card-b flush"><table class="fin-etable"><thead><tr>' + head + '</tr></thead>' +
+      '<tbody>' + body + '</tbody></table></div></div>';
   }
 
   /* The caveats, once, at the bottom — where they do not compete with the
@@ -661,6 +773,18 @@ window.PortalFolioFin = (function () {
     var xp = $('ff-x-pay');
     if (xp) xp.onclick = function () { doExport('payments'); };
 
+    /* Column sort. Purely client-side: the whole result set is already here
+       (one row today), so a round trip would buy nothing and lose the open
+       payment panel. Clicking the active column flips direction. */
+    host.querySelectorAll('[data-sort]').forEach(function (th) {
+      th.onclick = function () {
+        var k = th.getAttribute('data-sort');
+        if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc';
+        else { S.sort = k; S.dir = k === 'amount' || k === 'units' ? 'desc' : 'asc'; }
+        paint();
+      };
+    });
+
     host.querySelectorAll('.fin-erow').forEach(function (tr) {
       tr.onclick = function (e) {
         /* The lead link is a link, not a row toggle. */
@@ -716,8 +840,8 @@ window.PortalFolioFin = (function () {
        subscriber list that reports mode never fetched. */
     var switched = S.mode !== m;
     S.mode = m;
-    var needsRows = m !== 'reports' && !S.subs;
-    if ((!S.summary || (switched && needsRows)) && !S.loading) load();
+    if ((!S.summary || !S.subs) && !S.loading) load();
+    else if (switched) paint();
     else paint();
   }
 

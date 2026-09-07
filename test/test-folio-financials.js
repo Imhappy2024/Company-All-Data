@@ -20,7 +20,9 @@
         unlabelled GHL custom fields; 1600 and "Founding Customer" must never
         be rendered on that basis.
 
-     5. NO TILES AND NO TREND. One customer, one month of history.
+     5. THREE CARDS AND ONE TABLE, AND NO TREND INDICATOR ON EITHER. One
+        customer and one month of history supports no MoM, no ARR, no NRR and
+        no chart, and no funnel belongs on a financial page.
 
    Expectations are written from that stated intent, not derived from the code,
    so they can still fail. Where a check reads the SQL text rather than the
@@ -93,24 +95,11 @@ const SUBSCRIBER = {
   status: 'active', payment_status: 'paid', start_date: '2026-08-17',
   provider: 'whop', external_subscription_id: MEMBERSHIP,
   next_billing_date: null, cancelled_at: null,
+  /* lead_id is a column ON subscription_client, which is why the table needs
+     no join to `lead` for the business-name link. */
   lead_id: '1c3b0b94-2462-4e39-a4fb-a02bf42f491f',
-  pipeline_stage: 'Onboard Initiated', lead_company: 'J & M Property Management, Inc.',
-  ghl_field_count: 6,
   last_payment_at: '2026-08-17T19:06:40.623Z',
 };
-
-/* Verified live: 4,637 with no stage plus 8 staged = 4,645.
-   The spec says "6 in pipeline" and then lists five stages summing to EIGHT.
-   The database says eight, so the page computes the figure and this fixture
-   matches the data rather than the prose. */
-const FUNNEL = [
-  { stage: 'No stage', leads: 4637 },
-  { stage: 'Closed Won', leads: 3 },
-  { stage: 'Demo Complete', leads: 2 },
-  { stage: 'Demo Scheduled', leads: 1 },
-  { stage: 'Onboard Initiated', leads: 1 },
-  { stage: 'Qualified', leads: 1 },
-];
 
 /* The fake's own reading of "is this a test row", written out here
    independently of the module's SQL — a fake that borrowed the module's
@@ -138,6 +127,18 @@ const fakeDb = {
                     : p === 'quarterly' ? amt / 3 : amt);
         }, 0).toFixed(2),
         period_unknown: a.filter(s => s.billing_period === null).length,
+        non_monthly: a.filter(s => s.billing_period !== null &&
+                                   s.billing_period.toLowerCase() !== 'monthly').length,
+        /* The plain sum, which is what the "total monthly subscription" card
+           shows. Equal to mrr today and only different once a period says
+           something other than monthly. */
+        monthly_subscription: a.reduce((t, s) => t + num(s.subscription_amount), 0).toFixed(2),
+        /* NULL, exactly as Postgres returns sum() over no non-null rows. This
+           is the value the card must render as "Not set" rather than 0, so the
+           fake has to produce the null rather than a convenient zero. */
+        units_managed: a.some(s => s.number_of_units !== null)
+          ? a.reduce((t, s) => t + num(s.number_of_units), 0) : null,
+        units_known: a.filter(s => s.number_of_units !== null).length,
         currency: 'USD', currencies: 1,
       }] });
     }
@@ -170,11 +171,6 @@ const fakeDb = {
         status: ['active'], payment_status: ['paid'],
         billing_period: ['(not set)'], plan: ['(not set)'], provider: ['whop'],
       }] });
-    }
-
-    /* The funnel. */
-    if (/from public\.lead l/.test(sql) && /pipeline_stage/.test(sql) && /group by/.test(sql)) {
-      return Promise.resolve({ rows: FUNNEL.map(r => Object.assign({}, r)) });
     }
 
     /* One subscriber by id, for the payment-history route. */
@@ -315,12 +311,18 @@ function strings(o, out) {
   /* lead.custom_fields is MIXED TYPE — 4,642 Folio rows hold an array and 3
      hold an object. jsonb_array_length on the object rows throws, and it
      throws for the whole query, not just that row. */
-  await checkAsync('custom_fields is read behind a jsonb_typeof guard', async () => {
+  /* Written as "never read UNGUARDED" rather than "read, and guarded": the
+     table no longer joins `lead` at all, so there is nothing to guard today.
+     Stated the other way round the check would have to be deleted now and
+     rewritten from scratch the day someone reads the column again - which is
+     exactly the day it matters. */
+  await checkAsync('custom_fields is never read without a jsonb_typeof guard', async () => {
     seen.length = 0;
-    await get('/subscribers');
-    const s = seen.filter(x => /custom_fields/.test(x.sql))[0];
-    assert.ok(s, 'custom_fields is read somewhere');
-    assert.ok(/jsonb_typeof\(l\.custom_fields\) = 'array'/.test(s.sql), 'the type guard is missing');
+    await get('/subscribers'); await get('/summary'); await get(PAY_URL);
+    for (const s of seen.filter(x => /custom_fields/.test(x.sql))) {
+      assert.ok(/jsonb_typeof\([a-z]*\.?custom_fields\) = 'array'/.test(s.sql),
+        'custom_fields is read unguarded: ' + s.sql.slice(0, 120));
+    }
   });
 
   /* ---- the subscriber table (spec §7) ---------------------------------- */
@@ -439,7 +441,7 @@ function strings(o, out) {
 
   /* ---- lead.is_client -------------------------------------------------- */
   await checkAsync('no count in any payload equals 4', async () => {
-    const urls = ['/summary', '/subscribers', '/funnel', PAY_URL];
+    const urls = ['/summary', '/subscribers', PAY_URL];
     const COUNTISH = /(count|subscribers|payments|leads|paying|rows|staged)/i;
     for (const u of urls) {
       const bad = numbers(json(await get(u))).filter(([k, v]) => v === 4 && COUNTISH.test(k));
@@ -454,27 +456,29 @@ function strings(o, out) {
     assert.strictEqual(bad.length, 0, bad[0] && bad[0].sql.slice(0, 90));
   });
 
-  /* ---- funnel ---------------------------------------------------------- */
-  await checkAsync('funnel reads 4,645 leads, 8 staged, 1 paying', async () => {
-    const f = json(await get('/funnel'));
-    assert.strictEqual(f.total_leads, 4645);
-    /* EIGHT, not the spec's "6": its own stage list sums to 8 and so does the
-       database. The figure is computed, never written down. */
-    assert.strictEqual(f.staged_leads, 8);
-    assert.strictEqual(f.no_stage, 4637);
-    assert.strictEqual(f.paying, 1);
-    assert.deepStrictEqual(f.stages.map(s => s.stage).sort(),
-      ['Closed Won', 'Demo Complete', 'Demo Scheduled', 'Onboard Initiated', 'Qualified']);
-    assert.ok(!f.stages.some(s => s.stage === 'No stage'), 'No stage is not a pipeline stage');
+  /* ---- the funnel is GONE ----------------------------------------------
+     Pipeline stages and lead counts are CRM data and belong on the Leads
+     page, by instruction. The route went with the panel: an endpoint nothing
+     calls is the kind of thing somebody later wires a screen into without
+     noticing nothing linked to it. */
+  await checkAsync('the funnel endpoint no longer exists', async () => {
+    assert.strictEqual((await get('/funnel')).status, 404);
   });
 
-  await checkAsync('the funnel publishes no conversion rate', async () => {
-    const f = json(await get('/funnel'));
-    assert.deepStrictEqual(
-      numbers(f).filter(([k]) => /rate|percent|pct|conversion/i.test(k)), [],
-      'a conversion figure is published');
-    assert.ok(/one customer/i.test(f.conversion_note), f.conversion_note);
-    assert.strictEqual(f.paying_source, 'subscription_client where status = active');
+  await checkAsync('no payload carries a pipeline stage or a lead count', async () => {
+    for (const u of ['/summary', '/subscribers', PAY_URL]) {
+      const body = (await get(u)).body.toString('utf8');
+      assert.ok(!/pipeline|Closed Won|Demo Complete|Qualified|staged/i.test(body),
+        u + ' carries CRM pipeline data');
+      assert.ok(!/4,?645|4,?637/.test(body), u + ' carries a lead count');
+    }
+  });
+
+  await checkAsync('no statement reads the lead pipeline', async () => {
+    seen.length = 0;
+    await get('/summary'); await get('/subscribers');
+    const bad = seen.filter(s => /pipeline_stage/.test(s.sql));
+    assert.strictEqual(bad.length, 0, bad[0] && bad[0].sql.slice(0, 90));
   });
 
   /* ---- no tiles, no trend ---------------------------------------------- */
@@ -486,10 +490,31 @@ function strings(o, out) {
       'a period-over-period field is published');
   });
 
+  /* ---- the three cards (spec §1 and §6) -------------------------------- */
+  await checkAsync('the cards read $1,000.00, 1, and Not set', async () => {
+    const s = json(await get('/summary'));
+    assert.strictEqual(s.monthly_subscription, 1000, 'total monthly subscription');
+    assert.strictEqual(s.active_subscribers, 1, 'total app users');
+    /* NULL, not 0. The card renders "Not set" off exactly this, and a 0 here
+       would claim the business manages no units. */
+    assert.strictEqual(s.units_managed, null, 'total units managed must be null, not 0');
+    assert.strictEqual(s.units_known, 0, 'no subscriber reports a unit count');
+  });
+
+  await checkAsync('the monthly total is the plain sum, and says when that is an assumption', async () => {
+    const s = json(await get('/summary'));
+    assert.strictEqual(s.period_unknown, 1, 'billing_period is unset on the one subscriber');
+    assert.strictEqual(s.non_monthly, 0, 'nothing is billed on a non-monthly period');
+    /* Equal today, and they must be: with billing_period NULL the plain sum
+       and the assumed-monthly normalisation are the same figure. They diverge
+       only once a period is recorded, which is what non_monthly is for. */
+    assert.strictEqual(s.monthly_subscription, s.mrr);
+  });
+
   /* ---- Reports & Financials -------------------------------------------
-     The page that replaced the hardcoded one. Every figure on it comes from
-     these three fields, so they have to be present and they have to exclude
-     the test rows. */
+     Revenue, the Whop fee and the net are no longer cards - they are in the
+     payment expand - but the summary still carries them and they still have
+     to exclude the test rows. */
   await checkAsync('the summary carries revenue, the Whop fee and the net', async () => {
     const s = json(await get('/summary'));
     assert.strictEqual(s.history.collected_usd, 1000, 'revenue to date');
@@ -530,10 +555,73 @@ function strings(o, out) {
   const decomment = t => t.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^[ \t]*\/\/.*$/gm, ' ');
   const BODY = decomment(UI.slice(UI.indexOf('window.PortalFolioFin')));
 
-  check('the reports view builds no tile, no KPI row and no chart', () => {
-    assert.ok(!/class="kpis/.test(BODY), 'a KPI row is rendered');
-    assert.ok(!/class="bars/.test(BODY), 'a bar chart is rendered');
+  /* Three cards are now WANTED - what is forbidden is a trend indicator on
+     them. So this checks the shape rather than the absence of cards: the
+     portal's own kpi() markup, no chart, and nothing passed into the delta
+     slot that colours a figure green or red. */
+  check('the reports view builds cards in the portal own markup', () => {
+    assert.ok(/class="kpis"/.test(BODY), 'the card row is missing');
+    assert.ok(/class="kpi"/.test(BODY), 'the cards are not the portal component');
     assert.ok(/mountReports/.test(BODY), 'the reports view is missing');
+  });
+
+  check('no card carries a chart, an arrow or a delta class', () => {
+    assert.ok(!/class="bars/.test(BODY), 'a bar chart is rendered');
+    assert.ok(!/barChart/.test(BODY), 'a bar chart is built');
+    /* kpi()'s fifth argument is the class that colours a delta up or down.
+       kpiCard() here takes four and has no such slot at all. */
+    assert.ok(!/'up'|"up"|'down'|"down"/.test(BODY), 'a delta direction is passed');
+    assert.ok(!/&#8593;|&#8595;|&uarr;|&darr;|▲|▼/.test(BODY.replace(/fin-caret[\s\S]{0,120}/g, '')),
+      'an arrow glyph is rendered outside the sort caret');
+  });
+
+  check('exactly three cards are built', () => {
+    const inCards = BODY.slice(BODY.indexOf('function cards('), BODY.indexOf('function subscriberCard('));
+    const n = (inCards.match(/kpiCard\(/g) || []).length;
+    /* Two literal calls plus the units card, which is built in a branch
+       because NULL and a real total say different things. */
+    assert.strictEqual(n, 4, 'expected three cards (the units one has two branches), saw ' + n);
+    assert.ok(/Total monthly subscription/.test(inCards), 'card 1 is missing');
+    assert.ok(/Total app users/.test(inCards), 'card 2 is missing');
+    assert.ok(/Total units managed/.test(inCards), 'card 3 is missing');
+  });
+
+  check('the units card says Not set, never 0 and never 1600', () => {
+    const inCards = BODY.slice(BODY.indexOf('function cards('), BODY.indexOf('function subscriberCard('));
+    assert.ok(/'Not set'/.test(inCards), 'the units card cannot say Not set');
+    assert.ok(!/1600/.test(inCards), '1600 is rendered');
+    /* The FIGURE must never be coalesced. `units_known || 0` is fine and is
+       how the card decides which branch to take - a count of rows with a value
+       genuinely is zero. Coalescing `units_managed` is the bug: it would turn
+       "nobody has recorded this" into "they manage none". */
+    assert.ok(!/units_managed\s*\|\|/.test(inCards), 'the units total falls back to a number');
+    assert.ok(!/Number\(s\.units_managed\s*\|\|/.test(inCards), 'the units total is coalesced');
+  });
+
+  check('the table is the five spec columns, sortable, amount-first', () => {
+    const cols = /var SORTS = \[([\s\S]*?)\];/.exec(BODY);
+    assert.ok(cols, 'the column list is missing');
+    for (const c of ['business', 'units', 'amount', 'status', 'payment_status']) {
+      assert.ok(cols[1].indexOf("'" + c + "'") >= 0, 'column missing: ' + c);
+    }
+    assert.strictEqual((cols[1].match(/key:/g) || []).length, 5, 'expected exactly five columns');
+    assert.ok(/sort: 'amount', dir: 'desc'/.test(BODY), 'the default sort is not amount desc');
+    assert.ok(/data-sort=/.test(BODY), 'the columns are not sortable');
+  });
+
+  check('status and payment status render as portal badges', () => {
+    assert.ok(/class="pill /.test(BODY), 'badges are not the portal .pill component');
+    /* App Users' own colours: active is good, a trial is neutral, anything
+       else needs looking at. Plain substring checks - a regex here would need
+       escaping around the ternary and would trip over its own punctuation. */
+    var wanted = ["'active' ? 'green'", "'paid' ? 'green'",
+                  "'due' ? 'amber'", "'overdue' ? 'rose'"];
+    for (var wi = 0; wi < wanted.length; wi++) {
+      assert.ok(BODY.indexOf(wanted[wi]) >= 0, 'badge colour missing: ' + wanted[wi]);
+    }
+    /* A state nobody has defined falls through to grey rather than to a
+       colour that would assert something about it. */
+    assert.ok(/: 'gray'/.test(BODY), 'no neutral fallback for an unknown state');
   });
 
   check('the reports view publishes no ARR and no retention figure', () => {

@@ -1241,290 +1241,240 @@ its company-only leads; sender HTML is flattened; a one-character search is
 ignored **and says so**; a malformed `?since` is refused rather than silently
 meaning "everything".
 
-## Folio Excel financials: Whop subscription billing
+## Folio Excel: Reports & Financials, App Users, and Whop billing
 
 `/api/folio/financials` (`folio-financials-api.js`) + `public/portal-folio-fin.js`.
-Built to `FOLIO_FINANCIAL_DASHBOARD_SPEC`, the third spec in the set after the
-property accounts and the entity rollup. Reuses `portal-financials.css`, so the
-layout components are shared and the data model is not.
+Three screens, **one module, one set of endpoints**:
 
-### Folio has ONE paying customer, and that is the whole design
-Not a placeholder and not a filter artefact. One. Everything below follows from
-it, starting with:
+| Screen | Mount | What it shows |
+|---|---|---|
+| Reports & Financials (also Folio's **Overview**) | `mountReports()` | three cards, one table |
+| App Users | `mountUsers()` | the same table, no cards |
+| Financials | `mount()` | the wider table with filters + CSV export |
 
-**There are no KPI tiles and no trend.** One customer and one month of payment
-history cannot produce a MoM figure — there is no prior month. The App Users
-page this replaces showed `MRR $2,369 · +8% MoM` off six invented subscribers
-(Bluebird Property Mgmt, Redwood Residential, Cornerstone Realty, Harbor Homes,
-Prairie Rentals, Elm Street Holdings), invented Starter/Growth/Scale plans and
-774 units. **Putting a real number into that same shape is the same mistake
-with better inputs.** Tiles when there are two months to compare and more than
-one row.
+One module because the alternative already happened: Folio reported **$2,369
+MRR** on App Users and one subscriber at **$1,000** on Reports, a nav click
+apart. Financials is still unreachable — Folio has no `financials`
+`dashboard_module` row (see below).
 
-So the screen is a header line, the subscriber table, the payment history
-underneath it, and the funnel. Two tests read the front-end source and fail if
-`fin-tile` or a MoM label ever appears.
-
-**The first version of this screen, shipped earlier the same day, had four
-tiles — and they counted the two $1 card tests.** It reported `$1,001.00` gross
-and `$960.21` net as the headline figures. Both faults are gone; the $1,001 is
-now reachable only by explicitly asking for test payments.
+Built to `FOLIO_FINANCIAL_DASHBOARD_SPEC`, which arrived in **three revisions**
+on 2026-09-07. Where they disagree, the last one wins and this section
+describes what actually ships.
 
 ### It is a separate module because Folio shares no tables with the property screens
-Except `transaction`. Verified 2026-09-07: 0 `financial_account` reachable from
-Folio, 0 `deal`, 0 `statement`. A brand parameter on `financials-api.js` would
-have produced a *working* screen showing zeros forever, which reads as "Folio
-has no money" rather than "those are the wrong tables". `FINANCIALS_BUILT` in
-portal.html is a **map**, not a boolean — `{all:'lw', leavenwealth:'lw',
-folio:'folio'}` — so it names which module serves each brand.
+Except `transaction`. Verified: 0 `financial_account` reachable from Folio, 0
+`deal`, 0 `statement`. A brand parameter on `financials-api.js` would have
+produced a *working* screen showing zeros forever, which reads as "Folio has no
+money" rather than "those are the wrong tables". `FINANCIALS_BUILT` in
+portal.html is a **map**, not a boolean, so it names which module serves each
+brand.
 
-### The four tables, and what each is authoritative for
+### The three cards, and what is not on them
 
-| Table | Folio rows | Authoritative for |
+| Card | Today | Source |
 |---|---|---|
-| `subscription_client` | **1** | who is subscribed, and MRR |
-| `sales_payment` | **3** (1 real, 2 test) | every payment, dated, with fees |
-| `transaction` | **1** | the ledger entry |
-| `lead` | 4,645 | the funnel |
+| Total monthly subscription | **$1,000.00** | `sum(subscription_amount)` where active |
+| Total app users | **1** | `count(*)` of active `subscription_client` |
+| Total units managed | **Not set** | `sum(number_of_units)` — NULL today |
 
-`subscription_plan` is 0 rows and `service_client` is 0 rows. `account_balance`
-and `statement` have nothing to do with Folio.
+**No percentage, arrow or period-over-period figure on any of them.** One
+customer and one month of payment history leaves nothing to compare against.
+`kpiCard()` deliberately has no delta slot at all: `kpi()` in portal.html takes
+a fifth argument that colours a figure green or red, and this one takes four.
 
-### The two $1 card tests are OUT by default, and the filter is PROVISIONAL
+Gone with the page they were on, and **not replaced with real versions**:
+
+| | why not |
+|---|---|
+| MRR trend | four invented months (Apr–Jul 2600/2900/3100/3308) |
+| ARR | would be MRR × 12 off a billing period nobody has confirmed |
+| NRR | needs a prior period to retain |
+| Funnel | pipeline stages and lead counts are CRM data → Leads page |
+
+### What the page it replaced actually was
+`V.reports()` ran **no query at all**. MRR $2,369, ARR $28.4K, NRR 104% and
+"Active users 4" were computed from six invented subscribers in a `SUBS` array
+(Bluebird Property Mgmt, Redwood Residential, Cornerstone Realty, Harbor Homes,
+Prairie Rentals, Elm Street Holdings) with invented Starter/Growth/Scale plans
+and 774 units. Two tells were visible without reading the code, and both are
+worth knowing how to spot:
+
+- **The bars looked identical.** `barChart` scales to the maximum, so those
+  four values render at 79/88/94/100% of a 150px box — ~10px apart, which reads
+  as one placeholder shape. The only real payment is dated **17 Aug 2026**.
+- **"Active users 4"** is the same number as `lead.is_client`, which the spec
+  forbids counting. It was **not** that query — the page issued none — it was
+  four of six invented rows landing on 4. Same remedy, different diagnosis, and
+  the diagnosis matters: the figure was not wired to anything at all.
+
+`SUBS` is deleted. App Users renders the real subscriber table.
+
+### NULL is "Not set", NEVER 0
+`units_managed` is the live case. Nobody has recorded a unit count for this
+business; that is a different statement from "they manage none", and a card
+reading `0` makes the wrong one. The API returns **null** rather than
+coalescing, and a test asserts `units_managed` is never `|| 0`-ed in the client.
+
+`units_known` (a count of rows that *do* carry a value) is allowed to be 0 —
+that genuinely is zero, and it is what picks the card's branch. A partial total
+states its own coverage (`from 1 of 3 subscribers`) rather than quietly
+under-reporting.
+
+### The visual language is the portal's own
+`.kpis`/`.kpi` cards, `.card`, a plain table and `.pill` badges — the markup
+`kpi()`, `card()`, `tbl()` and `pill()` emit in portal.html, which every other
+screen uses. Badge colours are App Users' own: **active** green, **trialing**
+grey, **past_due** and **cancelled** rose; **paid** green, **due** amber,
+**trial** grey, **overdue** rose. A state nobody has defined falls through to
+grey rather than to a colour that would assert something about it.
+
+The only additions in `portal-financials.css` are `.fin-sortable` and its
+caret. Sorting is client-side on all five columns, default **amount per month
+descending**, with **nulls last in both directions** — `number_of_units` is
+null on every row, and a null at the top of a descending column reads as the
+largest value.
+
+### The table has five columns and NO join to `lead`
+Business name, Number of units, Amount per month, Status, Payment status.
+`lead_id` is a column **on `subscription_client`**, so the business-name link to
+the CRM record needs no join at all.
+
+The join used to be there for `pipeline_stage` and a count of the lead's GHL
+custom fields; both went with the funnel. **If anything ever reads
+`lead.custom_fields` again it must be guarded with
+`jsonb_typeof(custom_fields) = 'array'`** — the column is mixed type (4,642
+Folio rows hold an array, 3 hold an object) and `jsonb_array_length` on an
+object row throws for the whole query, not just that row. The test is written
+as "never read *unguarded*" rather than "read, and guarded", so it survives the
+column not being read today and still fires the day someone reads it again.
+
+### `1600` is never shown as units
+The value appears to sit in a GHL custom field on the linked lead, keyed by an
+**opaque id with no name**:
+
+    2ICAHRTHWtVPT6rELUb8 = 1600        HtnwUTtIbLQEsBsTfXLp = "Monthly"
+    gXnY5XUvVrlDguatm3nS = "Founding Customer"
+
+The likely reading is units 1600 and period Monthly, **inferred from the values
+and never confirmed from a field name**. No table anywhere holds the mapping;
+getting it needs a `/locations/{id}/customFields` call the sync does not make.
+A test asserts 1600 appears in no payload and in no card.
+
+### Never count `lead.is_client`
+It reads **4** for Folio and one of those is a paying customer: the others are
+a test record ("jay test"), an internal contact (Liquid Lending) and someone
+whose status is still `open`. Only `subscription_client` knows who pays. Two
+tests: **no count in any payload equals 4**, and no statement references the
+column.
+
+### The two $1 card tests are excluded, and the filter is PROVISIONAL
 With them in, one payment becomes three and $1,000 becomes $1,001.
 
-**`sales_payment` has no `is_test` column.** The tests are identifiable only by
-`TEST TRANSACTION` in a free-text `notes` field, plus the fact that Whop
-anonymised their email to `…@deleted.com`. Both conditions are applied together
-(`IS_TEST` in the module, written once so the definition cannot drift) and both
-agree on the same two rows today.
+`sales_payment` has **no `is_test` column**. The tests are identifiable only by
+`TEST TRANSACTION` in free-text `notes` plus a Whop-anonymised email
+(`225faa5e0c7253c4@deleted.com`). Both conditions are applied together —
+`IS_TEST` is written once so the definition cannot drift — and both agree on the
+same two rows today. **A string match on a notes field will break the first
+time someone edits a note**, silently, in the direction of inflating revenue.
+`sales_payment` needs an `is_test` boolean; that is Jay's call.
 
-A string match on a notes field **will** break the first time someone edits a
-note, silently, and in the direction of inflating revenue. `sales_payment`
-needs an `is_test` boolean; that is Jay's call. Until then the export says so
-in its provenance block and the screen says so at the bottom.
+Neither test carries an `external_subscription_id`, so a plain join on the
+membership id excludes them whatever the toggle says. `include_test` therefore
+widens to the brand's *unattached* test rows, which is what makes it add
+exactly those two and nothing else.
 
-**Neither test carries an `external_subscription_id`** — Whop never attached
-them to a membership — so a plain join on the subscription id excludes them
-whatever the toggle says. `include_test` therefore widens to the brand's
-*unattached* test rows, which is what makes it add exactly those two and
-nothing else. A test asserts the count is 3 with it on and 1 with it off.
+### The monthly total is the plain sum, and says when that is an assumption
+`monthly_subscription` is `sum(subscription_amount)`, which is what "total
+monthly subscription" means. `mrr` (normalised by `billing_period`) is also
+returned and the two are **equal today** — they can only diverge once a period
+is recorded as something other than monthly, which is what `non_monthly` is
+for: the card's sub-line then says the total is not a monthly figure instead of
+labelling an annual amount "monthly".
 
-### NEVER count `lead.is_client`
-It reads **4** for Folio and exactly one of those is a paying customer: the
-others are a test record ("jay test"), an internal row (Liquid Lending) and a
-lead flagged while its status is still `open`. The flag drifted in earlier
-sessions.
+Never from summing `sales_payment`: two of three rows are $1 tests, and a sum
+conflates a renewal with an annual prepayment. A test asserts the MRR statement
+does not read that table at all, and that no summary field equals 1001 or 2002.
 
-`subscription_client` is the only trustworthy subscriber count, and the funnel
-payload carries `paying_source` naming it so the screen can say where the
-number came from. Two tests: **no count in any payload may equal 4**, and no
-statement may reference `is_client`.
-
-### MRR is $1,000 with "assumed monthly" NEXT TO IT
-Derived from `subscription_client.subscription_amount`, normalised by
-`billing_period` — never by summing `sales_payment`, where two of three rows
-are $1 tests and a sum would conflate a monthly renewal with an annual
-prepayment. A test asserts the MRR statement does not read `sales_payment` at
-all, and that no summary field equals 1001 or 2002.
-
-`coalesce(billing_period, 'monthly')` is **a stated assumption, not a fact**:
-the column is NULL on the only subscriber, and $1,000 a month against $1,000 a
-year is a twelvefold difference. The server returns the sentence
-(`mrr_assumption`: "billing_period not set on 1 of 1 active subscriber; assumed
-monthly") and the UI prints it, so the screen cannot state a different
-assumption from the API.
-
-**Note the contradiction to settle:** `sales_payment.notes` on the real payment
+**A contradiction still to settle:** `sales_payment.notes` on the real payment
 says *"BILLING PERIOD CONFIRMED MONTHLY from GHL custom field
-HtnwUTtIbLQEsBsTfXLp"*. The spec says the mapping is inferred and not
-confirmed. Both cannot be right, and a free-text note is not a column — the fix
-is to populate `subscription_client.billing_period`, at which point the
-assumption chip disappears on its own.
+HtnwUTtIbLQEsBsTfXLp"*, while the spec says the mapping is inferred and not
+confirmed. A free-text note is not a column — the fix either way is to populate
+`subscription_client.billing_period`, at which point the caveat disappears on
+its own.
 
-### Units, Plan and Billing period read "Not set"
-All three are NULL on the only subscriber. The values appear to sit in GHL
-custom fields on the linked lead, keyed by **opaque ids with no names**:
+### Payment history, on row expand
+Gross, fee and net as three columns. Whop's cut is **4%** ($40.37 on the one
+real payment) and it is the difference between what the customer paid and what
+landed; one figure alone invites the other question.
 
-    2ICAHRTHWtVPT6rELUb8 = 1600            HtnwUTtIbLQEsBsTfXLp = "Monthly"
-    gXnY5XUvVrlDguatm3nS = "Founding Customer"    wXECMY9qJdHUqOVMLZTI = 1000
+`usd_total` is null until money moves, so a failed payment shows an em dash
+under Gross with "charged $1.00" beside it — never `$0.00`, which would claim
+it was free — and `totalsOf` skips it rather than coalescing. **Failed payments
+stay in the list**, greyed, with the decline reason from
+`raw->>'failure_message'`: a failed renewal is the earliest churn signal there
+is.
 
-The likely reading is units 1600, period Monthly, plan Founding Customer — and
-that is **inferred from the values, never confirmed from a field name**. There
-is no table anywhere holding the id-to-name mapping; getting it needs a call to
-`/locations/{id}/customFields` that the sync does not make.
+### Dates are sliced off the ISO string, never formatted through the viewer's timezone
+`paid_at` is a **timestamptz** and the real payment is `2026-08-17T19:06:40Z`,
+so `toLocaleDateString` on that instant renders **18 Aug 2026** for any reader
+east of UTC — including Manila, where this is read. A payment's date is a
+business fact, not a moment converted into wherever the browser happens to be,
+and the acceptance check says 17 Aug.
 
-So the API returns null with an explicit `not_set` list and a reason, and the
-cell renders a "Not set" chip whose tooltip says where the value is. A test
-asserts **1600 and "Founding Customer" appear in no payload**.
-
-**`lead.custom_fields` is MIXED TYPE** — 4,642 Folio rows hold a jsonb array
-and 3 hold an object. `jsonb_array_length` on the object rows throws, and it
-throws for the whole query rather than that row, so every read is guarded with
-`jsonb_typeof(...) = 'array'`. A test asserts the guard is in the statement.
-
-### Gross, fee and net are three columns
-Whop's cut is **4%** — $40.37 on the one real payment — and it is the difference
-between what the customer paid and what landed. One figure alone invites the
-other question.
-
-`usd_total` is null until money moves, so the failed payment shows an em dash
-under Gross with "charged $1.00" beside it, never `$0.00`, which would claim it
-was free. `totalsOf` skips it entirely rather than coalescing to zero.
-
-**Failed payments stay in the list**, greyed, with the decline reason from
-`raw->>'failure_message'`. A failed renewal is the earliest churn signal there
-is; filtering it out of sight is the one thing this panel must not do.
+Caught by rendering under `TZ=Asia/Manila`, not by review. A test asserts
+`toLocaleDateString` appears nowhere in the module.
 
 ### `transaction` has NO `company_id`
-Not an oversight to work around — the column does not exist. Folio's ledger
-rows are reached by `entity_id` (or `financial_account_id`). `q()` in the module
-**throws on any statement mentioning `transaction.company_id`**, because the
-alternative is a 42703 rendered as a 500 on a screen.
-
-The ledger line under the table is the one place the payment stream and the
-ledger are compared: 1 Whop transaction, $1,000.00 inflow, reconciling with
-collected payments. An acceptance check nobody can run from the screen is one
-nobody runs.
+Not an oversight to work around — the column does not exist. Folio's ledger rows
+are reached by `entity_id` (or `financial_account_id`), and `q()` **throws on
+any statement mentioning `transaction.company_id`**, because the alternative is
+a 42703 rendered as a 500 on a screen.
 
 **The Whop account is `account_kind = 'processor'`, deliberately not `bank`.**
 That is what keeps Folio revenue out of `v_cash_by_entity_quarter` and
-`v_debt_by_account_quarter`, so it can never contaminate the property cash and
-debt dashboards. Verified still true: Q2 2026 cash reads $5,073,105.35 across
-160 accounts. **Do not "fix" that account kind.**
+`v_debt_by_account_quarter`. Verified still true: Q2 2026 cash reads
+$5,073,105.35 across 160 accounts. **Do not "fix" that account kind.**
 
     Whop (Folio Excel)   b8e55fa7-8967-4bea-9b71-57c5498136ff
     Whop (Leadli)        fdefb5bc-e511-4688-bfc0-c8e20b7f52da
     Subscription Revenue 8999bd8d-d05f-4a9b-b9ab-2ef94ef8c141   income
 
-### The business name comes from `subscription_client.company`
+### The business name is `subscription_client.company`
 GHL-sourced and authoritative: **J & M Property Management, Inc.**
 `sales_payment.customer_name` is Whop's billing-address version — *"J & M Real
 Estate and Property Management Brandi"* — and must never be shown as the
 business. A test asserts that string reaches no subscriber payload.
 
 That name is also why every filter uses **repeated array params**
-(`status[]=a&status[]=b`) and never a comma list, and why one export test
-asserts `"J & M Property Management, Inc."` comes back quoted rather than split
-across two columns.
+(`status[]=a&status[]=b`) and never a comma list, and why an export test asserts
+`"J & M Property Management, Inc."` comes back quoted rather than split across
+two columns.
 
-### The funnel is 4,645 → 8 → 1, and the 8 is COMPUTED
-The one panel with real volume behind it, and the reason to build the page now
-rather than when there are more subscribers.
-
-**The spec says "6 in pipeline" and its own stage list sums to 8**
-(Qualified 1, Demo Scheduled 1, Demo Complete 2, Closed Won 3, Onboard
-Initiated 1). The database says 8, with 4,637 carrying no stage at all. The
-figure is derived from the query every time and never written down.
-
-**No conversion percentage.** It would be computed off one customer, and the
-payload carries `conversion_note` saying exactly that. A test asserts no
-rate-shaped field is published.
-
-### Two spec details handled differently, on purpose
-- **The date range is on `paid_at`**, which lives on payments. On the
-  *subscriber* table it therefore means "has a payment in this range", and the
-  screen prints that sentence whenever a range is set — a subscriber vanishing
-  from a list of subscribers otherwise reads as a bug. `Last payment` keeps
-  showing the true latest payment, not the latest in range.
-- **`(not set)` is a selectable filter value**, matched through `coalesce`, so
-  the one subscriber stays reachable from its own Billing period and Plan
-  filters. Same rule as `(none)` under Institution on the LeavenWealth screen:
-  a value nobody can select is a row nobody can find.
-
-### Exports
-CSV, two views (`subscribers`, `payments`), the full filtered result set rather
-than the page on screen. The provenance block above the header carries the
-generated timestamp and user, the filters, **whether test payments are in the
-file**, that the test filter is provisional, and that any monthly figure
-assumes monthly. `NEVER_EXPOSE` blocks `custom_fields`, `raw` and
-`external_customer_id` — the unlabelled GHL payload would travel as
-authoritative-looking numbers, and `raw` carries a billing address and a risk
-score.
-
-Money exports as a bare number and a null gross exports **empty, not 0**, so a
-spreadsheet SUM cannot count a failed payment as a free sale.
-
-### Reports & Financials and App Users are the same module
-Three Folio screens, one module, one set of endpoints — `mount()` (Financials:
-table, funnel, export), `mountReports()` (Reports & Financials, which is also
-Folio's **Overview**) and `mountUsers()` (App Users: the same table without the
-funnel). One module because the alternative already happened: Folio reported
-`$2,369 MRR` on one screen and one subscriber at $1,000 on another, a nav click
-apart.
-
-**What Reports & Financials was.** It ran **no query at all**. MRR $2,369, ARR
-$28.4K, "Active users 4" and NRR 104% were computed from the six invented
-subscribers in a `SUBS` array, and the MRR trend charted Apr–Jul at
-2600/2900/3100/3308 — four invented months. Two tells were visible without
-reading the code:
-
-- **The bars looked identical.** `barChart` scales to the maximum, so those
-  values render at 79/88/94/100% of a 150px box: ~10px apart, which reads as
-  one placeholder shape. The only real payment is dated **17 Aug 2026**.
-- **"Active users 4"** is the same number as `lead.is_client`, which §2.2 of
-  the spec forbids counting. It was **not** that query — the page issued none
-  — it was four of six invented rows that happened to land on 4. Same remedy,
-  different diagnosis, and worth stating: the figure was not wired to anything
-  at all.
-
-**ARR and NRR were not replaced with real versions.** ARR would be MRR × 12 off
-a billing period nobody has confirmed; NRR needs a prior period to retain.
-Neither is computable, so neither is displayed. A test asserts the client
-contains no `ARR`, no retention figure, and no `* 12`.
-
-`SUBS` is deleted. App Users renders the §4.1 subscriber table instead — the
-six invented companies, 774 units billed and the "Past due 1" tile are gone.
-
-### Dates are formatted from the ISO string, never the viewer's timezone
-`longDate()` parses `YYYY-MM-DD` off the front of the value and maps the month
-itself. `paid_at` is a **timestamptz** and the real payment is
-`2026-08-17T19:06:40Z`, so `toLocaleDateString` on that instant renders
-**"18 Aug 2026" for any reader east of UTC** — including Manila, where this is
-read. A payment's date is a business fact, not a moment converted into wherever
-the browser happens to be, and the acceptance check says 17 Aug.
-
-This was caught by rendering under `TZ=Asia/Manila`, not by review. A test
-asserts `toLocaleDateString` appears nowhere in the module.
-
-### The funnel breakdown order is display-only
-`PIPELINE_ORDER` puts the stage line in funnel order (Qualified → Demo
-Scheduled → Demo Complete → Closed Won → Onboard Initiated). **No count comes
-from it.** `lead.pipeline_stage` is free text with no ordinal, so a stage the
-list does not know is **appended, never dropped** — an unknown stage is a lead
-somebody should see.
-
-### The spec says "6 in pipeline" and the answer is 8
-`FOLIO_FINANCIAL_DASHBOARD_SPEC` §1.5 says "Six have a pipeline stage" and then
-lists five stages summing to **eight**; §7 repeats the 6. The live database
-agrees with the breakdown, not the total:
+### The spec said "6 in pipeline" and the answer was 8
+Recorded because it was asserted three times and will come up again. Two spec
+revisions said "Six have a pipeline stage" and then listed five stages summing
+to **eight**; the live database agreed with the list:
 
     Closed Won 3 · Demo Complete 2 · Demo Scheduled 1 · Onboard Initiated 1 · Qualified 1
 
-Most likely the 6 is a stale count from before two leads gained a stage. The
-page therefore **computes** `staged_leads` and prints the breakdown directly
-beneath it, so the two can never disagree on screen — rendering "6 in pipeline"
-above a list that adds to 8 would be visibly self-contradictory. Raised with
-Jay twice; if 6 is right, the definition of "in pipeline" needs to say which
-stages it excludes.
+Most likely a stale count from before two leads gained a stage. It is moot on
+this page now — the funnel moved to Leads — but if it is built there, **compute
+the figure and print the breakdown beside it** rather than writing either down.
 
-### Folio still cannot reach the screen
-Its `financials` `dashboard_module` row does not exist, so the nav item cannot
+### Folio still cannot reach the Financials screen
+Its `financials` `dashboard_module` row does not exist, so that nav item cannot
 appear. See "Folio Excel has no `financials` catalog row" above and
-`migrations/20260907_folio_financials_module.sql`. **Two independent gates:**
-the module map says Folio has a screen, and the catalog says nobody can open
-it.
-
-The earlier `20260907_folio_financial_views.sql` was **deleted, not applied**:
-its `v_folio_revenue_summary` reported gross $1,001.00 because it predated the
-test-payment rule, and an unapplied migration that would publish a wrong figure
-as a database object is worse than no migration.
+`migrations/20260907_folio_financials_module.sql`. Reports & Financials and App
+Users are reachable — they already had catalog rows.
 
 ### Tests
-    node test/test-folio-financials.js   # 46 checks, no database needed
+    node test/test-folio-financials.js   # 61 checks, no database needed
 
 Mutation-tested: removing the test-payment default from `paymentWhere` fails
-three of them.
+three of them. Several checks read the front-end SOURCE rather than a payload,
+because "no chart" and "no delta" are properties of the screen that no API
+response can enforce — and those checks strip comments first, or they read the
+prose explaining why a thing is absent and conclude it is present.
 
 ## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing
 
@@ -1591,8 +1541,8 @@ is worth pinning is that a live grant cannot put a removed item back, and that
 a stale `#brand=folio&view=plans` link degrades to Overview rather than
 blanking the page.
 
-Folio's real billing lives on **Financials** — see "Folio Excel financials"
-above.
+Folio's real billing lives on **Reports & Financials** and **App Users** — see
+"Folio Excel: Reports & Financials, App Users, and Whop billing" above.
 
 ## Railway variables: what belongs, and what takes the app down
 
@@ -1917,7 +1867,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
-    node test/test-folio-financials.js # Folio: test payments, is_client, no tiles or invented metrics
+    node test/test-folio-financials.js # Folio: test payments, is_client, no invented metrics
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability

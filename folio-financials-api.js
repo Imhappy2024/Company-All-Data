@@ -6,14 +6,23 @@
    ---------------------------------------------------------------------------
    FOLIO HAS EXACTLY ONE PAYING CUSTOMER. THAT IS THE WHOLE DESIGN.
 
-   Not a placeholder and not a filter artefact — one. So there are NO KPI
-   TILES and no trend anywhere in this feature: one customer and one month of
-   payment history cannot support a MoM figure, and rendering a real number in
-   a shape that implies a trend is the same mistake as the invented $2,369 MRR
-   this replaces, just with better inputs.
+   Not a placeholder and not a filter artefact — one. So no figure this API
+   serves is period-over-period, and there is nothing to draw a trend from:
+   one customer and one month of payment history cannot support a MoM figure,
+   and putting a real number into a shape that implies one is the same mistake
+   as the invented $2,369 MRR this replaces, with better inputs.
 
-   What ships is the subscriber table, the payment history under it, and the
-   funnel — which is the one panel with real volume behind it.
+   What it serves: the three card figures (/summary), the subscriber table
+   (/subscribers), the payment history under a row
+   (/subscribers/:id/payments), and a CSV export (/export).
+
+   /funnel is GONE. Pipeline stages and lead counts are CRM data and belong on
+   the Leads page; the query is preserved in a comment where the route was.
+
+   EVERY FIGURE THAT CANNOT BE COMPUTED IS RETURNED AS NULL, NEVER AS 0, so the
+   screen can say "Not set". `units_managed` is the live case: nobody has
+   recorded a unit count, which is a different statement from "they manage
+   none", and a 0 here would make the wrong one.
 
    ---------------------------------------------------------------------------
    WHY THIS IS A SEPARATE MODULE AND NOT A BRAND FILTER ON financials-api.js
@@ -102,25 +111,29 @@ const IS_TEST = `(sp.notes ilike '%TEST TRANSACTION%' or sp.customer_email like 
    name and is authoritative — sales_payment.customer_name is the messy Whop
    billing-address version ("J & M Real Estate and Property Management Brandi")
    and must never be shown as the business. */
+/* NO JOIN TO `lead`. The table needs nothing from it - `lead_id` is a column
+   on subscription_client and is all the business-name link requires - and
+   pipeline stages are CRM data that must not appear on a financial page.
+
+   The join used to be here for `pipeline_stage` and a count of the lead's GHL
+   custom fields. Both are gone with the funnel. If anything ever does read
+   `lead.custom_fields` again it MUST be guarded with
+   `jsonb_typeof(custom_fields) = 'array'`: the column is mixed type (4,642
+   Folio rows hold an array, 3 hold an object) and jsonb_array_length on an
+   object row throws for the whole query, not just that row. A test asserts
+   the column is never read unguarded. */
 const SUBS_SQL = `
   select sc.id, sc.company, sc.name, sc.email, sc.phone,
          sc.number_of_units, sc.subscription_plan_id, sc.subscription_amount,
          sc.currency, sc.billing_period, sc.status, sc.payment_status,
          sc.start_date, sc.provider, sc.external_subscription_id,
-         sc.next_billing_date, sc.cancelled_at,
-         l.id as lead_id, l.pipeline_stage, l.company_name as lead_company,
-         /* Guarded: lead.custom_fields is MIXED TYPE — 4,642 Folio rows hold a
-            jsonb array and 3 hold an object. jsonb_array_elements on the
-            object rows throws, so the type test is not optional. */
-         case when jsonb_typeof(l.custom_fields) = 'array'
-              then jsonb_array_length(l.custom_fields) else 0 end as ghl_field_count,
+         sc.next_billing_date, sc.cancelled_at, sc.lead_id,
          (select max(sp.paid_at) from public.sales_payment sp
            where sp.provider = sc.provider
              and sp.external_subscription_id = sc.external_subscription_id
              and sp.status = 'paid'
              and not ${IS_TEST}) as last_payment_at
     from public.subscription_client sc
-    left join public.lead l on l.id = sc.lead_id
    where sc.tenant_id = $1 and sc.business_entity_id = $2::uuid`;
 
 /* ---- payments ------------------------------------------------------------ */
@@ -244,6 +257,23 @@ const MRR_SQL = `
              else sc.subscription_amount
            end), 0) as mrr,
          count(*) filter (where sc.billing_period is null)::int as period_unknown,
+         count(*) filter (where lower(sc.billing_period) not in ('monthly'))::int as non_monthly,
+         /* "Total monthly subscription" on the card is the PLAIN sum, which is
+            what the spec asks for. It only differs from the mrr figure above
+            once a billing_period is recorded as something other than monthly,
+            and non_monthly is what lets the screen say so instead of
+            labelling an annual amount "monthly".
+
+            (No backticks in this comment: it sits inside a template literal,
+            and one would end the SQL string mid-query.) */
+         sum(sc.subscription_amount) as monthly_subscription,
+         /* NULL when NO active row carries a unit count, which is the case
+            today. The card must read "Not set" rather than 0: nobody has said
+            this business manages zero units. units_known is what lets a
+            partial total admit the gap ("from 1 of 3 subscribers") instead of
+            quietly under-reporting. */
+         sum(sc.number_of_units)   as units_managed,
+         count(sc.number_of_units)::int as units_known,
          min(sc.currency) as currency,
          count(distinct sc.currency)::int as currencies
     from public.subscription_client sc
@@ -334,6 +364,13 @@ function folioFinancialsRoutes() {
         mrr_assumption: assumption,
         /* So the UI never has to infer whether the caveat applies. */
         mrr_assumed: m.period_unknown > 0,
+        /* The three card figures. `units_managed` stays NULL rather than
+           becoming 0 — the card renders "Not set" off exactly that. */
+        monthly_subscription: num(m.monthly_subscription),
+        units_managed: num(m.units_managed),
+        units_known: m.units_known,
+        period_unknown: m.period_unknown,
+        non_monthly: m.non_monthly,
         currency: m.currencies > 1 ? 'mixed' : (m.currency || 'USD'),
         as_of: new Date().toISOString(),
         /* Stated, not implied: `months` is COUNTED, so "no trend" is a fact
@@ -455,38 +492,20 @@ function folioFinancialsRoutes() {
     } catch (err) { fail(res, err); }
   });
 
-  /* ---- funnel ----------------------------------------------------------
-     The panel with real volume behind it, and the reason to build this page
-     now rather than when there are more subscribers. No conversion rate is
-     computed: a percentage off one customer is noise wearing a decimal
-     point. */
-  r.get('/funnel', async (req, res) => {
-    try {
-      const stages = await q(
-        `select coalesce(l.pipeline_stage, 'No stage') as stage, count(*)::int as leads
-           from public.lead l
-          where l.tenant_id = $1 and l.company_id = $2::uuid
-          group by 1 order by 2 desc, 1`, C());
+  /* The funnel was here and is GONE, by instruction: pipeline stages and lead
+     counts are CRM data and belong on the Leads page, not on a financial one.
+     The query it ran, if it is wanted there:
 
-      const total = stages.reduce((a, s) => a + s.leads, 0);
-      const staged = stages.filter(s => s.stage !== 'No stage');
+       select coalesce(pipeline_stage, 'No stage') as stage, count(*) as leads
+         from public.lead
+        where tenant_id = $1 and company_id = $2::uuid
+        group by 1 order by 2 desc, 1;
 
-      const [m] = await q(MRR_SQL, T());
-
-      res.json({
-        total_leads: total,
-        no_stage: (stages.find(s => s.stage === 'No stage') || { leads: 0 }).leads,
-        /* Computed, never a constant: the spec said "6 staged" and its own
-           breakdown listed 8. The data says 8. */
-        staged_leads: staged.reduce((a, s) => a + s.leads, 0),
-        stages: staged,
-        paying: m.active_subscribers,
-        /* NOT lead.is_client, which reads 4 and is wrong three times over. */
-        paying_source: 'subscription_client where status = active',
-        conversion_note: 'No conversion rate is shown: it would be computed off one customer.',
-      });
-    } catch (err) { fail(res, err); }
-  });
+     Two things that cost time to establish and should not be re-derived:
+     Folio has 4,645 leads with 4,637 carrying NO stage, and the eight staged
+     ones are Closed Won 3, Demo Complete 2, Demo Scheduled 1, Onboard
+     Initiated 1, Qualified 1. Any "paying" figure beside them comes from
+     subscription_client, never from lead.is_client, which reads 4. */
 
   /* ---- export ---------------------------------------------------------- */
   r.get('/export', async (req, res) => {
@@ -566,8 +585,6 @@ function shapeSubscriber(r) {
     provider: r.provider,
     external_subscription_id: r.external_subscription_id,
     lead_id: r.lead_id,
-    pipeline_stage: r.pipeline_stage,
-    ghl_field_count: r.ghl_field_count,
     not_set: notSet,
     not_set_reason: notSet.length
       ? 'Held in GHL custom fields on the linked lead, which are keyed by opaque '
