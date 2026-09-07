@@ -499,7 +499,7 @@ const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
 
    A brand absent here gets the placeholder. Add one the day its own view
    ships, naming the module that serves it. */
-const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw', folio:'folio'};
+const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw'};
 
 /* ===========================================================================
    PERMISSION GATE. Everything below reads the single dash_my_access() payload
@@ -622,7 +622,7 @@ const MENUS={
   all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
   leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
   leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
   liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
 };
 
@@ -997,7 +997,6 @@ const V={
      mounted into it by render(); a brand without one gets a placeholder that
      names what is missing rather than borrowing LeavenWealth's figures. */
   financials(){
-    if (FINANCIALS_BUILT[brand]==='folio') return '<div id="folioFinNative"></div>';
     if (FINANCIALS_BUILT[brand]) return '<div id="financialsNative"></div>';
     const b=BRANDS[brand];
     return `<div class="placeholder">${I.dollar}
@@ -1414,6 +1413,8 @@ function render(){
   /* Folio's Reports & Financials, which is also its Overview. Like the built
      Financials screen it renders its own header, so the generic one is
      suppressed - one screen carries one title. */
+  /* `reports` is Folio's Financials screen - see the mount below for why the
+     id and the label differ. */
   const folioReports = brand==='folio' && (view==='reports' || view==='overview');
   const folioUsers = brand==='folio' && view==='subscribers';
   const info=embed?embedInfo():null;
@@ -1449,21 +1450,23 @@ function render(){
     PortalGHL.mount(document.getElementById('ghlNative'),
                     {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
   }
-  /* Folio's Reports & Financials, and its Overview, which renders the same
-     view. Same module as the Financials table, so the two screens read the
-     same endpoints and cannot show different money for one brand. */
+  /* Folio's Financials, and its Overview, which renders the same view.
+
+     The nav id is `reports` and the LABEL is "Financials": Folio has exactly
+     one Financials item, and `reports` is the id that can carry it because it
+     is the one with a `dashboard_module` row. Folio has no `financials` row
+     (verified live), so an item on that id could never appear - which is why
+     the duplicate entry was removed from Folio's menu rather than this one. */
   if(brand==='folio' && (view==='reports' || view==='overview') && window.PortalFolioFin){
     PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
   }
-  /* App Users is the subscriber table, from the same module and the same
-     endpoint - so it cannot disagree with Reports about how many there are. */
+  /* App Users is the same table without the cards, from the same module and
+     the same endpoint - so it cannot disagree with Financials about how many
+     subscribers there are. */
   if(brand==='folio' && view==='subscribers' && window.PortalFolioFin){
     PortalFolioFin.mountUsers(document.getElementById('folioUsersNative'));
   }
-  if(view==='financials' && FINANCIALS_BUILT[brand]==='folio' && window.PortalFolioFin){
-    PortalFolioFin.mount(document.getElementById('folioFinNative'));
-  }
-  else if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
+  if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
   if(view==='properties' && window.PortalProperties){

@@ -1094,10 +1094,13 @@ comes from a `dashboard_module` row. Verified 2026-09-07: `financials` exists
 for exec, LeavenWealth, Leadli AI and Liquid Lending — and **not for Folio
 Excel**, which never had the item so was never seeded.
 
-`migrations/20260907_folio_financials_module.sql` adds it (additive, reversible,
-sort 85 between Folio's `tools` and `documents`). **`migrations/` is
-review-only here and is not applied automatically**, so Folio's item stays
-invisible until someone runs it.
+**That is no longer a gap to close.** Folio's one Financials item sits on the
+`reports` nav id instead — the id it actually has a row for — so the screen is
+reachable today with no migration. The migration that would have added a
+`financials` row was deleted: with no `financials` entry in Folio's menu, the
+row would grant access to nothing.
+
+See "One Financials item per brand" below.
 
 This was found by a test, not by reading: the per-brand loop passed for Leadli
 and Liquid and failed for Folio, and the difference was in the catalog rather
@@ -1248,14 +1251,14 @@ Three screens, **one module, one set of endpoints**:
 
 | Screen | Mount | What it shows |
 |---|---|---|
-| Reports & Financials (also Folio's **Overview**) | `mountReports()` | three cards, one table |
+| **Financials** (nav id `reports`; also Folio's **Overview**) | `mountReports()` | three cards, one table |
 | App Users | `mountUsers()` | the same table, no cards |
-| Financials | `mount()` | the wider table with filters + CSV export |
+| *(unrouted)* | `mount()` | the wider table with filters + CSV export |
 
 One module because the alternative already happened: Folio reported **$2,369
 MRR** on App Users and one subscriber at **$1,000** on Reports, a nav click
-apart. Financials is still unreachable — Folio has no `financials`
-`dashboard_module` row (see below).
+apart. The third screen is routed from nowhere — see "One Financials item per
+brand" below.
 
 Built to `FOLIO_FINANCIAL_DASHBOARD_SPEC`, which arrived in **three revisions**
 on 2026-09-07. Where they disagree, the last one wins and this section
@@ -1476,11 +1479,36 @@ Most likely a stale count from before two leads gained a stage. It is moot on
 this page now — the funnel moved to Leads — but if it is built there, **compute
 the figure and print the breakdown beside it** rather than writing either down.
 
-### Folio still cannot reach the Financials screen
-Its `financials` `dashboard_module` row does not exist, so that nav item cannot
-appear. See "Folio Excel has no `financials` catalog row" above and
-`migrations/20260907_folio_financials_module.sql`. Reports & Financials and App
-Users are reachable — they already had catalog rows.
+### One Financials item per brand — and Folio's id is `reports`
+Folio used to carry two entries: `reports` labelled "Reports & Financials" and
+`financials` labelled "Financials". Only the first could ever appear, because
+**Folio has a `reports` dashboard_module row and no `financials` one** (verified
+live, not inferred). So by instruction the menu collapsed to one item, and the
+label moved onto the id that works:
+
+| brand | nav id | label |
+|---|---|---|
+| Executive Board, LeavenWealth, Leadli AI, Liquid Lending | `financials` | Financials |
+| **Folio Excel** | **`reports`** | **Financials** |
+
+**The id and the label differ for this one brand, and that is deliberate.**
+Pointing Folio's menu at `financials` to make it symmetrical makes the screen
+disappear — that id has no grant. `test-portal-nav.js` pins both halves: every
+brand shows exactly one item matching /financial/i, and Folio's resolves on
+`reports` while `view=financials` degrades to Overview.
+
+`FINANCIALS_BUILT` no longer has a `folio` key, so `V.financials()` and the
+`mount()` branch behind it are gone from portal.html. **That leaves
+`PortalFolioFin.mount()` — the wider table with filters and CSV export —
+routed from nowhere.** It is kept because `/export` is live and tested and
+reaching it again is one nav entry, and it is marked UNROUTED in the module
+header. If it is still unrouted next time someone reads this, delete it.
+
+`migrations/20260907_folio_financials_label.sql` renames the catalog label to
+match, for the one place that renders it rather than the MENUS map: Users &
+Roles prints `m.label` when listing what can be granted, so until it is applied
+an admin sees "Reports & Financials" beside a nav that says "Financials". The
+nav is correct either way.
 
 ### `relation "s" does not exist` — and why 61 green tests missed it
 The filter-options query was five scalar subqueries in the select list, each

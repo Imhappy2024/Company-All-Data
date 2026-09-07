@@ -1,17 +1,28 @@
-/* Folio Excel — Reports & Financials, App Users, and the Financials export
-   screen. Whop subscription billing.
+/* Folio Excel — Financials and App Users. Whop subscription billing.
 
-   Reads /api/folio/financials. Three screens, ONE module, one set of
-   endpoints, so Folio cannot report one figure for its money on one screen and
-   a different one next door. That is not hypothetical — it is what was here:
-   App Users showed "$2,369 MRR · +8% MoM" from six invented subscribers while
-   the real answer was one subscriber at $1,000.
+   Reads /api/folio/financials. One module, one set of endpoints, so Folio
+   cannot report one figure for its money on one screen and a different one
+   next door. That is not hypothetical — it is what was here: App Users showed
+   "$2,369 MRR · +8% MoM" from six invented subscribers while the real answer
+   was one subscriber at $1,000.
 
-     mountReports()  Reports & Financials, and Folio's Overview:
-                     three cards and one table. Nothing else.
+     mountReports()  FINANCIALS, and Folio's Overview, which renders the same
+                     view: three cards and one table. Nothing else.
+                     The nav id behind it is `reports` and the label is
+                     "Financials" — Folio has exactly ONE Financials item, and
+                     `reports` is the id that can carry it because it is the
+                     one with a dashboard_module row. Folio has no
+                     `financials` row (verified live 2026-09-07), so an item on
+                     that id could never appear.
      mountUsers()    App Users: the same table without the cards.
-     mount()         Financials: the wider table with filters and CSV export.
-                     Still unreachable — Folio has no `financials` catalog row.
+     mount()         The wider table with filters and CSV export.
+                     *** NOTHING ROUTES TO THIS TODAY. *** It was the screen
+                     for Folio's `financials` nav id, which was removed when
+                     the menu collapsed to one Financials item. It is kept
+                     because the /export endpoint behind it is live and
+                     tested, and reaching it again is one nav entry. If it is
+                     still unrouted next time someone reads this, delete it
+                     rather than leaving a screen nobody can open.
 
    ---------------------------------------------------------------------------
    EVERY NUMBER COMES FROM A QUERY. IF IT CANNOT BE COMPUTED IT SAYS "Not set".
@@ -221,7 +232,10 @@ window.PortalFolioFin = (function () {
          It keeps the wider table because that is what an export view is for,
          and it is the one Folio screen still unreachable (no dashboard_module
          row), so it cannot contradict anything on screen today. */
-      if (S.mode === 'subscribers') return subscriberCard();
+      if (S.mode === 'subscribers') {
+        return screenHead('App Users', 'Folio Excel &middot; who is subscribed') +
+          subscriberCard();
+      }
       return header() + filters() + subscriberTable();
     });
   }
@@ -269,8 +283,20 @@ window.PortalFolioFin = (function () {
   function reportsView() {
     return shell(function () {
       var s = S.summary;
-      return cards(s) + subscriberCard();
+      return screenHead('Financials', 'Folio Excel &middot; Whop subscription billing') +
+        cards(s) + subscriberCard();
     });
+  }
+
+  /* The screen names itself, because portal.html suppresses its generic
+     `page-h` for this view. That suppression is deliberate: the generic header
+     also renders a "New" button wherever the caller can write, and this
+     feature cannot write anything at all. */
+  function screenHead(title, sub) {
+    return '<div class="fin-head"><div>' +
+      '<h1 class="fin-title">' + esc(title) + '</h1>' +
+      '<p class="fin-sub">' + sub + '</p>' +
+      '</div></div>';
   }
 
   function cards(s) {
@@ -811,6 +837,7 @@ window.PortalFolioFin = (function () {
   }
 
   /* ---- mount ------------------------------------------------------------ */
+  /* UNROUTED — see the header. Kept for the CSV export, which is live. */
   function mount(el) { return mountAs('financials', el, 'folioFinNative'); }
 
   /* Folio's Reports & Financials screen, and its Overview, which renders the

@@ -128,13 +128,14 @@ function ptask(id, name, status, sync) {
           'insurance', 'tasks', 'leads', 'team', 'departments', 'tools', 'financials', 'documents']),
         'c0000000-0000-4000-8000-000000000001': w(['overview', 'leads', 'appointments', 'ads',
           'tasks', 'team', 'departments', 'tools', 'financials', 'documents']),
-        /* Folio has NO 'financials' here, and that mirrors the live catalog
-           rather than being an oversight: dashboard_module carries a financials
-           row for exec, LeavenWealth, Leadli and Liquid but not for Folio
-           (verified 2026-09-07). Adding it here to make a check pass would hide
-           the gap the check exists to show.
-           migrations/20260907_folio_financials_module.sql adds the row; add it
-           to this list in the same commit that applies it. */
+        /* Folio has NO 'financials' here, and that mirrors the live catalog:
+           dashboard_module carries a financials row for exec, LeavenWealth,
+           Leadli and Liquid but not for Folio (verified 2026-09-07).
+
+           That is no longer a gap to close - it is why Folio's one Financials
+           item sits on the `reports` nav id, which IS granted. Do not add
+           'financials' here to make something pass; it would grant a nav id
+           Folio's menu no longer carries. */
         'c0000000-0000-4000-8000-000000000002': w(['overview', 'subscribers', 'plans', 'reports',
           'tasks', 'leads', 'team', 'departments', 'tools', 'documents']),
         'c0000000-0000-4000-8000-000000000004': w(['overview', 'pipeline', 'borrowers', 'tasks',
@@ -225,18 +226,34 @@ function ptask(id, name, status, sync) {
       /\$[\d,]/.test(await page.locator('#content').textContent()), false);
   }
 
-  /* Folio HAS a screen now — its own, reading Whop billing rather than
-     LeavenWealth's cash and debt — but it still cannot be reached, because its
-     `financials` dashboard_module row does not exist. Two independent gates,
-     and this asserts the second one.
+  /* EVERY BRAND HAS EXACTLY ONE FINANCIALS ITEM, AND IT IS CALLED "Financials".
 
-     Applying migrations/20260907_folio_financials_module.sql flips this and the
-     check fails, which is the reminder that Folio now needs its own assertions
-     rather than the placeholder loop. */
+     Folio had two: `reports` labelled "Reports & Financials" and `financials`
+     labelled "Financials". Only the first could ever appear — verified live,
+     Folio has a `reports` dashboard_module row and no `financials` one — so
+     the label moved onto `reports` and the dead entry was deleted, which
+     needs no migration.
+
+     The id and the label therefore differ for this one brand, and that is
+     the thing worth pinning: a future reader who "fixes" the id by pointing
+     the menu at `financials` makes the screen disappear for Folio. */
+  for (const b of ['leavenwealth', 'leadli', 'folio', 'liquid']) {
+    await page.evaluate((brand) => setBrand(brand), b);
+    const labels = await page.$$eval('#nav .nav-item span:first-of-type',
+      els => els.map(e => e.textContent.trim()));
+    check(b + ' has exactly one Financials item',
+      labels.filter(l => /financial/i.test(l)), ['Financials']);
+  }
+
+  /* And Folio's is the `reports` id, so a stale link to it still resolves
+     while a link to `financials` degrades rather than blanking. */
+  await page.evaluate(() => { setBrand('folio'); setView('reports'); });
+  check('Folio Financials is the reports id',
+    await page.evaluate(() => [brand, view]), ['folio', 'reports']);
   await page.evaluate(() => { setBrand('folio'); setView('financials'); });
-  check('Folio cannot reach Financials until its catalog row exists',
-    await page.locator('#folioFinNative').count(), 0);
-  check('and it does not fall through to the LeavenWealth screen either',
+  check('and folio has no financials view to fall into',
+    await page.evaluate(() => [brand, view]), ['folio', 'overview']);
+  check('so it cannot borrow the LeavenWealth screen',
     await page.locator('#financialsNative').count(), 0);
 
   /* Plans & Pricing was removed from Folio on 2026-09-07, along with the
