@@ -51,6 +51,10 @@
 window.PortalGHL = (function () {
 'use strict';
 
+/* What the server says this brand holds, as opposed to what the capped list
+   has loaded. Null until the first read answers. */
+let LEAD_TOTAL = null;
+
 /* The brand, set by mount(). Read by scopeUrl on every request. */
 let SCOPE_COMPANY = null;
 let SCOPE_BRAND = '';
@@ -405,15 +409,10 @@ function drawLeadSearch(){
 /* ---------- submenu ---------- */
 let ldSubEl = null;
 function mountLeadSubnav(){
-  const stages = document.getElementById('ld-stages');
-  if (!stages) return;
-  /* Rebuilt on every mount, so a re-entry cannot leave two of them. */
-  const old = document.getElementById('ld-subnav');
-  if (old) old.remove();
-  ldSubEl = document.createElement('div');
-  ldSubEl.className = 'subnav';
-  ldSubEl.id = 'ld-subnav';
-  stages.before(ldSubEl);
+  /* No sub-account selector here — see the note in tools/build-ghl.cjs. The
+     brand is the scope and it is already chosen. ldSubEl stays null, which
+     makes drawLeadSubnav return on its first line. */
+  ldSubEl = null;
 }
 
 function drawLeadSubnav(){
@@ -542,13 +541,33 @@ function emptyPipeline(){
 }
 
 
+/* The sub-account's own lead count, not the length of the capped list. Both
+   the header and the list counter read this, so there is one definition of
+   "how many leads does this brand have". */
+function brandTotal(){
+  /* The SERVER's count, when it has sent one. Summing ghl_location.lead_count
+     is location-scoped and cannot see the leads that carry a brand but no
+     location — Liquid Lending would read "0 leads" above eight of them. Falls
+     back to the location sum, then to what is actually held. */
+  if (LEAD_TOTAL !== null) return LEAD_TOTAL;
+  const byLocation = LOCATIONS.reduce((n, l) => n + (l.leads || 0), 0);
+  return byLocation || LEADS.length;
+}
+
 function drawLeadList(){
   const rows = ldVisible().sort((a, b) => b.sortKey - a.sortKey);
   const el = document.getElementById('ld-list');
   const searching = LD.q.trim().length >= 2;
+  /* "400 of 2,538" when the list is capped, plain "400 leads" when it holds
+     everything. A search says matches and nothing else: the term already
+     explains why the number is smaller. */
+  const held = brandTotal();
   document.getElementById('ld-listcount').textContent =
-    rows.length + (searching ? (rows.length === 1 ? ' match' : ' matches')
-      : (rows.length === 1 ? ' lead' : ' leads'));
+    searching
+      ? rows.length + (rows.length === 1 ? ' match' : ' matches')
+      : (held > LEADS.length && LD.stage === 'all'
+          ? rows.length.toLocaleString() + ' of ' + held.toLocaleString() + ' leads'
+          : rows.length.toLocaleString() + (rows.length === 1 ? ' lead' : ' leads'));
   document.getElementById('ld-listtitle').textContent =
     searching ? 'Search' : LD.stage === 'all' ? 'All stages' : LD.stage;
   drawLeadSearch();
@@ -844,6 +863,7 @@ function drawLeadDetail(){
       + '<span class="ldval"><b>' + (l.hasOpportunity === false ? '—' : money(l.value))
       + '</b><small>' + (l.hasOpportunity === false ? 'No opportunity' : 'Opportunity')
       + '</small></span>'
+      + '<button class="ldclose" data-lact="close" title="Close" aria-label="Close">&times;</button>'
     + '</div>'
     + '<div class="ldacts">'
       /* A stage belongs to an opportunity, not to a person. Most leads are
@@ -903,7 +923,7 @@ function drawLeadDetail(){
       }
 
       const ch = (CHANNELS.find(c => c.k === m.channel) || {}).label || m.channel;
-      const tail = m.failed ? ' \u00b7 not sent'
+      const tail = m.failed ? ' \u00b7 not sent' + (m.error ? ' \u00b7 ' + escL(m.error) : '')
                  : m.pending ? ' \u00b7 sending\u2026'
                  : m._unconf ? ' \u00b7 not yet reconciled'
                  : (m.dir === 'out' ? ' \u00b7 sent' : ' \u00b7 received');
@@ -1103,6 +1123,8 @@ function drawLeadDetail(){
            the text is still there to retry. */
         optimistic.pending = false;
         optimistic.failed = true;
+        /* Carried on the bubble as well as the banner, for the reason above. */
+        optimistic.error = err.message;
         l.last = wasLast; l.sortKey = wasKey;
         banner('Not sent: ' + err.message);
         drawLeads();
@@ -1113,6 +1135,12 @@ function drawLeadDetail(){
     /* These four used to flip their own label and flash "Saved" while doing
        nothing at all. Two of them can be made real without an endpoint; the other
        two say plainly that they are not built rather than claiming success. */
+
+    if (a === 'close') {
+      LD.sel = null;
+      drawLeads();
+      return;
+    }
 
     if (a === 'call') {
       if (!l.phone) return banner('No phone number on this contact in GHL.');
@@ -1194,8 +1222,11 @@ function drawLeadHeader(){
   } else {
     el.innerHTML = '<span class="d"></span>Reading Supabase';
   }
+  /* The brand, not "All locations". There is one sub-account per brand and the
+     switcher already chose it, so the roll-up label described a choice nobody
+     was offered. Falls back to the sub-account's own name, then to Leads. */
   document.getElementById('ld-title').textContent =
-    LD.loc === 'all' ? 'All locations' : (locById(LD.loc) || {}).name || 'Leads';
+    SCOPE_BRAND || (LOCATIONS[0] && LOCATIONS[0].name) || 'Leads';
   const pool = LEADS.filter(l => LD.loc === 'all' || l.loc === LD.loc);
   /* Open by GHL's status, not by a stage name \u2014 "Closed Won" sits at status open
      in this data, so the label and the fact disagree. */
@@ -1205,9 +1236,10 @@ function drawLeadHeader(){
      list is every contact. Counting them separately stops \u20b10 reading as a broken
      integration when it just means nobody has been put into a pipeline. */
   const inPipeline = pool.filter(l => l.hasOpportunity);
-  /* The location's own total, not the length of a capped list. */
+  /* The location's own total, not the length of a capped list. Shared with the
+     list counter through brandTotal() so the two agree. */
   const totalLeads = LD.loc === 'all'
-    ? LOCATIONS.reduce((n, l) => n + (l.leads || 0), 0)
+    ? brandTotal()
     : (locById(LD.loc) || {}).leads || pool.length;
 
   document.getElementById('ld-sub').textContent = LOCATIONS.length
@@ -1451,6 +1483,11 @@ async function load(){
     if (leads.status === 'fulfilled' && leads.value) {
       if (leads.value.delta) mergeLeads(leads.value.leads || []);
       else LEADS = leads.value.leads || [];
+      /* A delta carries only what changed, so its count is not the brand's
+         total and must not overwrite one. */
+      if (!leads.value.delta && typeof leads.value.total === 'number') {
+        LEAD_TOTAL = leads.value.total;
+      }
       advanceCursor(leads.value);
       saveLeadsCache();
     }
@@ -1566,6 +1603,7 @@ function mount(el, opts){
     GHL_ERR = null;
     INGEST = null;
     LD.sel = null; LD.loc = 'all'; LD.stage = 'all'; LD.q = '';
+    LEAD_TOTAL = null;
     ldSubEl = null;
   }
 

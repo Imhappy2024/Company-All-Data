@@ -311,9 +311,17 @@ async function leadRows(ids, limit, { since = null, contactId = null, search = n
   return rows;
 }
 
-async function leadTotal(ids){
+/* Counts exactly what leadRows() would return without a limit, including the
+   company-only leads that carry a brand but no ghl_location_id. Counting by
+   location alone made the header disagree with its own list — Liquid Lending
+   would have read "0 leads" above eight of them. */
+async function leadTotal(ids, companyId = null){
   const { rows } = await query(
-    `SELECT COUNT(*)::int AS contacts FROM lead WHERE ghl_location_id = ANY($1)`, [ids]);
+    `SELECT COUNT(*)::int AS contacts
+       FROM lead
+      WHERE ghl_location_id = ANY($1)
+         OR ($2::uuid IS NOT NULL AND ghl_location_id IS NULL AND company_id = $2)`,
+    [ids, companyId]);
   return Number(rows[0]?.contacts || 0);
 }
 

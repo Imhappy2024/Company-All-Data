@@ -115,12 +115,21 @@ ld = ld.replace(/const es = new EventSource\('\/api\/ghl\/events'\);/,
      note above — and portal-realtime.js drives the refresh instead. */
   const es = { close(){}, addEventListener(){}, set onerror(_){}, set onopen(_){} };`);
 
-/* The sub-account list hangs off command-center's own left nav
-   (.navitem[data-target="leads"]), which does not exist here — the portal owns
-   the nav. It moves inside the section, above the stage bar, so the location
-   selector is still there and still works. Each brand has exactly one
-   sub-account today, so it is mostly an "All locations" row; it earns its place
-   the day a brand gets a second one. */
+/* NO SUB-ACCOUNT LIST.
+
+   command-center is one dashboard over an agency's several GHL sub-accounts, so
+   it needs a selector and an "All locations" roll-up. The portal is not: the
+   workspace switcher already picked the brand, the server scopes every request
+   to that brand's company_id, and each brand resolves to exactly one
+   sub-account. The list rendered "All locations" above a single row naming the
+   same thing twice, and offered a filter whose only other option was the
+   already-selected one.
+
+   mountLeadSubnav becomes a no-op rather than being deleted, because
+   drawLeadSubnav is called from drawLeads() on every repaint and both would
+   have to be tracked down; a no-op leaves the call sites honest and the diff
+   small. LD.loc stays 'all', which is correct — within one brand, all of its
+   locations IS that brand. */
 ld = edit(ld,
 `function mountLeadSubnav(){
   const item = document.querySelector('.navitem[data-target="leads"]');
@@ -133,16 +142,121 @@ ld = edit(ld,
     b.addEventListener('click', () => { ldSubEl.hidden = b.dataset.target !== 'leads'; }));
 }`,
 `function mountLeadSubnav(){
-  const stages = document.getElementById('ld-stages');
-  if (!stages) return;
-  /* Rebuilt on every mount, so a re-entry cannot leave two of them. */
-  const old = document.getElementById('ld-subnav');
-  if (old) old.remove();
-  ldSubEl = document.createElement('div');
-  ldSubEl.className = 'subnav';
-  ldSubEl.id = 'ld-subnav';
-  stages.before(ldSubEl);
+  /* No sub-account selector here — see the note in tools/build-ghl.cjs. The
+     brand is the scope and it is already chosen. ldSubEl stays null, which
+     makes drawLeadSubnav return on its first line. */
+  ldSubEl = null;
 }`, 'mountLeadSubnav');
+
+/* The header said "All locations" for the same reason the list existed. Within
+   one brand that is just the brand's name, and naming it confirms the scope is
+   working rather than leaving the reader to trust it. */
+ld = edit(ld,
+`  document.getElementById('ld-title').textContent =
+    LD.loc === 'all' ? 'All locations' : (locById(LD.loc) || {}).name || 'Leads';`,
+`  /* The brand, not "All locations". There is one sub-account per brand and the
+     switcher already chose it, so the roll-up label described a choice nobody
+     was offered. Falls back to the sub-account's own name, then to Leads. */
+  document.getElementById('ld-title').textContent =
+    SCOPE_BRAND || (LOCATIONS[0] && LOCATIONS[0].name) || 'Leads';`, 'ld-title');
+
+/* THE TWO COUNTS ON THIS SCREEN HAVE TO AGREE, OR SAY WHY THEY DO NOT.
+
+   The header prints the sub-account's OWN total from ghl_location.lead_count —
+   2,538 for Leadli — while the list holds at most `limit` rows, 400 by
+   default. Both numbers are correct and they contradict each other on one
+   screen: "2,538 leads" above "400 leads".
+
+   The cap is deliberate and stays. It is why the search box exists at all, and
+   it searches every lead in scope rather than the page on screen — loading
+   4,643 rows to render forty would be worse. What was missing is the sentence
+   saying so, so the list counter now names both numbers and the difference
+   stops looking like a bug. */
+ld = edit(ld,
+`  document.getElementById('ld-listcount').textContent =
+    rows.length + (searching ? (rows.length === 1 ? ' match' : ' matches')
+      : (rows.length === 1 ? ' lead' : ' leads'));`,
+`  /* "400 of 2,538" when the list is capped, plain "400 leads" when it holds
+     everything. A search says matches and nothing else: the term already
+     explains why the number is smaller. */
+  const held = brandTotal();
+  document.getElementById('ld-listcount').textContent =
+    searching
+      ? rows.length + (rows.length === 1 ? ' match' : ' matches')
+      : (held > LEADS.length && LD.stage === 'all'
+          ? rows.length.toLocaleString() + ' of ' + held.toLocaleString() + ' leads'
+          : rows.length.toLocaleString() + (rows.length === 1 ? ' lead' : ' leads'));`, 'listcount');
+
+/* One definition of the brand total, used by the header and the list counter,
+   so the two can never drift apart again. */
+ld = edit(ld, `function drawLeadList(){`,
+`/* The sub-account's own lead count, not the length of the capped list. Both
+   the header and the list counter read this, so there is one definition of
+   "how many leads does this brand have". */
+function brandTotal(){
+  /* The SERVER's count, when it has sent one. Summing ghl_location.lead_count
+     is location-scoped and cannot see the leads that carry a brand but no
+     location — Liquid Lending would read "0 leads" above eight of them. Falls
+     back to the location sum, then to what is actually held. */
+  if (LEAD_TOTAL !== null) return LEAD_TOTAL;
+  const byLocation = LOCATIONS.reduce((n, l) => n + (l.leads || 0), 0);
+  return byLocation || LEADS.length;
+}
+
+function drawLeadList(){`, 'brandTotal');
+
+ld = edit(ld,
+`  /* The location's own total, not the length of a capped list. */
+  const totalLeads = LD.loc === 'all'
+    ? LOCATIONS.reduce((n, l) => n + (l.leads || 0), 0)
+    : (locById(LD.loc) || {}).leads || pool.length;`,
+`  /* The location's own total, not the length of a capped list. Shared with the
+     list counter through brandTotal() so the two agree. */
+  const totalLeads = LD.loc === 'all'
+    ? brandTotal()
+    : (locById(LD.loc) || {}).leads || pool.length;`, 'totalLeads');
+
+/* A CLOSE BUTTON ON THE READER.
+
+   command-center closes it by clicking the selected row again, which is not
+   discoverable and leaves no way out on a narrow screen where the list has
+   scrolled away. */
+ld = edit(ld,
+`      + '</small></span>'
+    + '</div>'`,
+`      + '</small></span>'
+      + '<button class="ldclose" data-lact="close" title="Close" aria-label="Close">&times;</button>'
+    + '</div>'`, 'close button');
+
+/* WHY A SEND FAILED, WHERE THE SEND WAS.
+
+   The reason already reaches banner(), which writes to #ld-banner at the TOP of
+   the section — and the composer sits at the bottom of a scrolled panel, so the
+   explanation was off screen at the exact moment it was needed. The bubble
+   already said "not sent"; it now says why. */
+ld = edit(ld,
+  "      const tail = m.failed ? ' \\u00b7 not sent'",
+  "      const tail = m.failed ? ' \\u00b7 not sent' + (m.error ? ' \\u00b7 ' + escL(m.error) : '')",
+  'bubble reason');
+
+ld = edit(ld,
+`        optimistic.pending = false;
+        optimistic.failed = true;`,
+`        optimistic.pending = false;
+        optimistic.failed = true;
+        /* Carried on the bubble as well as the banner, for the reason above. */
+        optimistic.error = err.message;`, 'carry error');
+
+/* The close button needs an action. Esc already clears LD.sel via the
+   keydown handler; this gives the same exit a visible control. */
+ld = edit(ld, "    if (a === 'call') {",
+`    if (a === 'close') {
+      LD.sel = null;
+      drawLeads();
+      return;
+    }
+
+    if (a === 'call') {`, 'close action');
 
 /* command-center prices in pesos. This portfolio is in dollars, and an
    opportunity value rendered with the wrong symbol is a wrong number. */
@@ -217,6 +331,11 @@ async function load(){
     if (leads.status === 'fulfilled' && leads.value) {
       if (leads.value.delta) mergeLeads(leads.value.leads || []);
       else LEADS = leads.value.leads || [];
+      /* A delta carries only what changed, so its count is not the brand's
+         total and must not overwrite one. */
+      if (!leads.value.delta && typeof leads.value.total === 'number') {
+        LEAD_TOTAL = leads.value.total;
+      }
       advanceCursor(leads.value);
       saveLeadsCache();
     }
@@ -294,6 +413,10 @@ const HEAD = `/* Leads (GHL) — command-center's Leads screen, transplanted.
 
 window.PortalGHL = (function () {
 'use strict';
+
+/* What the server says this brand holds, as opposed to what the capped list
+   has loaded. Null until the first read answers. */
+let LEAD_TOTAL = null;
 
 /* The brand, set by mount(). Read by scopeUrl on every request. */
 let SCOPE_COMPANY = null;
@@ -373,6 +496,7 @@ function mount(el, opts){
     GHL_ERR = null;
     INGEST = null;
     LD.sel = null; LD.loc = 'all'; LD.stage = 'all'; LD.q = '';
+    LEAD_TOTAL = null;
     ldSubEl = null;
   }
 

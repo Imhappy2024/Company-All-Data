@@ -753,3 +753,21 @@
 @keyframes hmpulse{0%{transform:scale(.86);opacity:.9}100%{transform:scale(1.35);opacity:0}}
 
 @keyframes hmblink{50%{opacity:.35}}
+
+/* ---- additions, not extracted from command-center -----------------------
+   Scoped like everything else here. */
+
+/* command-center closes the reader by clicking the selected row again. That is
+   not discoverable, and on a narrow screen the list scrolls away entirely,
+   leaving no way out. */
+#ghlNative .ldclose {
+  background: none; border: 0; cursor: pointer;
+  color: var(--dimmer); font-size: 20px; line-height: 1;
+  padding: 0 2px; margin-left: 10px; align-self: flex-start;
+  transition: color .12s var(--ease);
+}
+#ghlNative .ldclose:hover { color: var(--rust); }
+
+#ghlNative .composer.readonly .ronote {
+  font-size: 12.5px; color: var(--dim); line-height: 1.5; padding: 4px 0 2px;
+}

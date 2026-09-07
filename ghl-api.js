@@ -341,10 +341,10 @@ function ghlRoutes() {
         delta: Boolean(since),
         search,
         searchIgnored: Boolean(typed) && !search,
-        /* leadTotal counts by location, so it cannot see the company-only
-           rows. When they are present the fetched count is the honest one. */
-        total: search ? rows.length
-             : (ids.length ? Math.max(await G.leadTotal(ids), rows.length) : rows.length)
+        /* The authoritative count for this brand: what leadRows would return
+           with no limit. The screen prints it beside the capped list, so it has
+           to include the company-only rows that the list itself includes. */
+        total: search ? rows.length : await G.leadTotal(ids, companyId)
       });
     } catch (err) { fail(res, err); }
   });

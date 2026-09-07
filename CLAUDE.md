@@ -1070,6 +1070,43 @@ ingest, not a broken screen, and the empty state says so.
 **Most leads have no stage** — 28 of LeavenWealth's 1,231. Stage belongs to an
 opportunity, not a person; the chip is absent rather than defaulted to "new".
 
+### Financials is LeavenWealth's, and the nav says so
+The Financials screen excludes Leadli and Folio from every table, tile and
+export. Under another brand it therefore showed that brand's name above another
+brand's money — "Leadli AI / Financials" over $225.42M of LeavenWealth debt.
+
+`financials` was removed from `CORE` (the shared workspace block) and from the
+Leadli and Liquid menus. **Executive Board and LeavenWealth list it explicitly.**
+The other brands get their own view when there is one to give them; adding the
+item back before then re-creates the same lie.
+
+### There is NO sub-account selector, and the title is the brand
+command-center is one dashboard over an agency's several sub-accounts, so it
+needs "All locations" and a picker. The portal is not: the workspace switcher
+already chose the brand, the server scopes every request to it, and each brand
+resolves to exactly ONE sub-account. The list rendered "All locations" above a
+single row naming the same thing, and offered a filter whose only other option
+was the one already selected.
+
+`mountLeadSubnav` is a no-op rather than deleted — `drawLeadSubnav` is called
+from `drawLeads()` on every repaint, and a null `ldSubEl` makes it return on its
+first line. `LD.loc` stays `'all'`, which is correct: within one brand, all of
+its locations IS that brand.
+
+### The two lead counts have to agree, or say why they do not
+The header prints the brand's total; the list holds at most `limit` rows (400).
+Both were correct and they contradicted each other on one screen — "2,538 leads"
+above "400 leads".
+
+The cap stays: it is why the search box exists, and it searches every lead in
+scope rather than the page on screen. What was missing was the sentence. The
+list counter now reads **"400 of 2,538 leads"**, and both numbers come from
+`brandTotal()` so they cannot drift apart again.
+
+`leadTotal(ids, companyId)` counts what `leadRows` would return without a limit,
+**including the company-only leads**. Counting by location alone made Liquid
+Lending read "0 leads" above eight of them.
+
 ### The gate is `allowedLocationIds(companyId)`, not the list
 Every per-lead read (`/thread`, `/detail`) resolves its lead through that
 function, so scoping it scopes all of them. Scope only the list the sidebar
@@ -1147,6 +1184,16 @@ where a local guess would just be wrong.
 **Expect email sends to be rejected until the address is verified in GHL**, or
 until the ingest fills `ghl_user` for LeavenWealth. SMS is unaffected: it has no
 From to verify and GHL uses the sub-account's own number.
+
+### A failed send says why, next to the send
+The reason reaches `banner()`, which writes to `#ld-banner` at the TOP of the
+section — and the composer sits at the bottom of a scrolled panel, so the
+explanation was off screen at the exact moment it was needed. The failed bubble
+already said "not sent"; it now carries the reason too.
+
+The reader also has a **close button**. command-center closes it by clicking the
+selected row again, which is not discoverable and leaves no exit at all on a
+narrow screen where the list has scrolled away.
 
 ### A send is recorded, but only when GHL returns a conversation id
 `ghl_message.ghl_conversation_id` is NOT NULL and `conversationId` is a
