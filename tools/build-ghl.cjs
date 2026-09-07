@@ -77,8 +77,14 @@ api = edit(api, `    || document.getElementById(BANNERS.inbox);`,
 let ld = leads;
 
 /* CAL is the calendar view's state and is not coming across. Only .demo is
-   read, and it is always false here. */
-ld = ld.replace(/CAL\.demo/g, 'false');
+   read, and it is always false here.
+
+   The fold runs over the ASSEMBLED file at the bottom, not here. The first
+   version did it here, on `ld` alone, and missed the CAL.demo inside
+   loadThread — which comes from a different extract. Opening a lead then threw
+   "CAL is not defined" and the screen reported it as "Could not load leads",
+   naming neither the real cause nor the file. Anything that has to hold across
+   all four extracts belongs after they are joined. */
 
 /* The composer. Everything it does is a POST, and there is no credential. The
    thread stays; the reply box becomes a line saying why it is not there. */
@@ -264,8 +270,9 @@ const HEAD = `/* Leads (GHL) — command-center's Leads screen, transplanted.
       EventSource pointed at a 404 retries forever. portal-realtime.js already
       refreshes this view when lead / ghl_message / ghl_opportunity change.
 
-   4. \`CAL.demo\` folds to false — CAL is the calendar view's state and is not
-      part of this screen.
+   4. The calendar view's demo flag folds to false; that view is not part of
+      this screen. (Worded without naming the flag, because the fold that
+      replaces it runs over this comment too.)
 
    5. An IIFE exposing window.PortalGHL, plus mount(host, {companyId,
       brandName}), because the portal builds a view on navigation while
@@ -362,7 +369,26 @@ return { mount, invalidate, state: LD };
 })();
 `;
 
-const out = HEAD + api + '\n\n' + helpers + '\n\n' + ld + '\n\n' + thread + TAIL;
+let out = HEAD + api + '\n\n' + helpers + '\n\n' + ld + '\n\n' + thread + TAIL;
+
+/* ---- whole-file folds ---------------------------------------------------
+   These have to hold across every extract, so they run once, here, after the
+   pieces are joined. Doing them per-piece is what let CAL.demo survive inside
+   loadThread. */
+
+out = out.replace(/CAL\.demo/g, 'false');
+
+/* Any surviving CAL is a ReferenceError the moment that code path runs, and
+   the screen reports it as "Could not load leads" with nothing pointing at the
+   cause. Fail the build instead of shipping it. */
+{
+  const body = out.split('\n');
+  const stray = body.filter((l, i) =>
+    /\bCAL\b/.test(l) &&
+    !/^\s*(\*|\/\*|\/\/)/.test(l) &&        /* not a comment line */
+    !/CAL is the calendar|CAL\.demo` folds/.test(l));
+  if (stray.length) misses.push('stray CAL reference: ' + stray[0].trim().slice(0, 70));
+}
 
 if (misses.length) {
   console.error('MISSED: ' + misses.join(', '));

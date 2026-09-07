@@ -21,8 +21,9 @@
       EventSource pointed at a 404 retries forever. portal-realtime.js already
       refreshes this view when lead / ghl_message / ghl_opportunity change.
 
-   4. `CAL.demo` folds to false — CAL is the calendar view's state and is not
-      part of this screen.
+   4. The calendar view's demo flag folds to false; that view is not part of
+      this screen. (Worded without naming the flag, because the fold that
+      replaces it runs over this comment too.)
 
    5. An IIFE exposing window.PortalGHL, plus mount(host, {companyId,
       brandName}), because the portal builds a view on navigation while
@@ -1435,7 +1436,7 @@ async function load(){
 
 
 async function loadThread(id){
-  if (CAL.demo || !id) return;
+  if (false || !id) return;
 
   /* Cached first, so opening a conversation you have read before is instant,
      then the network answer replaces it. */
