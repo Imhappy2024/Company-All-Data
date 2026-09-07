@@ -307,3 +307,27 @@ input.fin-qsel { font-family: var(--mono); }
   background: var(--warn-soft);
   color: var(--text);
 }
+
+/* ---- shared with the Folio screen ---------------------------------------
+   portal-folio-fin.js reuses this stylesheet so Folio and LeavenWealth read as
+   one product without a second file. These two rules exist for it.
+
+   .fin-flag was here for the Verified column and went with it. Folio brings it
+   back for a real reason: a payment's status VARIES (paid / open), where
+   is_verified never did. */
+
+.fin-flag {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--mono); font-size: 9px; letter-spacing: .07em;
+  text-transform: uppercase; padding: 1.5px 6px; border-radius: 3px;
+  white-space: nowrap;
+}
+.fin-flag.ok { background: var(--good-soft); color: var(--good-ink);
+  border: 1px solid color-mix(in srgb, var(--good) 28%, transparent); }
+.fin-flag.draft { background: var(--warn-soft); color: var(--warn-ink);
+  border: 1px solid color-mix(in srgb, var(--warn) 32%, transparent); }
+
+/* The raw-provider record under an expanded payment row. */
+.fin-fields { display: grid; grid-template-columns: minmax(120px, 26%) 1fr; gap: 1px 12px; font-size: 12.5px; }
+.fin-fields dt { color: var(--dimmer); padding: 5px 0; border-bottom: 1px solid var(--border); }
+.fin-fields dd { color: var(--text); padding: 5px 0; margin: 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }

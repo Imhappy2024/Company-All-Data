@@ -170,11 +170,6 @@ tbody tr:hover{background:var(--panel-2)}
 .pill.gray{background:var(--panel-2);color:var(--dim)}
 .chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--dim)}
 .chip .sw{width:8px;height:8px;border-radius:50%}
-.tilegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.ptile{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:14px;cursor:pointer;transition:.12s}
-.ptile:hover{border-color:var(--border-2);background:var(--panel-2)}
-.ptile .pt{font-weight:600;font-size:14px}
-.ptile .ps{font-size:12px;color:var(--faint);margin:3px 0 10px}
 .people{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
 .person{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 13px;cursor:pointer;display:flex;gap:12px;align-items:center;transition:.12s}
 .person:hover{border-color:var(--border-2);background:var(--panel-2)}
@@ -287,7 +282,7 @@ tbody tr:hover{background:var(--panel-2)}
 .dr-field{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--border-2);font-size:13.5px}
 .dr-field svg{width:16px;height:16px;color:var(--faint);flex:none}
 .dr-field .fk{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-@media(max-width:900px){.app{grid-template-columns:64px 1fr}.bp-meta,.nav-lbl,.nav-item span:not(.badge),.bp-name,.bp-sub,.bp-caret{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3,.tilegrid,.people{grid-template-columns:1fr}}
+@media(max-width:900px){.app{grid-template-columns:64px 1fr}.bp-meta,.nav-lbl,.nav-item span:not(.badge),.bp-name,.bp-sub,.bp-caret{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3,.people{grid-template-columns:1fr}}
 
 /* ===========================================================================
    Design adoption — command-center's typographic language.
@@ -434,6 +429,7 @@ tbody tr:hover{background:var(--panel-2)}
 <script src="/portal-tasks.js"></script>
 <script src="/portal-properties.js"></script>
 <script src="/portal-financials.js"></script>
+<script src="/portal-folio-fin.js"></script>
 <script src="/portal-ghl.js"></script>
 <script src="/portal-realtime.js"></script>
 <script>
@@ -456,7 +452,6 @@ const I={
   shield:_svg('<path d="M8 2 3 4v4c0 3 2.2 5.1 5 6 2.8-.9 5-3 5-6V4z"/>'),
   cal:_svg('<rect x="2.4" y="3" width="11.2" height="10.5" rx="1.3"/><path d="M2.4 6h11.2M5.4 1.8v2.4M10.6 1.8v2.4"/>'),
   trend:_svg('<path d="M2.5 10.5 6 7l2.4 2.4L13.5 4.4M10.6 4.4h2.9v2.9"/>'),
-  card:_svg('<rect x="1.8" y="3.6" width="12.4" height="8.8" rx="1.3"/><path d="M1.8 6.4h12.4"/>'),
   gauge:_svg('<path d="M2.6 11.2a5.5 5.5 0 1 1 10.8 0"/><path d="M8 11.2 10.6 8.6"/>'),
   org:_svg('<rect x="6" y="1.8" width="4" height="3.1" rx=".6"/><rect x="1.8" y="11.1" width="4" height="3.1" rx=".6"/><rect x="10.2" y="11.1" width="4" height="3.1" rx=".6"/><path d="M8 4.9v2.9M3.8 11.1V9.3h8.4v1.8M8 9.3V7.8"/>'),
   plug:_svg('<path d="M5.8 2v3M10.2 2v3M4.4 5h7.2v2a3.6 3.6 0 0 1-7.2 0z"/><path d="M8 10.6V14"/>'),
@@ -494,7 +489,16 @@ const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
    "Leadli AI / Financials" over $225.42M of LeavenWealth debt looked like.
 
    Add a brand here the same day its own view ships, not before. */
-const FINANCIALS_BUILT={all:1,leavenwealth:1};
+/* Which brands have a Financials SCREEN, and WHICH one. Two brands, two data
+   models: LeavenWealth is cash/debt/entities out of account_balance; Folio is
+   Whop billing out of sales_payment. Folio has 0 financial accounts, 0 deals,
+   0 transactions and 0 statements, so pointing it at the LeavenWealth screen
+   would have shown zeros forever — which reads as "no money" rather than
+   "wrong tables".
+
+   A brand absent here gets the placeholder. Add one the day its own view
+   ships, naming the module that serves it. */
+const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw', folio:'folio'};
 
 /* ===========================================================================
    PERMISSION GATE. Everything below reads the single dash_my_access() payload
@@ -617,7 +621,7 @@ const MENUS={
   all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
   leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
   leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'plans',ic:'card',label:'Plans & Pricing'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'trend',label:'Reports & Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
   liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
 };
 
@@ -783,7 +787,6 @@ const SUBS=[
   {n:'Prairie Rentals',units:210,plan:'Scale',amt:840,status:'past_due',pay:'overdue'},
   {n:'Elm Street Holdings',units:12,plan:'Starter',amt:99,status:'trial',pay:'trial'},
 ];
-const PLANS=[{n:'Starter',price:99,per:'0.00',range:'1-25 units'},{n:'Growth',price:0,per:'4.50',range:'26-150 units'},{n:'Scale',price:0,per:'4.00',range:'151+ units'}];
 const TXNS=[{d:'Jul 14',desc:'Bookkeeping retainer - client A',dir:'in',amt:7500},{d:'Jul 12',desc:'Monthly loan interest',dir:'out',amt:3100},{d:'Jul 10',desc:'July rent - Midwest 1',dir:'in',amt:12600},{d:'Jul 06',desc:'Landscaping - monthly',dir:'out',amt:540},{d:'Jul 03',desc:'Meta Ads - Leadli',dir:'out',amt:6100},{d:'Jul 02',desc:'July rent - Lincoln',dir:'in',amt:10150}];
 const TASKS=[
   {t:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'todo',prio:'high',due:'Jul 25',who:7},
@@ -926,7 +929,6 @@ const V={
     return `<div class="kpis">${kpi('users','Active users',SUBS.filter(s=>s.status!=='trial').length,'subscribers')}${kpi('grid','Units billed',SUBS.reduce((a,s)=>a+s.units,0).toLocaleString(),'')}${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('card','Past due','1','follow up','down')}</div>`+
     card('users','App users / subscribers',SUBS.length,tbl([{t:'Client'},{t:'Units',r:1},{t:'Plan'},{t:'Amount / mo',r:1},{t:'Status'},{t:'Payment'}],SUBS.map(s=>`<tr><td>${esc(s.n)}</td><td class="r">${s.units}</td><td>${pill(s.plan,'blue')}</td><td class="r">${money(s.amt)}</td><td>${pill(s.status.replace('_',' '),s.status==='active'?'green':s.status==='trial'?'gray':'rose')}</td><td>${pill(s.pay,s.pay==='paid'?'green':s.pay==='due'?'amber':s.pay==='trial'?'gray':'rose')}</td></tr>`).join('')),true);
   },
-  plans(){return `<div class="tilegrid">${PLANS.map(p=>`<div class="ptile"><div class="pt">${p.n}</div><div class="ps">${p.range}</div><div style="font-family:'JetBrains Mono';font-size:20px;font-weight:700">${p.price>0?money(p.price)+'/mo':'$'+p.per+'/unit'}</div></div>`).join('')}</div>`;},
   reports(){
     const mrr=SUBS.filter(s=>s.status==='active').reduce((a,s)=>a+s.amt,0);
     return `<div class="kpis">${kpi('dollar','MRR',money(mrr),'+8% MoM','up')}${kpi('trend','ARR',moneyk(mrr*12),'run rate','up')}${kpi('users','Active users',SUBS.filter(s=>s.status==='active').length,'')}${kpi('gauge','Net revenue retention','104%','','up')}</div>`+
@@ -988,6 +990,7 @@ const V={
      mounted into it by render(); a brand without one gets a placeholder that
      names what is missing rather than borrowing LeavenWealth's figures. */
   financials(){
+    if (FINANCIALS_BUILT[brand]==='folio') return '<div id="folioFinNative"></div>';
     if (FINANCIALS_BUILT[brand]) return '<div id="financialsNative"></div>';
     const b=BRANDS[brand];
     return `<div class="placeholder">${I.dollar}
@@ -1434,7 +1437,10 @@ function render(){
     PortalGHL.mount(document.getElementById('ghlNative'),
                     {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
   }
-  if(view==='financials' && FINANCIALS_BUILT[brand] && window.PortalFinancials){
+  if(view==='financials' && FINANCIALS_BUILT[brand]==='folio' && window.PortalFolioFin){
+    PortalFolioFin.mount(document.getElementById('folioFinNative'));
+  }
+  else if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
   if(view==='properties' && window.PortalProperties){
@@ -1503,6 +1509,7 @@ if(window.PortalRealtime) PortalRealtime.start({
     /* Financials caches its filter option lists and its summary, so rerender()
        alone would repaint the same rows off the same cache. */
     if((v==='*' || v==='financials') && window.PortalFinancials){ PortalFinancials.invalidate(); }
+    if((v==='*' || v==='financials') && window.PortalFolioFin){ PortalFolioFin.invalidate(); }
     /* Leads caches its list per brand, so rerender() alone would repaint the
        same rows off the same cache. */
     if((v==='*' || v==='leads') && window.PortalGHL){ PortalGHL.invalidate(); }

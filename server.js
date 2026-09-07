@@ -2080,6 +2080,14 @@ function patchCachedPropertyField(taskId, fieldId, value) {
    scopes to NOTHING rather than to everything - an empty screen gets reported,
    Folio's 4,643 leads under LeavenWealth does not. This service holds no GHL
    credential, so the send path was not ported. */
+/* Folio Excel financials. A SEPARATE module, not a brand filter on
+   financials-api.js: every relation that API reads is empty for Folio (0
+   accounts, 0 deals, 0 transactions, 0 statements), so a brand parameter would
+   have produced a working screen showing zeros forever. Folio's money is Whop
+   billing. Read-only. */
+const folioFinApi = require('./folio-financials-api');
+app.use('/api/folio-financials', folioFinApi.folioFinancialsRoutes());
+
 const ghlApi = require('./ghl-api');
 app.use('/api/ghl', ghlApi.ghlRoutes());
 

@@ -1241,7 +1241,103 @@ its company-only leads; sender HTML is flattened; a one-character search is
 ignored **and says so**; a malformed `?since` is refused rather than silently
 meaning "everything".
 
-## Removed screens: Investors, Insurance / Risk, Integrations
+## Folio Excel financials: Whop billing
+
+`/api/folio-financials` (`folio-financials-api.js`) + `public/portal-folio-fin.js`.
+Reuses `portal-financials.css` so it reads as the same product; the layout is
+shared, the data model is not.
+
+### It is a separate screen because the LeavenWealth tables are EMPTY for Folio
+Verified 2026-09-07:
+
+| relation | Folio rows |
+|---|---|
+| `financial_account` via entity or deal | **0** |
+| `deal` | **0** |
+| `transaction` / `transaction_category` | **0 / 0** |
+| `statement` | **0** |
+
+A brand parameter on `financials-api.js` would have produced a *working* screen
+showing zeros forever, which reads as "Folio has no money" rather than "those
+are the wrong tables". `FINANCIALS_BUILT` in portal.html is a **map**, not a
+boolean — `{all:'lw', leavenwealth:'lw', folio:'folio'}` — so it names which
+module serves each brand.
+
+### What Folio has
+
+| table | rows |
+|---|---|
+| `sales_payment` | 3, all Folio, provider `whop` |
+| `whop_payment` | 3 — **the same three payments** |
+| `subscription_client` | 1 (Folio Excel LLC) |
+| `subscription_plan` | 0 |
+
+Verified figures: gross **$1,001.00**, net **$960.21**, fees **$40.79**,
+outstanding **$1.00** (1 payment), 2 customers, 1 active subscription at $1,000.
+
+### `sales_payment` and `whop_payment` ARE THE SAME PAYMENTS — never union them
+All three join 1:1 on
+`sales_payment.external_payment_id = whop_payment.whop_payment_id`
+(`pay_cclK859htn24nk`, `pay_FgziDAhWNZgyMU`, `pay_zZNxyVzd31xESP`).
+
+`sales_payment` is the provider-agnostic table and the only one any aggregate
+reads. `whop_payment` is the raw Whop mirror, kept for card, billing-address
+and fee-breakdown detail, and is fetched **one row at a time** by provider id
+from the expanded payment panel — per-row so it can never reach a total.
+
+Summing both reports **$2,002 against a real $1,001**, and looks entirely
+plausible while doing it. Two tests pin it: no statement issued by `/summary`
+or `/payments` may mention `whop_payment`, and no field in the summary payload
+may equal 2002.
+
+### Collected is `paid_at IS NOT NULL`, not `status = 'paid'`
+Both agree today. `paid_at` is the fact; `status` is a label, and a provider
+adding a spelling breaks a string test silently while leaving the timestamp
+test right.
+
+**Gross sums `usd_total`, not `total`.** `usd_total` and `amount_after_fees`
+are both null until money moves, so the one open $1.00 payment would otherwise
+inflate revenue to $1,002. The table shows its `total` in the Gross column and
+an em dash under Net — rendering 0 there would claim it was free.
+
+### There is NO MRR, and nothing invents one
+`subscription_client.billing_period` is **NULL** on the only row, along with
+`number_of_units`, `next_billing_date` and `subscription_plan_id` (and
+`subscription_plan` is empty). A $1,000 subscription with no period is either
+$1,000 a month or $1,000 a year — **a twelvefold difference**.
+
+So the payload carries `mrr_derivable: false`, the tile shows the amount with
+"no billing period recorded", and a note says which column to fill for a
+recurring figure to appear. Tests assert the payload contains no key matching
+`mrr|monthly|arr|annual` and no value equal to 1000/12 or 12000.
+
+### Scoping takes two different paths
+`sales_payment` and `whop_payment` carry `company_id`; `subscription_client` and
+`subscription_plan` carry `business_entity_id` and reach the brand through
+`entity.company_id`. Filtering `subscription_client.company_id` is a 42703 at
+runtime — the column does not exist — so a test asserts the entity join is
+there and that no query references that column.
+
+### The optional views
+`migrations/20260907_folio_financial_views.sql` defines `v_folio_payments`,
+`v_folio_subscriptions` and `v_folio_revenue_summary` with the same SQL and the
+same warnings. **The screen does not depend on them** — the API reads the base
+tables — so it works whether or not the migration has been applied.
+`migrations/` is review-only here. The view bodies were validated inline
+against the live database and produce the figures above, including
+`mrr_derivable = false`.
+
+### Folio still cannot reach the screen
+Its `financials` `dashboard_module` row does not exist, so the nav item cannot
+appear. See "Folio Excel has no `financials` catalog row" above and
+`migrations/20260907_folio_financials_module.sql`. **Two independent gates:**
+the module map now says Folio has a screen, and the catalog still says nobody
+can open it.
+
+### Tests
+    node test/test-folio-financials.js   # 22 checks, no database needed
+
+## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing
 
 Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
 functions behind them. All three were placeholders or baked demo data:
@@ -1265,6 +1361,28 @@ as coverage that is not there. `insurance_policy` still refreshes `overview`.
 **Still present, deliberately:** the Executive Board overview keeps its baked
 "Investors" card, because it is a card on a dashboard rather than a menu. Say
 the word and it goes too.
+
+### Plans & Pricing (Folio) went the same way, 2026-09-07
+Also baked: a three-tier `PLANS` array (Starter $99, Growth $4.50/unit, Scale
+$4.00/unit) that no table behind it agrees with — `subscription_plan` is **0
+rows**, and the one real `subscription_client` row has a NULL
+`subscription_plan_id`. The nav entry, `V.plans()`, the array, the `.tilegrid`
+/ `.ptile` rules that only it used, and the `card` icon that only it named all
+went in one commit.
+
+`subscription_plan` was bound to `['plans', 'financials']` in `TABLE_VIEWS` and
+is now `['financials']` alone. A binding to a view that no longer exists can
+never match, so it is not a live bug — it just reads as coverage that is not
+there.
+
+**The `plans` catalog row is left alone**, and `test-portal-nav.js` still
+*grants* it. A `dashboard_module` row outliving a screen is normal here; what
+is worth pinning is that a live grant cannot put a removed item back, and that
+a stale `#brand=folio&view=plans` link degrades to Overview rather than
+blanking the page.
+
+Folio's real billing lives on **Financials** — see "Folio Excel financials"
+above.
 
 ## Railway variables: what belongs, and what takes the app down
 
@@ -1589,6 +1707,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
+    node test/test-folio-financials.js # Folio: double-count guard, no invented MRR
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability

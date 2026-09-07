@@ -206,10 +206,10 @@ function ptask(id, name, status, sync) {
   check('and no generic page header over it',
     await page.locator('.page-h .page-t').count(), 0);
 
-  /* Folio is absent here on purpose. Its `financials` dashboard_module row does
-     not exist, so the nav item cannot appear no matter what MENUS says — the
-     item is permission-gated and the catalog is what grants it. That is a data
-     gap, not a code one; the check further down asserts it explicitly. */
+  /* Folio is absent here on purpose, and for a second reason now: it HAS a
+     screen (its own, reading Whop billing) so it would not show the
+     placeholder anyway. Its `financials` dashboard_module row also does not
+     exist, so the item cannot appear at all. Both are asserted below. */
   for (const b of ['leadli', 'liquid']) {
     await page.evaluate(brand => { setBrand(brand); setView('financials'); }, b);
     check(b + ' does NOT get the built screen',
@@ -225,12 +225,43 @@ function ptask(id, name, status, sync) {
       /\$[\d,]/.test(await page.locator('#content').textContent()), false);
   }
 
-  /* The Folio gap, asserted rather than assumed. Applying
-     migrations/20260907_folio_financials_module.sql flips this and the check
-     fails, which is the reminder to move Folio into the loop above. */
+  /* Folio HAS a screen now — its own, reading Whop billing rather than
+     LeavenWealth's cash and debt — but it still cannot be reached, because its
+     `financials` dashboard_module row does not exist. Two independent gates,
+     and this asserts the second one.
+
+     Applying migrations/20260907_folio_financials_module.sql flips this and the
+     check fails, which is the reminder that Folio now needs its own assertions
+     rather than the placeholder loop. */
   await page.evaluate(() => { setBrand('folio'); setView('financials'); });
   check('Folio cannot reach Financials until its catalog row exists',
-    /not set up yet/.test(await page.locator('#content').textContent()), false);
+    await page.locator('#folioFinNative').count(), 0);
+  check('and it does not fall through to the LeavenWealth screen either',
+    await page.locator('#financialsNative').count(), 0);
+
+  /* Plans & Pricing was removed from Folio on 2026-09-07, along with the
+     baked PLANS array behind it. The FULL fixture still GRANTS `plans` — as it
+     does `investors`, `insurance` and `integrations` — because a catalog row
+     outliving a screen is the normal state of affairs here, and the thing worth
+     pinning is that a live grant cannot put a removed item back in the nav. */
+  await page.evaluate(() => { setBrand('folio'); });
+  check('Folio no longer offers Plans & Pricing',
+    await page.$$eval('#nav .nav-item span:first-of-type',
+      els => els.map(e => e.textContent).filter(t => /plans|pricing/i.test(t))), []);
+  /* Read from MENUS as well as from the rendered nav: the grant is live, so a
+     re-added menu entry would render, and a check on the DOM alone would pass
+     for a brand the user happened not to be looking at. */
+  check('and no brand offers it',
+    await page.evaluate(() => Object.keys(MENUS).filter(
+      b => MENUS[b].some(i => i.id === 'plans'))), []);
+  check('the view function went with it',
+    await page.evaluate(() => typeof V.plans), 'undefined');
+  /* A stale fragment pointing at it must degrade to the brand's first screen,
+     not leave the page blank — the same guarantee as any unknown view. */
+  await page.goto(`${BASE}/#brand=folio&view=plans`, { waitUntil: 'domcontentloaded' });
+  await boot();
+  check('a link to the old screen lands on Overview',
+    await page.evaluate(() => [brand, view]), ['folio', 'overview']);
 
   // ------------------------------------------------------------ brand marks
   console.log('\nBrand marks');
@@ -284,10 +315,10 @@ function ptask(id, name, status, sync) {
   await page.reload({ waitUntil: 'domcontentloaded' });
   await boot();
   check('still on Loans > Loan Views', await page.evaluate(() => [brand, view, loansTab]), ['leavenwealth', 'loans', 'views']);
-  await page.evaluate(() => { setBrand('folio'); setView('plans'); });
+  await page.evaluate(() => { setBrand('folio'); setView('subscribers'); });
   await page.reload({ waitUntil: 'domcontentloaded' });
   await boot();
-  check('the brand survives too', await page.evaluate(() => [brand, view]), ['folio', 'plans']);
+  check('the brand survives too', await page.evaluate(() => [brand, view]), ['folio', 'subscribers']);
 
   console.log('\nA fragment that no longer means anything degrades, never blanks');
   await page.goto('about:blank');

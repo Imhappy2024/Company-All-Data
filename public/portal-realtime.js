@@ -75,7 +75,17 @@
     meta_ads_insight: ['ads'],
     leadli_marketing_daily: ['ads'],
 
-    /* money */
+    /* money. Two data models behind one view name: financial_account and
+       account_balance are LeavenWealth's cash and debt; sales_payment,
+       subscription_client and subscription_plan are Folio's Whop billing.
+       Both screens live at view 'financials', so both sets bind to it and the
+       brand decides which module is mounted.
+
+       whop_payment is bound too even though no total reads it: the expanded
+       raw-record panel does, and a refund landing there should refresh. */
+    sales_payment: ['financials'],
+    whop_payment: ['financials'],
+
     financial_account: ['financials'],
     account_balance: ['financials'],
     transaction: ['financials'],
@@ -103,8 +113,13 @@
     tool_user: ['tools'],
 
     /* saas + services */
-    subscription_plan: ['plans'],
-    subscription_client: ['subscribers'],
+    /* Also 'financials': both feed Folio's Financials screen as well as its
+       App Users screen. Declared once with both views rather than twice — a
+       duplicate key overwrites silently and the first binding just
+       disappears. The 'plans' view was removed on 2026-09-07, so
+       subscription_plan now refreshes only Financials. */
+    subscription_plan: ['financials'],
+    subscription_client: ['subscribers', 'financials'],
     service: ['services'],
     service_client: ['services'],
     service_engagement: ['services'],
