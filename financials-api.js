@@ -275,12 +275,21 @@ const TABS = {
     defaultSort: 'balance',
     defaultDir: 'desc',
     sortable: ['balance', 'entity', 'deal_name', 'account_name', 'institution', 'account_purpose', 'account_type', 'cash_source', 'as_of_date'],
+    /* No `source` column. It repeated "Master Reference 260630 (draft)" on
+       every one of the 441 rows - the same fact 441 times, which is the reason
+       the Verified column and the draft banner went too.
+
+       It is STILL IN EVERY EXPORT, through PROVENANCE rather than through this
+       list, and that is deliberate: on screen the reader has the context that
+       these are quarterly draft snapshots, and in a spreadsheet mailed to
+       someone else they have nothing. `ab.source` is still selected by the
+       query, so nothing about the payload changed. */
     columns: [
       ['deal_name', 'Deal'], ['entity', 'Entity'], ['account_name', 'Account Name'],
       ['institution', 'Institution'], ['account_number_last4', 'Last 4'],
       ['account_purpose', 'Account Purpose'], ['account_type', 'Account Type'],
       ['cash_source', 'Cash Source'], ['as_of_date', 'As Of Date'],
-      ['balance', 'Balance'], ['source', 'Source'],
+      ['balance', 'Balance'],
     ],
     money: ['balance'],
     dates: ['as_of_date'],

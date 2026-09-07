@@ -524,10 +524,44 @@ function req(server, method, url) {
   });
 
   check('every export carries as_of_date, source and is_verified', () => {
+    /* Whole columns, not substrings. This was written as indexOf('Source') and
+       was VACUOUS: the cash tab has a "Cash Source" column, which contains the
+       word, so the check passed with the provenance entry deleted. Proven by
+       deleting it - the suite stayed green. None of the six labels here has a
+       comma, so splitting on one is safe. */
     const header = csvText.split('\n').find(l => l && l[0] !== '#');
+    const cols = header.trim().split(',').map(c => c.replace(/^"|"$/g, ''));
     for (const need of ['As Of Date', 'Source', 'Verified', 'Exported At', 'Exported By', 'Filters Applied']) {
-      assert.ok(header.indexOf(need) >= 0, 'missing ' + need + ' in: ' + header);
+      assert.ok(cols.indexOf(need) >= 0, 'missing column ' + need + ' in: ' + cols.join(' | '));
     }
+  });
+
+  /* THE PAIR THAT MATTERS: Source is off the SCREEN and still in the FILE.
+
+     On screen it printed "Master Reference 260630 (draft)" on all 441 rows -
+     one fact repeated 441 times, which is the same reason the Verified column
+     and the draft banner went. In a spreadsheet mailed to someone else that
+     caveat is the only thing carrying it, so it rides on every export through
+     PROVENANCE instead of through the per-tab column list.
+
+     Checked beside the export assertion above, because removing it from one
+     place is what was asked and removing it from both is how a draft figure
+     gets quoted back as fact. */
+  check('no tab renders a Source column on screen', () => {
+    for (const name of Object.keys(fin.TABS)) {
+      const cols = fin.TABS[name].columns.map(c => c[0]);
+      assert.ok(cols.indexOf('source') < 0, name + ' still renders a source column');
+    }
+  });
+
+  await checkAsync('and the cash payload still carries source for the export', async () => {
+    /* The query must keep selecting it. Drop `ab.source` and the export column
+       is still in the header but empty in every row - which reads as "no
+       source recorded" rather than as a missing column. */
+    const d = JSON.parse((await get('/api/financials/cash?as_of=2026-06-30')).body.toString('utf8'));
+    assert.ok(d.rows.length, 'cash rows were returned');
+    assert.ok('source' in d.rows[0],
+      'the cash payload lost source, so the export has nothing to write');
   });
 
   check('a value containing a comma is quoted, not split', () => {

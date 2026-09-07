@@ -768,14 +768,24 @@ unpopulated.
 
 ### Every balance is a draft — and the screen no longer says so anywhere
 All 441 rows are `is_verified = false`. There is **no Verified column, no
-Verified filter and no draft banner**: on a dataset where the value never
-varies, all three were repeating one fact 441 times.
+Verified filter, no draft banner and no Source column**: on a dataset where the
+value never varies, each was repeating one fact 441 times. Source read
+"Master Reference 260630 (draft)" on every row.
 
-`is_verified` and the DRAFT line **still ride on every export** (via
-`PROVENANCE`), and that is deliberate rather than an oversight. On screen the
-reader has the context that these are quarterly draft snapshots; in a
+`is_verified`, `source` and the DRAFT line **all still ride on every export**
+(via `PROVENANCE`), and that is deliberate rather than an oversight. On screen
+the reader has the context that these are quarterly draft snapshots; in a
 spreadsheet mailed to someone else they have nothing. That is where the caveat
-earns its place.
+earns its place. `ab.source` is still selected by the query — drop it and the
+export column stays in the header but goes empty in every row, which reads as
+"no source recorded" rather than as a missing column.
+
+**The test that was supposed to guarantee this was vacuous.** It asserted
+`header.indexOf('Source') >= 0`, and the cash tab has a **"Cash Source"**
+column, which contains the word — so it passed with the provenance entry
+deleted. Proven by deleting it: the suite stayed green. It now splits the
+header and matches whole columns, and re-running that mutation fails it. If you
+assert a column is present, compare the column, not the line.
 
 ### Leadli and Folio are excluded, on a WORD BOUNDARY
 This screen is LeavenWealth's. Leadli AI and Folio Excel are excluded from the
@@ -892,7 +902,7 @@ correctly, a `display` rule elsewhere won, and the panel stayed invisible with
 nothing in the console.
 
 ### Tests
-    node test/test-financials.js     # 81 checks, no database needed
+    node test/test-financials.js     # 83 checks, no database needed
 
 The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
 accounts, 154 Operating) are Jay's to run. What this pins is everything that
