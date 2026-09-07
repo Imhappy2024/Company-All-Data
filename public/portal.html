@@ -620,10 +620,10 @@ const CORE=[
 const ADMIN_SECTION=[{lbl:'Admin'},{id:'access',ic:'lock',label:'Users & Roles'}];
 const MENUS={
   all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
-  leavenwealth:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
-  leadli:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  folio:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  liquid:[{lbl:'Overview'},{id:'overview',ic:'home',label:'Overview'},{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  leavenwealth:[{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
+  leadli:[{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  folio:[{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  liquid:[{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
 };
 
 /* ---- data (mirrors seeded Supabase) ---- */
@@ -887,16 +887,28 @@ function refreshCurrent(){
 
 /* ---- views ---- */
 const V={
-  overview(){
-    if(brand==='leavenwealth') return `<div class="kpis">${kpi('building','Properties','66','224 units')}${kpi('gauge','Avg occupancy','92%','','up')}${kpi('trend','Portfolio NOI',moneyk(72000),'monthly','up')}${kpi('bank','Total debt',moneyk(2036000),'3 loans')}</div>`+
-      `<div class="grid g2">${card('dollar','Cash & accounts',null,tbl([{t:'Account'},{t:'Balance',r:1}],[['Operating Checking',196845],['Reserve Savings',512750],['Property Escrow',26500]].map(a=>`<tr><td>${a[0]}</td><td class="r">${money(a[1])}</td></tr>`).join('')),true)}${card('hand','Investors','5',tbl([{t:'Investor'},{t:'Stake',r:1}],INVESTORS.map(i=>`<tr><td>${esc(i.n)}</td><td class="r">${i.stake}%</td></tr>`).join('')),true)}</div>`;
-    if(brand==='leadli') return `<div class="kpis">${kpi('target','Open leads','37','2 booked','up')}${kpi('cal','Appointments','4','80% show','up')}${kpi('dollar','Ad spend (14d)',moneyk(5370),'')}${kpi('trend','Avg CPL',money(38),'','down')}</div>`+V.leads();
-    if(brand==='folio') return V.reports();
-    if(brand==='liquid') return `<div class="kpis">${kpi('bank','Active loans',moneyk(3200000),'12 notes')}${kpi('target','Applications','9','pipeline')}${kpi('gauge','Avg yield','11.4%','')}${kpi('trend','Deployed (YTD)',moneyk(4800000),'','up')}</div>`+`<div class="placeholder">${I.bank}<div>Loan pipeline detail</div></div>`;
-    return V.exec();
-  },
+  /* V.overview() was here and is GONE with the nav items, by instruction.
+     Every brand's version was baked, and three of LeavenWealth's four KPIs
+     were known to be wrong: 66 properties, 92% occupancy, $72K NOI and $2.04M
+     debt across 3 loans, against a real 75 loans totalling roughly $106.5M
+     and an occupancy that is not derivable at all (`unit.occupancy` is free
+     text and empty on all 224 rows, with no lease or tenant table).
+
+     Folio's branch returned V.reports() - the live Financials view - so that
+     brand loses nothing but a second door to the same screen. */
   exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
     `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
+  /* Reached only when a caller can open NO screen in this workspace, which
+     `firstAllowedView()` reports as null. It used to fall through to
+     'overview' - a screen every brand had - and now names the situation
+     instead of pointing at a nav id that no longer exists. */
+  noaccess(){
+    const b=BRANDS[brand];
+    return `<div class="placeholder">${I.lock}
+      <div><b>No screens available in ${esc(b?b.name:'this workspace')}</b>
+      <div class="ph-sub">Your access does not include any screen here.
+      Ask an owner or admin to grant one on Users &amp; Roles.</div></div></div>`;
+  },
   /* Properties is the command-center implementation running natively - the
      /ops iframe is gone. Same arrangement as Tasks and Users & Roles: the view
      supplies a container and portal-properties.js paints into it from render(),
@@ -1379,7 +1391,7 @@ function readState(){
   if(b&&BRANDS[b]&&MENUS[b]&&scopeAccess(b))brand=b;
   const v=p.get('view');
   if(v&&(MENUS[brand]||[]).some(x=>x.id===v)&&itemVisible(brand,v))view=v;
-  else{const first=firstAllowedView(brand);view=first||'overview';}
+  else{const first=firstAllowedView(brand);view=first||'noaccess';}
   const s=p.get('sub');
   if(s&&SUBOK[view]&&SUBOK[view].indexOf(s)!==-1){
     if(view==='tasks')tasksTab=s;
@@ -1415,7 +1427,7 @@ function render(){
      suppressed - one screen carries one title. */
   /* `reports` is Folio's Financials screen - see the mount below for why the
      id and the label differ. */
-  const folioReports = brand==='folio' && (view==='reports' || view==='overview');
+  const folioReports = brand==='folio' && view==='reports';
   const folioUsers = brand==='folio' && view==='subscribers';
   const info=embed?embedInfo():null;
   content.className='content'+(embed?' wide embed-lean':((view==='properties'||finNative||folioReports||folioUsers||view==='leads')?' wide':''));
@@ -1450,14 +1462,14 @@ function render(){
     PortalGHL.mount(document.getElementById('ghlNative'),
                     {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
   }
-  /* Folio's Financials, and its Overview, which renders the same view.
+  /* Folio's Financials.
 
      The nav id is `reports` and the LABEL is "Financials": Folio has exactly
      one Financials item, and `reports` is the id that can carry it because it
      is the one with a `dashboard_module` row. Folio has no `financials` row
      (verified live), so an item on that id could never appear - which is why
      the duplicate entry was removed from Folio's menu rather than this one. */
-  if(brand==='folio' && (view==='reports' || view==='overview') && window.PortalFolioFin){
+  if(brand==='folio' && view==='reports' && window.PortalFolioFin){
     PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
   }
   /* App Users is the same table without the cards, from the same module and
@@ -1488,7 +1500,7 @@ function render(){
 function setBrand(id){
   if(!BRANDS[id]||!MENUS[id]||!scopeAccess(id)) return;
   brand=id;
-  view=firstAllowedView(id)||'overview';
+  view=firstAllowedView(id)||'noaccess';
   tasksTab='overview';
   document.getElementById('bpMenu').classList.remove('open');
   render();
@@ -1766,7 +1778,7 @@ if(window.PortalSession){
          user without an Exec grant used to land on an empty Executive Board because
          `brand` and `view` were initialised to 'all'/'exec' unconditionally. */
       if(!scopeAccess(brand)) brand=allowedBrands()[0];
-      if(!navLevel(brand,view)) view=firstAllowedView(brand)||'overview';
+      if(!navLevel(brand,view)) view=firstAllowedView(brand)||'noaccess';
       /* Re-apply the fragment now that the payload exists, so a deep link is
          honoured when it is allowed and dropped when it is not. readState() ran
          before the payload landed, when every permission check was a no-op. */

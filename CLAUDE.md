@@ -10,10 +10,11 @@ several brands). Two front ends are merged into ONE Express service:
 - `/`     → **portal** (`public/portal.html`) — a **sidebar app shell with brand-as-workspace**.
             The workspace switcher (top-left) picks a brand (Executive Board / LeavenWealth / Leadli AI /
             Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
-            LeavenWealth: Overview, Properties, Loans + workspace core
+            LeavenWealth: Properties, Loans + workspace core
             (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,
-            Appointments, Marketing/Ads. Folio: App Users, Plans, Reports (SaaS). Liquid: Loan
-            Pipeline, Borrowers. Clicking a person (Org/Dept charts, Team) opens a profile drawer
+            Appointments, Marketing/Ads. Folio: App Users, Financials (SaaS). Liquid: Loan
+            Pipeline, Borrowers. **No brand has an Overview item** - see "Removed screens".
+            Clicking a person (Org/Dept charts, Team) opens a profile drawer
             with a bio "See more". Brand maps 1:1 to Supabase `company` / `company_member`.
 - `/ops`  → the existing **operations dashboard** (`public/index.html`) — live ClickUp +
             Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10,
@@ -1564,7 +1565,7 @@ because "no chart" and "no delta" are properties of the screen that no API
 response can enforce — and those checks strip comments first, or they read the
 prose explaining why a thing is absent and conclude it is present.
 
-## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing
+## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing, Overview
 
 Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
 functions behind them. All three were placeholders or baked demo data:
@@ -1583,11 +1584,53 @@ went.
 
 `TABLE_VIEWS` in portal-realtime.js was cleaned in the same commit: bindings to
 a view that no longer exists can never match, which is not a live bug but reads
-as coverage that is not there. `insurance_policy` still refreshes `overview`.
+as coverage that is not there. `insurance_policy` lost its last binding when the Overview screens went - it was
+bound to those cards alone.
 
 **Still present, deliberately:** the Executive Board overview keeps its baked
 "Investors" card, because it is a card on a dashboard rather than a menu. Say
 the word and it goes too.
+
+### The per-brand Overview items, 2026-09-07
+Removed from **all four** brands (LeavenWealth, Leadli AI, Folio Excel, Liquid
+Lending) along with `V.overview()` and the `{lbl:'Overview'}` section label
+above each one. **Executive Board is untouched** - its landing screen is
+`exec`, labelled "Executive", and it is still where the portal opens.
+
+Every brand's version was baked, and it was the biggest single block of
+invented figures left in the app:
+
+| brand | what it showed |
+|---|---|
+| LeavenWealth | 66 properties, 92% occupancy, $72K NOI, $2.04M debt / 3 loans, plus a three-row "Cash & accounts" table and a five-row Investors table |
+| Leadli AI | 37 open leads, 4 appointments, $5,370 ad spend, $38 CPL |
+| Liquid Lending | $3.2M active loans / 12 notes, 9 applications, 11.4% yield, $4.8M deployed |
+| Folio Excel | returned `V.reports()` - the live Financials view - so it lost only a second door to one screen |
+
+Three of LeavenWealth's four were known to be wrong (75 loans, ~$106.5M, and
+occupancy not derivable at all). This was the top item under "Still baked".
+
+**The three `|| 'overview'` fallbacks had to move with it.** `readState()`,
+`setBrand()` and the boot gate each fell back to `'overview'` when
+`firstAllowedView()` returned null - a caller who can open no screen in the
+workspace. That id no longer exists, so they would have named a view the app
+cannot render. They now fall back to **`V.noaccess()`**, which says so and
+points at Users & Roles.
+
+Anything unrecognised still degrades to the brand's **first** screen, which is
+no longer Overview: LeavenWealth → Properties, Leadli → Leads, Folio → App
+Users, Liquid → Loan Pipeline. Three nav tests asserted `['folio','overview']`
+for exactly that fallback and now assert `['folio','subscribers']`.
+
+`TABLE_VIEWS` lost four bindings: `property`, `property_financials`, `loan` and
+`lead` all dropped `'overview'`, and **`insurance_policy` lost its only
+binding** - it was bound to the Overview cards alone, so the key is gone
+entirely with a comment saying its 257 policies are still there for whatever
+screen reads them next.
+
+The `overview` `dashboard_module` rows are **left alone**, and
+`test-portal-nav.js` still grants the id for every brand - which is what makes
+its check meaningful: a live grant cannot put a removed item back.
 
 ### Plans & Pricing (Folio) went the same way, 2026-09-07
 Also baked: a three-tier `PLANS` array (Starter $99, Growth $4.50/unit, Scale
@@ -1977,13 +2020,20 @@ If a timing check here ever goes flaky again, ask what property it is actually
 measuring before widening the wait.
 
 ## Still baked
-`V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:
-66 properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans. Three of
-those are wrong. The database has **75 loans totalling roughly $106.5M**, and
-occupancy is not derivable at all: `unit.occupancy` is free text and empty on all
-224 rows, with no lease or tenant table. Investors and Appointments are baked too. **Leads is now live** - see "Leads (GHL)" above.
-**Financials is now live** - see "Financials: cash and debt" above. Replacing them with live reads (or honest empty
-states) is the next real piece of work.
+**`V.overview()` is gone** - the per-brand Overview items were removed on
+2026-09-07 and the view went with them. It hard-coded LeavenWealth's KPIs (66
+properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans) and three of
+the four were wrong: the database has **75 loans totalling roughly $106.5M**,
+and occupancy is not derivable at all - `unit.occupancy` is free text and empty
+on all 224 rows, with no lease or tenant table. That was the top item on this
+list; deleting the screen retired it.
+
+Still baked: the **Executive Board** overview (`V.exec()` - group revenue,
+property count, open leads, headcount, and a revenue-by-brand bar chart) and
+**Appointments** (`APPTS`). Both are hardcoded arrays. **Leads is live** (see
+"Leads (GHL)"), **Financials is live** for LeavenWealth and Folio. Replacing
+the exec figures with live reads, or an honest empty state, is now the top
+item.
 
 ## Current state (done)
 - Schema + brand layer + RLS + seed data all live in Supabase.
@@ -1992,7 +2042,8 @@ states) is the next real piece of work.
 - Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
 - Portal **Properties is native** (ported from command-center); it no longer embeds `/ops`.
 - Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
-- Portal Overview/Appointments cards are STILL baked demo data.
+- Portal per-brand Overview screens were REMOVED 2026-09-07; the Executive Board
+  landing screen and Appointments are still baked demo data.
 - Portal **Leads is native and brand-scoped** (ported from command-center's GHL
   section) - see "Leads (GHL)" above.
 - Investors, Insurance / Risk and Integrations were REMOVED from the nav (and their

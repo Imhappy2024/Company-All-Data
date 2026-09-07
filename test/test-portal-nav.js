@@ -226,6 +226,25 @@ function ptask(id, name, status, sync) {
       /\$[\d,]/.test(await page.locator('#content').textContent()), false);
   }
 
+  /* THE PER-BRAND OVERVIEW ITEMS ARE GONE, removed 2026-09-07 by instruction,
+     along with V.overview() behind them. Every version was baked, and three of
+     LeavenWealth's four KPIs were known to be wrong.
+
+     The FULL fixture still GRANTS 'overview' for each brand - a
+     dashboard_module row outliving a screen is normal here - so this also
+     proves a live grant cannot put the item back. */
+  for (const b of ['leavenwealth', 'leadli', 'folio', 'liquid']) {
+    await page.evaluate((brand) => setBrand(brand), b);
+    check(b + ' has no Overview item',
+      await page.$$eval('#nav .nav-item span:first-of-type',
+        els => els.map(e => e.textContent.trim()).filter(t => /^overview$/i.test(t))), []);
+    check(b + ' has no Overview section label',
+      await page.$$eval('#nav .nav-lbl',
+        els => els.map(e => e.textContent.trim()).filter(t => /^overview$/i.test(t))), []);
+  }
+  check('and the view function went with them',
+    await page.evaluate(() => typeof V.overview), 'undefined');
+
   /* EVERY BRAND HAS EXACTLY ONE FINANCIALS ITEM, AND IT IS CALLED "Financials".
 
      Folio had two: `reports` labelled "Reports & Financials" and `financials`
@@ -252,7 +271,7 @@ function ptask(id, name, status, sync) {
     await page.evaluate(() => [brand, view]), ['folio', 'reports']);
   await page.evaluate(() => { setBrand('folio'); setView('financials'); });
   check('and folio has no financials view to fall into',
-    await page.evaluate(() => [brand, view]), ['folio', 'overview']);
+    await page.evaluate(() => [brand, view]), ['folio', 'subscribers']);
   check('so it cannot borrow the LeavenWealth screen',
     await page.locator('#financialsNative').count(), 0);
 
@@ -277,8 +296,8 @@ function ptask(id, name, status, sync) {
      not leave the page blank — the same guarantee as any unknown view. */
   await page.goto(`${BASE}/#brand=folio&view=plans`, { waitUntil: 'domcontentloaded' });
   await boot();
-  check('a link to the old screen lands on Overview',
-    await page.evaluate(() => [brand, view]), ['folio', 'overview']);
+  check('a link to the old screen lands on the brand first screen',
+    await page.evaluate(() => [brand, view]), ['folio', 'subscribers']);
 
   /* Folio's Reports & Financials, and App Users, are now LIVE - both painted
      by portal-folio-fin.js from /api/folio/financials. Between them they used
@@ -387,7 +406,7 @@ function ptask(id, name, status, sync) {
   await page.goto('about:blank');
   await page.goto(`${BASE}/#brand=folio&view=properties`, { waitUntil: 'domcontentloaded' });
   await boot();
-  check('a view the brand does not have is dropped', await page.evaluate(() => [brand, view]), ['folio', 'overview']);
+  check('a view the brand does not have is dropped', await page.evaluate(() => [brand, view]), ['folio', 'subscribers']);
   await page.evaluate(() => { location.hash = '#brand=leadli&view=ads'; });
   await page.waitForTimeout(150);
   check('pasting a link into an open tab navigates', await page.evaluate(() => [brand, view]), ['leadli', 'ads']);

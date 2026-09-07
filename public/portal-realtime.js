@@ -35,9 +35,9 @@
   ----------------------------------------------------------------------- */
   var TABLE_VIEWS = {
     /* real estate */
-    property: ['properties', 'overview'],
+    property: ['properties'],
     unit: ['properties'],
-    property_financials: ['properties', 'overview'],
+    property_financials: ['properties'],
     property_comment: ['properties'],
     property_vendor: ['properties'],
     ownership: ['properties'],
@@ -46,25 +46,28 @@
     entity_owner: ['properties'],
 
     /* debt */
-    loan: ['loans', 'overview', 'financials'],
+    loan: ['loans', 'financials'],
     loan_balance: ['loans', 'financials'],
     loan_collateral: ['loans'],
     guarantor: ['loans'],
     reporting_requirement: ['loans'],
 
-    /* risk + capital. The insurance, investors and integrations VIEWS were
-       removed, so nothing is bound to them; insurance_policy still touches the
-       overview cards. Re-add the bindings alongside any screen that returns. */
-    insurance_policy: ['overview'],
+    /* risk + capital. Nothing is bound here at all any more: the insurance,
+       investors and integrations views were removed, and insurance_policy was
+       bound only to the per-brand Overview cards, which went with the Overview
+       nav items on 2026-09-07. `insurance_policy` still holds 257 policies -
+       re-add the binding alongside whatever screen reads them next. */
 
     /* growth. lead and appointment already existed here; the ghl_* tables are
        new and feed the same Leads screen. Duplicating a key would have been
        silently destructive - the later literal wins and the earlier one is
        gone with no error - so they are merged rather than appended. */
-    /* Also 'financials': Folio's screen reads `lead` for its funnel panel
-       (4,645 leads, 8 staged), which is the one panel there with real volume
-       behind it. */
-    lead: ['leads', 'overview', 'financials'],
+    /* Just 'leads' now. It was also bound to 'overview' (gone with the
+       Overview nav items) and to 'financials' (for Folio's funnel panel, which
+       moved to the Leads page). A brand whose financials screen reads `lead`
+       again - for a lead count in an empty state, say - should put
+       'financials' back here with the reason. */
+    lead: ['leads'],
     lead_provider: ['leads'],
     appointment: ['leads', 'appointments'],
     ghl_message: ['leads'],
