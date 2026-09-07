@@ -420,18 +420,34 @@ function folioFinancialsRoutes() {
 
       /* Option lists come from the unfiltered set, so a selection can never
          remove its own option. NULL is offered as '(not set)'. */
+      /* A CTE, not a FROM-clause subquery.
+
+         This was written as five scalar subqueries in the select list, each
+         `(select array_agg(...) from s)`, over a subquery aliased `s` in the
+         FROM. That is not legal: a sub-select in the target list cannot
+         reference a sibling FROM item as a relation, and Postgres answers
+         `relation "s" does not exist` — which took the whole screen down with
+         it. Aggregating directly over a CTE needs no sub-selects at all.
+
+         Option lists come from the UNFILTERED set, so a selection can never
+         remove its own option. NULL is offered as '(not set)': a value nobody
+         can select is a row nobody can find, and the one subscriber's
+         billing_period and plan are both NULL. With no rows every column
+         comes back NULL, which the client renders as an empty list. */
       const O = binder(T());
       const [opts] = await q(
-        `select
-           (select array_agg(distinct coalesce(status, '${NOT_SET}')) from s)          as status,
-           (select array_agg(distinct coalesce(payment_status, '${NOT_SET}')) from s)  as payment_status,
-           (select array_agg(distinct coalesce(billing_period, '${NOT_SET}')) from s)  as billing_period,
-           (select array_agg(distinct coalesce(subscription_plan_id::text, '${NOT_SET}')) from s) as plan,
-           (select array_agg(distinct coalesce(provider, '${NOT_SET}')) from s)        as provider
-         from (select sc.status, sc.payment_status, sc.billing_period,
-                      sc.subscription_plan_id, sc.provider
-                 from public.subscription_client sc
-                where sc.tenant_id = $1 and sc.business_entity_id = $2::uuid) s`, O.params);
+        `with s as (
+           select sc.status, sc.payment_status, sc.billing_period,
+                  sc.subscription_plan_id, sc.provider
+             from public.subscription_client sc
+            where sc.tenant_id = $1 and sc.business_entity_id = $2::uuid
+         )
+         select array_agg(distinct coalesce(status, '${NOT_SET}'))                  as status,
+                array_agg(distinct coalesce(payment_status, '${NOT_SET}'))          as payment_status,
+                array_agg(distinct coalesce(billing_period, '${NOT_SET}'))          as billing_period,
+                array_agg(distinct coalesce(subscription_plan_id::text, '${NOT_SET}')) as plan,
+                array_agg(distinct coalesce(provider, '${NOT_SET}'))                as provider
+           from s`, O.params);
 
       res.json({
         rows: rows.map(shapeSubscriber),

@@ -1467,8 +1467,53 @@ appear. See "Folio Excel has no `financials` catalog row" above and
 `migrations/20260907_folio_financials_module.sql`. Reports & Financials and App
 Users are reachable — they already had catalog rows.
 
+### `relation "s" does not exist` — and why 61 green tests missed it
+The filter-options query was five scalar subqueries in the select list, each
+`(select array_agg(...) from s)`, over a subquery aliased `s` in the FROM.
+**That is not legal**: a sub-select in the target list cannot reference a
+sibling FROM item as a relation. Postgres answered
+`relation "s" does not exist`, `/subscribers` 500'd, and Reports & Financials
+rendered nothing but that sentence.
+
+It is now a CTE with the aggregates taken directly — no sub-selects at all.
+
+**The whole test suite was green**, because `test-folio-financials.js` stands a
+fake in for Postgres and a fake never parses SQL. That is the same blind spot
+as "Verify the DEPLOYED artifact" at the top of this file, one level down: the
+tests verify the code around the query and cannot verify the query.
+
+Two guards were added, and they are different in kind:
+
+1. **A relation lint in the suite** (no database needed): every name used as a
+   relation in every statement the module issues must be `public.<table>` or a
+   CTE declared in the same statement. Mutation-tested — reintroducing the
+   `from s` shape fails it by name. It catches exactly one class of bug, which
+   is the class that shipped.
+
+2. **`tools/check-folio-sql.js`** — the real answer. It mounts the router
+   against a recording stub, calls every route plus the filter combinations
+   that change the SQL, and **EXPLAINs each of the 20 distinct statements**
+   with its real parameters. EXPLAIN plans without reading a row, so it is
+   read-only twice over. Exit code 1 if anything fails to plan, so it can gate
+   a deploy.
+
+       SUPABASE_DB_URL=... node tools/check-folio-sql.js
+       node tools/check-folio-sql.js --print   # dump the statements, no DB
+
+   Two details in that tool are load-bearing. The recorder **answers the
+   subscriber lookup with a row**, or `/subscribers/:id/payments` 404s before
+   issuing the statement most worth checking (the payment predicate widens
+   past the subscription join when test rows are asked for). And it returns
+   **one row for an ungrouped aggregate**, as Postgres does, so the routes
+   that destructure `const [m] = await q(...)` complete instead of throwing.
+   Both were found by running it, not by writing it.
+
+All 20 statements were verified against the live database on 2026-09-07,
+including every filter predicate shape.
+
 ### Tests
-    node test/test-folio-financials.js   # 61 checks, no database needed
+    node test/test-folio-financials.js   # 62 checks, no database needed
+    node tools/check-folio-sql.js        # every statement EXPLAINed (needs the DB URL)
 
 Mutation-tested: removing the test-payment default from `paymentWhere` fails
 three of them. Several checks read the front-end SOURCE rather than a payload,
@@ -1868,6 +1913,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
     node test/test-folio-financials.js # Folio: test payments, is_client, no invented metrics
+    node tools/check-folio-sql.js      # Folio: EXPLAIN every statement (needs SUPABASE_DB_URL)
 
 `test/expected.json` is written by hand from each fixture's stated intent, not
 derived from the code under test. Keep it that way, or the tests lose the ability
@@ -1878,6 +1924,14 @@ To Do and In Progress.
 In the sandbox `run-tests.js` reports one failure, `no page errors ->
 ERR_CONNECTION_RESET`: the staff headshots are hotlinked from static.showit.co
 and there is no outbound network. That one is an environment artefact.
+
+`test-realtime.js` used to fail about two runs in five under load. Its
+coalescing check posted 41 hooks **sequentially** and asked whether they all
+landed inside a 150ms window, which is request throughput rather than
+coalescing. They are now fired concurrently with `Promise.all`; `flush()` sorts
+the table list, so arrival order does not matter. Eight consecutive runs pass.
+If a timing check here ever goes flaky again, ask what property it is actually
+measuring before widening the wait.
 
 ## Still baked
 `V.overview()` in `public/portal.html` still hard-codes the LeavenWealth KPIs:

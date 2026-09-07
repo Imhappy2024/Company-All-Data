@@ -102,8 +102,19 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   check('carries no row data', Object.keys(a.events[0].data).sort(), ['at', 'ops', 'tables']);
 
   a.events.length = 0;
-  for (let i = 0; i < 40; i++) await post(port, { type: 'UPDATE', table: 'loan' }, 'correct-horse-battery-staple');
-  await post(port, { type: 'INSERT', table: 'loan_balance' }, 'correct-horse-battery-staple');
+  /* Fired CONCURRENTLY, not in sequence. The coalesce window here is 150ms and
+     the timer starts on the first hook, so awaiting 41 HTTP round trips one at
+     a time was asking whether 41 requests finish inside 150ms - which is true
+     on an idle machine and false under load. It failed about two runs in five
+     while the rest of this suite was running.
+
+     Coalescing is the property under test, not request throughput: sending
+     them together puts them in one window regardless of load. flush() sorts
+     the table list, so arrival order does not affect the assertion below. */
+  const hooks = [];
+  for (let i = 0; i < 40; i++) hooks.push(post(port, { type: 'UPDATE', table: 'loan' }, 'correct-horse-battery-staple'));
+  hooks.push(post(port, { type: 'INSERT', table: 'loan_balance' }, 'correct-horse-battery-staple'));
+  await Promise.all(hooks);
   await wait(400);
   check('41 hooks across 2 tables collapse to one event', a.events.length, 1);
   check('deduplicated table list', a.events[0].data.tables, ['loan', 'loan_balance']);

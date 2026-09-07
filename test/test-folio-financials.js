@@ -277,6 +277,44 @@ function strings(o, out) {
     assert.strictEqual(bad.length, 0, bad[0] && bad[0].sql.slice(0, 120));
   });
 
+  /* ---- every relation named actually exists ----------------------------
+     THE FAKE ABOVE NEVER PARSES SQL, so a statement Postgres refuses passes
+     every other check in this file. That is exactly how
+     `relation "s" does not exist` reached production: the options query was
+     five scalar subqueries in the select list, each `(select … from s)` over a
+     subquery aliased `s` in the FROM — which is not legal, because a
+     sub-select in the target list cannot reference a sibling FROM item as a
+     relation. The screen showed nothing but the error.
+
+     This lints what the fake cannot: every name used as a relation is either
+     `public.<table>` or a CTE declared in the same statement. It is narrow on
+     purpose - it catches referencing an alias as a table, and it would have
+     caught that bug. It is NOT a substitute for running the SQL, which is
+     what tools/check-folio-sql.js does. */
+  await checkAsync('every relation named in a statement is real', async () => {
+    seen.length = 0;
+    await get('/summary');
+    await get('/subscribers');
+    await get('/subscribers?status[]=active&from=2026-08-01&to=2026-08-31');
+    await get(PAY_URL); await get(PAY_URL + '?include_test=true');
+    await get('/payments?include_test=true');
+    await get('/export?view=subscribers'); await get('/export?view=payments');
+    assert.ok(seen.length, 'statements ran');
+
+    for (const s of seen) {
+      const sql = s.sql.replace(/\/\*[\s\S]*?\*\//g, ' ');
+      const ctes = new Set([...sql.matchAll(/\bwith\s+([a-z_][a-z0-9_]*)\s+as\b/gi)].map(m => m[1].toLowerCase()));
+      [...sql.matchAll(/,\s*([a-z_][a-z0-9_]*)\s+as\s*\(/gi)].forEach(m => ctes.add(m[1].toLowerCase()));
+      for (const m of sql.matchAll(/\b(?:from|join)\s+([a-zA-Z_][A-Za-z0-9_.]*)/g)) {
+        const rel = m[1];
+        if (/^public\./.test(rel)) continue;
+        assert.ok(ctes.has(rel.toLowerCase()),
+          'statement names relation "' + rel + '" which is neither public.<table> nor a CTE: ' +
+          sql.replace(/\s+/g, ' ').slice(0, 130));
+      }
+    }
+  });
+
   /* ---- scoping --------------------------------------------------------- */
   await checkAsync('every statement is tenant-scoped and Folio-scoped', async () => {
     seen.length = 0;
