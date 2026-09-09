@@ -191,13 +191,30 @@
 .prwallgrid::after{top:66%}
 .pryr{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;
   height:100%;cursor:pointer;background:none;border:0;font:inherit;padding:0;min-width:0}
-.pryr .col{width:100%;border-radius:5px 5px 2px 2px;min-height:2px;
+/* .prbar, NOT .col. portal.html owns a generic `.col` for the Property Tasks
+   board - `.col{background;border:1px solid;border-radius;padding:10px}` - and
+   this bar used the same class name. That padding and border FLOOR every bar
+   at 22px and add 22px to every real one, so 26 empty year columns rendered as
+   22px bordered panels side by side: one continuous band across the chart,
+   with every bar's height wrong on top of it. Measured, not guessed: an empty
+   column reported 22px against the 2px the JS sets.
+
+   Same failure as the GHL port's unscoped `.card`/`.view`. This stylesheet was
+   shimmed for COLOURS but never scoped for class names, so a generic name here
+   silently inherits whatever portal.html means by it. Prefix new class names.
+   `padding:0;border:0` are explicit so a future collision cannot re-inflate
+   the bar. */
+.pryr .prbar{width:100%;border-radius:5px 5px 2px 2px;min-height:2px;
+  padding:0;border:0;box-sizing:border-box;
   background:linear-gradient(180deg,var(--brass),#453BA6);transition:.28s var(--ease);
   box-shadow:0 -1px 0 rgba(255,255,255,.15) inset}
-.pryr.soon .col{background:linear-gradient(180deg,var(--amber),#a8710f)}
-.pryr.now .col{background:linear-gradient(180deg,var(--rust),#9c2b1e)}
-.pryr:hover .col{filter:brightness(1.2)}
-.pryr.sel .col{outline:2px solid var(--cream);outline-offset:2px}
+.pryr.soon .prbar{background:linear-gradient(180deg,var(--amber),#a8710f)}
+.pryr.now .prbar{background:linear-gradient(180deg,var(--rust),#9c2b1e)}
+.pryr:hover .prbar{filter:brightness(1.2)}
+.pryr.sel .prbar{outline:2px solid var(--cream);outline-offset:2px}
+/* The beyond-the-horizon bucket: not a filter, so not a button. */
+.pryr.rest{cursor:default}
+.pryr.rest .prbar{background:linear-gradient(180deg,var(--dim),var(--edge2))}
 .pryr .amt{font-family:var(--ff-mono);font-size:10px;color:var(--text);margin-bottom:6px}
 .pryr .yl{font-family:var(--ff-mono);font-size:10px;color:var(--dimmer);margin-top:7px}
 .pryr.now .yl,.pryr.soon .yl{color:var(--text)}

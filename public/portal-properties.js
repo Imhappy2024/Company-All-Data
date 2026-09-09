@@ -203,6 +203,11 @@ const prLtvColour = r => r >= 0.85 ? 'var(--rust)' : r >= 0.70 ? 'var(--amber)'
 const prMv = p => Number(p.marketValue || 0);
 const prLtv = p => (prMv(p) ? p.debt / prMv(p) : 0);
 const prCap = p => (prMv(p) && p.noi ? p.noi / prMv(p) : null);
+/* Ten years of detail on the maturity wall, then one bucket. Long enough that
+   every real refinancing decision is on the chart, short enough that the
+   columns stay readable - the live data has a loan due in 2056. */
+const PR_WALL_YEARS = 10;
+
 const prYear = iso => { const t = Date.parse(iso); return Number.isFinite(t) ? new Date(t).getFullYear() : null; };
 const prNextMat = p => {
   const ds = p.loans.map(l => l.maturity).filter(Boolean).sort();
@@ -693,24 +698,63 @@ function prDebtView(){
 
   let wall = '<div class="hint" style="padding:0 18px 14px">No maturity dates recorded.</div>';
   if (keys.length) {
+    /* A HORIZON, not every year to the furthest maturity.
+
+       This used to run from the first maturity to the last, one column per
+       year. One loan due in 2056 therefore drew 31 columns of which 26 were
+       empty - a wall of blank stubs across the middle of the card, with the
+       year labels overlapping because thirty of them do not fit. Measured, not
+       guessed: 26 of 31 empty.
+
+       So: ten years of detail, then ONE bucket carrying everything later. No
+       dollar leaves the chart - the bucket's title lists the years and amounts
+       inside it - and the columns stay wide enough to read. */
+    const start = Math.min(thisYear, keys[0]);
+    const last = keys[keys.length - 1];
+    const horizon = start + PR_WALL_YEARS;
     const span = [];
-    /* Start at this year even when nothing matures until later, so the distance
-       to the first wall is visible rather than implied. */
-    for (let y = Math.min(thisYear, keys[0]); y <= keys[keys.length - 1]; y++) span.push(y);
-    const max = Math.max(...Object.values(years));
-    wall = '<div class="prwall"><div class="prwallgrid">' + span.map(y => {
+    for (let y = start; y <= Math.min(horizon, last); y++) span.push(y);
+
+    const beyond = keys.filter(y => y > horizon);
+    const restAmt = beyond.reduce((a, y) => a + years[y], 0);
+
+    /* The tallest bar scales against everything ON the chart, the bucket
+       included, or a large tail would render taller than the axis. */
+    const max = Math.max(...span.map(y => years[y] || 0), restAmt) || 1;
+    const barPx = amt => (amt ? Math.max(2, amt / max * 150) : 2);
+
+    const cells = span.map(y => {
       const amt = years[y] || 0;
       const cls = y <= thisYear ? 'now' : y === thisYear + 1 ? 'soon' : '';
       return '<button class="pryr ' + cls + (PR.year === y ? ' sel' : '') + '" data-pryear="' + y + '" '
         + 'title="' + prFull(amt) + ' maturing in ' + y + '">'
         + '<span class="amt">' + (amt ? prMoney(amt) : '') + '</span>'
-        + '<span class="col" style="height:' + (amt ? Math.max(2, amt / max * 150) : 2) + 'px"></span>'
+        + '<span class="prbar" style="height:' + barPx(amt) + 'px"></span>'
         + '<span class="yl">' + y + '</span></button>';
-    }).join('') + '</div>'
-      + '<p class="hint" style="margin-top:12px">Click a year to filter every view to the '
-      + 'properties whose loans come due then.'
-      + (undated ? ' ' + undated + ' loan' + (undated > 1 ? 's have' : ' has') + ' no maturity date and '
-        + 'appear' + (undated > 1 ? '' : 's') + ' in no bar.' : '') + '</p></div>';
+    });
+
+    if (beyond.length) {
+      /* A span, not a button: PR.year filters ONE year, and a control that
+         cannot do what its neighbours do should not look like them. The title
+         carries the detail the column cannot. */
+      cells.push('<span class="pryr rest" title="' + prFull(restAmt) + ' maturing after '
+        + horizon + ' - ' + beyond.map(y => y + ': ' + prFull(years[y])).join(', ') + '">'
+        + '<span class="amt">' + (restAmt ? prMoney(restAmt) : '') + '</span>'
+        + '<span class="prbar" style="height:' + barPx(restAmt) + 'px"></span>'
+        + '<span class="yl">' + (horizon + 1) + '+</span></span>');
+    }
+
+    const notes = ['Click a year to filter every view to the properties whose loans come due then.'];
+    if (beyond.length) {
+      notes.push(beyond.length + ' year' + (beyond.length > 1 ? 's' : '') + ' beyond ' + horizon
+        + ' (' + prMoney(restAmt) + ') are grouped into the last column, which is not a filter.');
+    }
+    if (undated) {
+      notes.push(undated + ' loan' + (undated > 1 ? 's have' : ' has') + ' no maturity date and '
+        + 'appear' + (undated > 1 ? '' : 's') + ' in no bar.');
+    }
+    wall = '<div class="prwall"><div class="prwallgrid">' + cells.join('') + '</div>'
+      + '<p class="hint" style="margin-top:12px">' + notes.join(' ') + '</p></div>';
   }
 
   /* Lender concentration: who could actually say no at renewal. */

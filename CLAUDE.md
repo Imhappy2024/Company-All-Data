@@ -684,6 +684,71 @@ rebuilding:
   wrapper tolerates the first and rethrows the second, so an empty screen says
   which it is instead of looking the same either way.
 
+### The maturity wall: two bugs found by MEASURING, not by reading
+
+Reported as "there's a big empty space in the middle of the dash" on
+Properties > Debt. Two independent faults, both reproduced in a browser before
+either was touched — `test/test-maturity-wall.js` is that reproduction, kept.
+
+**1. The axis ran to the furthest maturity.** One column per year from the first
+maturity to the last:
+
+    for (let y = Math.min(thisYear, keys[0]); y <= keys[keys.length - 1]; y++)
+
+The live data has a loan due in **2056**, so that drew **31 columns of which 26
+were empty**, each bar 22px wide, with the year labels overlapping because
+thirty of them do not fit an 846px card.
+
+It now shows `PR_WALL_YEARS` (10) years of detail plus **one bucket** carrying
+everything later, labelled `2037+`. **No dollar leaves the chart** — the
+bucket's title lists the years and amounts inside it, and the hint says the
+column is not a filter. It is a `<span>`, not a `<button>`, because `PR.year`
+filters ONE year and a control that cannot do what its neighbours do should not
+look like them.
+
+The tallest bar scales against everything on the chart including the bucket, or
+a large tail renders taller than the axis.
+
+**2. The bars were called `.col`, and portal.html owns that name.** Its Property
+Tasks board defines
+
+    .col{background:var(--panel-2);border:1px solid var(--border);
+         border-radius:var(--radius);padding:10px}
+
+so every bar carried 20px of padding and a 2px border. That **floors every bar
+at 22px** and adds 22px to every real one. Twenty-six empty columns rendered as
+22px bordered panels side by side is the continuous band across the middle of
+the card in the screenshot. The inline style said `height:2px`; the browser
+reported **22px**.
+
+Renamed to `.prbar`, with `padding:0;border:0;box-sizing:border-box` stated
+explicitly so a future collision cannot re-inflate it.
+
+**This is the same failure as the GHL port's unscoped `.card`/`.view`.**
+`portal-properties.css` was shimmed for COLOURS (see "The palette is shimmed,
+not pasted") but never scoped for class names, so a generic name in it silently
+inherits whatever portal.html means by that name. **Prefix new class names in
+that file.** One more is still generic: `.tkgrid>.col` in the task overlay is
+picking up the same panel background, border and padding. Left alone because it
+may read as intentional there — check it against a screenshot before changing
+it.
+
+**Why reading the CSS could not find this.** The rule that broke it is in a
+different file, and the symptom is a height, not an error: nothing throws,
+nothing logs, and the file that renders the bar says `2px` right there in the
+markup. The first two attempts at the harness were also wrong about the payload
+shape (properties are a FLAT array plus a `tree`, not nested under entities),
+which the browser reported as "0 of 0 properties" rather than as a failure.
+Measure the box.
+
+    node test/test-maturity-wall.js   # 7 checks, needs playwright
+
+It asserts geometry rather than markup — an empty column is 2px tall, the
+column count is bounded, bars are proportional, columns are wide enough for a
+label, nothing overflows. Mutation-tested both ways: restoring `.col` fails
+three checks and names the class, and removing the horizon fails four and
+reports 31 columns at 19px wide.
+
 ### Rendering, and where the write goes
 Field labels come from the **server**, not from a snake_case-to-Title-Case
 function: `dba_name` is "DBA Name / Name of Apartment Complex", the name the people
@@ -2139,6 +2204,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
+    node test/test-maturity-wall.js  # the wall: bar geometry, bounded axis
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
     node test/test-folio-financials.js # Folio: test payments, is_client, no invented metrics
