@@ -2089,6 +2089,14 @@ function patchCachedPropertyField(taskId, fieldId, value) {
 const folioFinApi = require('./folio-financials-api');
 app.use('/api/folio/financials', folioFinApi.folioFinancialsRoutes());
 
+/* Leadli AI financials. A third money model: the payment STREAM
+   (sales_payment), where LeavenWealth reads balance snapshots and Folio reads
+   subscriptions. Leadli has 0 payments today, so the screen's real job is an
+   honest empty state that names where revenue will arrive from - not a
+   placeholder, and not zeros pretending to be a dashboard. Read-only. */
+const leadliFinApi = require('./leadli-financials-api');
+app.use('/api/leadli/financials', leadliFinApi.leadliFinancialsRoutes());
+
 const ghlApi = require('./ghl-api');
 app.use('/api/ghl', ghlApi.ghlRoutes());
 

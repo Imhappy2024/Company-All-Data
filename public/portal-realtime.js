@@ -62,12 +62,14 @@
        new and feed the same Leads screen. Duplicating a key would have been
        silently destructive - the later literal wins and the earlier one is
        gone with no error - so they are merged rather than appended. */
-    /* Just 'leads' now. It was also bound to 'overview' (gone with the
-       Overview nav items) and to 'financials' (for Folio's funnel panel, which
-       moved to the Leads page). A brand whose financials screen reads `lead`
-       again - for a lead count in an empty state, say - should put
-       'financials' back here with the reason. */
-    lead: ['leads'],
+    /* Also 'financials', and for exactly the reason the previous note
+       anticipated: Leadli's Financials screen has no payments, so its empty
+       state prints the pipeline count ("2,557 leads in the pipeline - 0
+       converted") to explain why. That is the ONE piece of CRM data on a
+       financial page, and it moves when `lead` does.
+
+       It was also bound to 'overview' until those screens were removed. */
+    lead: ['leads', 'financials'],
     lead_provider: ['leads'],
     appointment: ['leads', 'appointments'],
     ghl_message: ['leads'],

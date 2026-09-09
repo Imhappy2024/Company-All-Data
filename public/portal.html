@@ -430,6 +430,7 @@ tbody tr:hover{background:var(--panel-2)}
 <script src="/portal-properties.js"></script>
 <script src="/portal-financials.js"></script>
 <script src="/portal-folio-fin.js"></script>
+<script src="/portal-leadli-fin.js"></script>
 <script src="/portal-ghl.js"></script>
 <script src="/portal-realtime.js"></script>
 <script>
@@ -499,7 +500,7 @@ const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
 
    A brand absent here gets the placeholder. Add one the day its own view
    ships, naming the module that serves it. */
-const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw'};
+const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw', leadli:'leadli'};
 
 /* ===========================================================================
    PERMISSION GATE. Everything below reads the single dash_my_access() payload
@@ -1009,6 +1010,7 @@ const V={
      mounted into it by render(); a brand without one gets a placeholder that
      names what is missing rather than borrowing LeavenWealth's figures. */
   financials(){
+    if (FINANCIALS_BUILT[brand]==='leadli') return '<div id="leadliFinNative"></div>';
     if (FINANCIALS_BUILT[brand]) return '<div id="financialsNative"></div>';
     const b=BRANDS[brand];
     return `<div class="placeholder">${I.dollar}
@@ -1478,7 +1480,12 @@ function render(){
   if(brand==='folio' && view==='subscribers' && window.PortalFolioFin){
     PortalFolioFin.mountUsers(document.getElementById('folioUsersNative'));
   }
-  if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
+  /* Leadli reads the payment stream; LeavenWealth reads balance snapshots.
+     Same nav id, different module - FINANCIALS_BUILT names which. */
+  if(view==='financials' && FINANCIALS_BUILT[brand]==='leadli' && window.PortalLeadliFin){
+    PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
+  }
+  else if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
   if(view==='properties' && window.PortalProperties){
@@ -1548,6 +1555,7 @@ if(window.PortalRealtime) PortalRealtime.start({
        alone would repaint the same rows off the same cache. */
     if((v==='*' || v==='financials') && window.PortalFinancials){ PortalFinancials.invalidate(); }
     if((v==='*' || v==='financials') && window.PortalFolioFin){ PortalFolioFin.invalidate(); }
+  if((v==='*' || v==='financials') && window.PortalLeadliFin){ PortalLeadliFin.invalidate(); }
     /* Leads caches its list per brand, so rerender() alone would repaint the
        same rows off the same cache. */
     if((v==='*' || v==='leads') && window.PortalGHL){ PortalGHL.invalidate(); }

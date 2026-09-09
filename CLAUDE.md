@@ -12,7 +12,8 @@ several brands). Two front ends are merged into ONE Express service:
             Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
             LeavenWealth: Properties, Loans + workspace core
             (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,
-            Appointments, Marketing/Ads. Folio: App Users, Financials (SaaS). Liquid: Loan
+            Appointments, Marketing/Ads, Financials (the payment stream). Folio: App
+            Users, Financials (SaaS). Liquid: Loan
             Pipeline, Borrowers. **No brand has an Overview item** - see "Removed screens".
             Clicking a person (Org/Dept charts, Team) opens a profile drawer
             with a bio "See more". Brand maps 1:1 to Supabase `company` / `company_member`.
@@ -1575,6 +1576,138 @@ because "no chart" and "no delta" are properties of the screen that no API
 response can enforce — and those checks strip comments first, or they read the
 prose explaining why a thing is absent and conclude it is present.
 
+## Leadli AI: Financials — the payment stream, and an honest empty state
+
+`/api/leadli/financials` (`leadli-financials-api.js`) + `public/portal-leadli-fin.js`.
+The THIRD money model in the portal, and the reason `FINANCIALS_BUILT` is a map:
+
+| brand | reads | module |
+|---|---|---|
+| LeavenWealth, Executive Board | balance snapshots (`account_balance`) | `PortalFinancials` |
+| Folio Excel | subscriptions (`subscription_client`) | `PortalFolioFin` |
+| **Leadli AI** | **the payment stream (`sales_payment`)** | **`PortalLeadliFin`** |
+
+### Leadli has NO payment data, and the empty state IS the feature
+Verified live 2026-09-08, not assumed:
+
+    sales_payment        0 rows for Leadli  (all 3 in the table are Folio's)
+    subscription_client  0 rows for Leadli
+    transaction          0 rows for Leadli
+    service_client       0 rows, whole table
+    lead                 2,557 rows, 0 with is_client
+
+So all four cards read `$0.00` / `0` and the table renders ONE centred message
+naming where revenue will arrive from (the Whop webhook, n8n workflow "Whop to
+database (payment success)") plus the pipeline count that explains the blank:
+**2,557 leads in the pipeline · 0 converted**.
+
+That replaced the "Leadli AI financials are not set up yet" placeholder, which
+was the right answer while nothing was built and the wrong one afterwards:
+there is no record yet, but there should still be a dashboard.
+
+**Nothing seeds a placeholder row.** A test asserts the screen contains none of
+`Bluebird`, `Redwood`, `Cornerstone`, `Harbor Homes`, `Prairie Rentals`,
+`Elm Street`, `Sample`, `Demo` or `Acme` — named because Folio's page shipped
+with six invented businesses in it.
+
+`empty` comes from the server's own `payment_count`, never a hardcoded flag, so
+**one inserted payment flips the whole screen with no code change**. That is the
+spec's real acceptance check, and the suite runs every assertion twice: once
+against no payments, once against one.
+
+### The four cards, and what each actually counts
+
+| Card | Counts |
+|---|---|
+| Total amount | `sum(usd_total)` on collected, non-test rows — money RECEIVED |
+| Total clients | DISTINCT PAYERS, `coalesce(external_customer_id, customer_email)` |
+| Subscriptions | recurring PAYMENTS, not customers |
+| One-time payments | one-off PAYMENTS |
+
+**Cards 3 and 4 are payment counts.** One subscriber paying monthly for a year
+contributes 12, and the sub-line says so; where the distinct-subscription count
+differs it is named beside it ("payments, across 1 subscription") rather than
+quietly swapped in. Pick one and label it honestly — this picks payments.
+
+`external_customer_id` is the Whop `user_` id and is the reliable identity;
+email is the fallback only where that is null.
+
+No percentage, arrow, MoM, ARR, NRR, churn or trend anywhere. `kpiCard()` takes
+**four** arguments where portal.html's `kpi()` takes five — the fifth is the
+class that colours a delta, so there is nowhere to put one. A test asserts the
+argument count.
+
+### Never count `lead.is_client` as clients
+It reads **0** for Leadli today and **4** for Folio, where only one customer
+pays — the flag drifted across earlier sessions. `converted` in the empty-state
+payload is derived from the payment stream, and `converted_source` says so on
+every response. Two tests: no statement reads the column, and no count in any
+payload equals 2,557 except `pipeline.total_leads` itself.
+
+### `product_name` is NOT joined to the `service` catalogue
+`service` holds 7 Leadli offerings (Ad Management, AI Automation & Workflows,
+AI-Powered Front-End, Data & Integration Layer, Email Marketing Campaigns,
+Smart Back-End Systems, Strategy Call / Free AI Audit) and **every one has a
+NULL price**. `sales_payment.product_name` is the Whop product title — on Folio
+it reads "Chris Pomerleau-Standard", which matches no catalogue entry.
+
+There is no key between them, and a fuzzy name match would silently mislabel
+revenue. A test asserts no statement touches `public.service`. Linking them
+needs a real `external_product_id` on `service`, which is Jay's call.
+
+### The customer name needs a FALLBACK CHAIN, and says which link it used
+Whop sends `user.name` as null routinely — it was null on the one real Folio
+payment, restored by hand from `raw.billing_address.name`. The chain is
+
+    customer_name → raw.billing_address.name → raw.user.username → customer_email
+
+and `customer_source` rides along so the client can mark a Whop username as a
+**handle** rather than passing it off as a person's name. An email fallback is
+marked too. No cell is ever blank.
+
+### The is_test filter is PROBED, not hardcoded
+`sales_payment` has no `is_test` column (verified). Until it does, test rows are
+matched on `TEST TRANSACTION` in free-text `notes` **and** a Whop-anonymised
+`@deleted.com` email — both together, per the spec.
+
+`testPredicate()` asks `information_schema` **once** and switches to `is_test`
+the moment the column appears, which is what makes "no code change" true in
+both directions. A test clears the cache and asserts both branches: the
+provisional one names the notes string, the real one stops matching it.
+
+A string match on a notes field breaks the first time someone edits a note, and
+it breaks toward inflating revenue. That column is worth asking for.
+
+### Two gaps the front end cannot fix
+1. **Leadli is not wired into the Whop n8n workflow.** It routes payments to a
+   brand by Whop company id; Folio's is confirmed (`biz_wmvLWNZSgmchCw`) and
+   **Leadli's is blank**, as is its GHL location id in the same map. Until both
+   are set, a Leadli payment would be booked to Folio Excel — wrong brand,
+   wrong entity, wrong processor account. The Leadli processor account already
+   exists: `fdefb5bc-e511-4688-bfc0-c8e20b7f52da`, `account_kind = processor`.
+2. **`sales_payment` wants an `is_test` boolean**, per above.
+
+Both are Jay's; nothing on this screen can work around either.
+
+### No pipeline stages and no funnel
+CRM data belongs on the Leads page. The ONE lead count inside the empty-state
+message is the deliberate exception, and only because it is what explains an
+empty table. A test asserts no statement groups by `pipeline_stage`.
+
+### Tests
+    node test/test-leadli-financials.js   # 38 checks, no database needed
+
+Every check runs against both fixtures. The suite also lints that every
+relation named in every statement is `public.<table>` or a CTE — the guard that
+came out of `relation "s" does not exist` on the Folio module — and all four
+statements were run against the live database before shipping, because a fake
+never parses SQL.
+
+One check is worth copying: the "no invented metric" assertions use **word
+boundaries**. A substring test for `ARR` matches "revenue **arr**ives" in the
+empty-state copy, which is the same trap as "Cash Source" containing "Source"
+on the LeavenWealth export.
+
 ## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing, Overview
 
 Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
@@ -2009,6 +2142,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-financials.js # financials: read-only, filters, export provenance
     node test/test-ghl.js        # GHL leads: brand scoping, send guards
     node test/test-folio-financials.js # Folio: test payments, is_client, no invented metrics
+    node test/test-leadli-financials.js # Leadli: the empty state, and one payment flipping it
     node tools/check-folio-sql.js      # Folio: EXPLAIN every statement (needs SUPABASE_DB_URL)
 
 `test/expected.json` is written by hand from each fixture's stated intent, not

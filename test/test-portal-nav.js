@@ -207,11 +207,16 @@ function ptask(id, name, status, sync) {
   check('and no generic page header over it',
     await page.locator('.page-h .page-t').count(), 0);
 
-  /* Folio is absent here on purpose, and for a second reason now: it HAS a
-     screen (its own, reading Whop billing) so it would not show the
-     placeholder anyway. Its `financials` dashboard_module row also does not
-     exist, so the item cannot appear at all. Both are asserted below. */
-  for (const b of ['leadli', 'liquid']) {
+  /* Only Liquid Lending is left in this loop.
+
+     Folio has its own screen (Whop billing) on the `reports` nav id, and
+     Leadli has its own screen too as of 2026-09-08 - the payment stream, whose
+     job today is an honest EMPTY state rather than a placeholder saying the
+     feature does not exist. Both are asserted separately below.
+
+     A brand leaves this loop the day its view ships, and this comment is the
+     record of which ones did. */
+  for (const b of ['liquid']) {
     await page.evaluate(brand => { setBrand(brand); setView('financials'); }, b);
     check(b + ' does NOT get the built screen',
       await page.locator('#financialsNative').count(), 0);
@@ -225,6 +230,22 @@ function ptask(id, name, status, sync) {
     check(b + ' placeholder carries no figures',
       /\$[\d,]/.test(await page.locator('#content').textContent()), false);
   }
+
+  /* LEADLI HAS A SCREEN, AND IT IS AN EMPTY STATE - not the "not set up yet"
+     placeholder. This harness answers every /api/* with 503, so the module
+     renders its error box rather than the empty state; what is checkable here
+     is that the container mounts, that the placeholder is NOT what shows, and
+     that no figure is baked into the file. The empty state itself, with its
+     lead count, is covered by test-leadli-financials.js against a fixture. */
+  await page.evaluate(() => { setBrand('leadli'); setView('financials'); });
+  check('leadli mounts its own financials container',
+    await page.locator('#leadliFinNative').count(), 1);
+  check('and does not borrow the LeavenWealth screen',
+    await page.locator('#financialsNative').count(), 0);
+  check('and is not the not-set-up placeholder',
+    /not set up yet/.test(await page.locator('#content').textContent()), false);
+  check('and bakes no figure',
+    (await page.locator('#content').textContent()).match(/\$[\d,]+|\d+(\.\d+)?%/g) || [], []);
 
   /* THE PER-BRAND OVERVIEW ITEMS ARE GONE, removed 2026-09-07 by instruction,
      along with V.overview() behind them. Every version was baked, and three of
