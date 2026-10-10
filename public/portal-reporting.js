@@ -231,6 +231,25 @@
     return !isNum(v) ? '' : Number(v) < 1 ? 'rp-bad' : Number(v) < 1.25 ? 'rp-warn' : '';
   }
 
+  /* Where a unit count came from, and whether the two sources disagree.
+     A count from the rent roll is a snapshot of what was leasable on one
+     date; a verified count is a deliberate statement about the asset. They
+     are not the same claim, so the screen says which it is showing. */
+  function unitsNote(r) {
+    if (!isNum(r.units)) return '';
+    if (r.units_disagree) {
+      return ' ' + tag('rr ' + intf(r.units_rent_roll),
+        'Verified count ' + intf(r.units) + '; the rent roll of ' +
+        dateOnly(r.units_rent_roll_as_of) + ' shows ' + intf(r.units_rent_roll) + '.', 'warn');
+    }
+    if (r.units_source === 'rent_roll') {
+      return ' ' + tag('rent roll',
+        'No verified count or building total on file; taken from the rent roll of ' +
+        dateOnly(r.units_rent_roll_as_of) + '.');
+    }
+    return '';
+  }
+
   function colourClass(row) {
     /* red beats orange; the brief's thresholds, applied per cell by the
        caller rather than to the whole row. */
@@ -291,16 +310,25 @@
     h.push('<div id="rpTblHost"><div class="rp-scroll"><table class="rp-tbl"><thead><tr>' +
       '<th>Property</th><th class="r">Units</th><th class="r">Occupancy</th>' +
       '<th class="r">Total income</th><th class="r">Total expenses</th>' +
-      '<th class="r">NOI, T12</th><th class="r">Optimized NOI</th>' +
+      '<th class="r">NOI, trailing 12 mo</th><th class="r">Optimized NOI</th>' +
       '<th class="r">Expense ratio</th><th class="r">Net income</th>' +
       '<th class="r">DSCR, mortgage</th><th class="r">DSCR, all debt</th>' +
       '<th>PM company</th><th>In Dropbox</th></tr></thead><tbody>');
 
     rows.forEach(function (r) {
       var c = colourClass(r);
+      /* The name is an <a>, not a bold <td>. The whole row has been clickable
+         since this shipped, but nothing on screen said so - no colour, no
+         underline, no cursor - so the eleven property tabs behind it were
+         effectively undiscoverable. An affordance is not decoration here; it
+         is the only route to Monthly financials, Optimized NOI and DSCR.
+
+         href is a real deep link so the row can be opened in a new tab and
+         pasted to someone; the handler preventDefault()s the plain click. */
       h.push('<tr class="rp-row" data-prop="' + escS(r.id) + '">' +
-        '<td><b>' + escS(r.name) + '</b>' + (r.source_system ? '<span class="rp-src">' + escS(r.source_system) + '</span>' : '') + '</td>' +
-        '<td class="r">' + intf(r.units) + '</td>' +
+        '<td><a class="rp-link" href="#brand=leavenwealth&view=properties&property=' + escS(r.id) + '">' +
+        escS(r.name) + '</a>' + (r.source_system ? '<span class="rp-src">' + escS(r.source_system) + '</span>' : '') + '</td>' +
+        '<td class="r">' + intf(r.units) + unitsNote(r) + '</td>' +
         '<td class="r ' + c.occ + '">' + pct(r.latest_occupancy) + '</td>' +
         '<td class="r">' + money$(r.t12_income, { whole: true }) + '</td>' +
         '<td class="r">' + money$(r.t12_expense, { whole: true }) + '</td>' +
@@ -781,9 +809,10 @@
   function totalsTab(d, prop) {
     var rows = [
       ['Units', intf(prop.units)], ['Occupancy', pct(prop.latest_occupancy)],
-      ['Total income, T12', money$(prop.t12_income)], ['Total expenses, T12', money$(prop.t12_expense)],
-      ['NOI, T12', money$(prop.t12_noi)], ['Optimized NOI', money$(prop.optimized_noi)],
-      ['Expense ratio', pct(prop.expense_ratio)], ['Net income, T12', money$(prop.t12_net_income)],
+      ['Total income, trailing 12 mo', money$(prop.t12_income)],
+      ['Total expenses, trailing 12 mo', money$(prop.t12_expense)],
+      ['NOI, trailing 12 mo', money$(prop.t12_noi)], ['Optimized NOI', money$(prop.optimized_noi)],
+      ['Expense ratio', pct(prop.expense_ratio)], ['Net income, trailing 12 mo', money$(prop.t12_net_income)],
       ['Debt', money$(prop.debt)],
       ['Debt service, mortgage (T12)', money$(prop.t12_debt_service)],
       ['Other interest counted (T12)', money$(prop.t12_other_interest)],
@@ -938,6 +967,22 @@
   }
 
   /* ---- paint --------------------------------------------------------------- */
+  function skeleton(rows, cols) {
+    var n = rows || 10, c = cols || 8, h = ['<div class="rp-skel">'];
+    h.push('<div class="rp-skel-bar"></div>');
+    h.push('<table class="rp-tbl"><tbody>');
+    for (var i = 0; i < n; i++) {
+      h.push('<tr>');
+      for (var j = 0; j < c; j++) {
+        h.push('<td><span class="rp-skel-cell" style="width:' +
+          (j === 0 ? 70 : 40 + ((i * 7 + j * 13) % 35)) + '%"></span></td>');
+      }
+      h.push('</tr>');
+    }
+    h.push('</tbody></table></div>');
+    return h.join('');
+  }
+
   function shell(body, tabs) {
     return '<div class="rp-wrap2"><aside class="rp-side">' + menuHtml() + '</aside>' +
       '<section class="rp-main">' + crumbHtml() +
@@ -960,7 +1005,11 @@
       return;
     }
     if (S.busy && !S.cache.current) {
-      S.host.innerHTML = shell('<div class="rp-empty">Loading…</div>', '');
+      /* A skeleton, not a blank page and not the word "Loading". The shape of
+         what is coming is itself information: the reader knows a table is
+         arriving and roughly how wide, so the wait reads as a wait rather
+         than as an empty screen. */
+      S.host.innerHTML = shell(skeleton(), '');
       wire();
       return;
     }
@@ -974,22 +1023,22 @@
         escS(prop.source_system || DASH) + ' · ' + escS(prop.pm_company || DASH) + '</div></header>' +
         tabsHtml(PTABS, S.ptab, 'ptab');
       switch (S.ptab) {
-        case 'monthly': body = d.monthly ? monthlyTab(d.monthly) : '<div class="rp-empty">Loading…</div>'; break;
-        case 'is':      body = d.is ? isTab(d.is) : '<div class="rp-empty">Loading…</div>'; break;
-        case 'noi':     body = d.noi ? noiTab(d.noi) : '<div class="rp-empty">Loading…</div>'; break;
-        case 'dscr':    body = d.noi ? dscrTab(d.noi) : '<div class="rp-empty">Loading…</div>'; break;
-        case 'fee':     body = d.fees ? feePropTab(d.fees, S.propertyId) : '<div class="rp-empty">Loading…</div>'; break;
+        case 'monthly': body = d.monthly ? monthlyTab(d.monthly) : skeleton(8, 6); break;
+        case 'is':      body = d.is ? isTab(d.is) : skeleton(8, 6); break;
+        case 'noi':     body = d.noi ? noiTab(d.noi) : skeleton(8, 6); break;
+        case 'dscr':    body = d.noi ? dscrTab(d.noi) : skeleton(8, 6); break;
+        case 'fee':     body = d.fees ? feePropTab(d.fees, S.propertyId) : skeleton(8, 6); break;
         case 'totals':  body = totalsTab(d, prop); break;
         case 'rent':    body = rentTab(d); break;
         case 'bldg':    body = bldgTab(d.raw); break;
-        case 'capex':   body = d.is ? capexTab(d.is) : '<div class="rp-empty">Loading…</div>'; break;
+        case 'capex':   body = d.is ? capexTab(d.is) : skeleton(8, 6); break;
         case 'val':     body = valTab(prop); break;
         case 'details': body = detailsTab(prop, d.raw); break;
       }
     } else {
       tabs = tabsHtml([['properties', 'Properties'], ['fees', 'Asset management fees']], S.tab, 'tab');
-      if (S.tab === 'fees') body = S.cache.fees ? feesTab(S.cache.fees) : '<div class="rp-empty">Loading…</div>';
-      else body = S.cache.summary ? propertiesTab(S.cache.summary) : '<div class="rp-empty">Loading…</div>';
+      if (S.tab === 'fees') body = S.cache.fees ? feesTab(S.cache.fees) : skeleton(8, 6);
+      else body = S.cache.summary ? propertiesTab(S.cache.summary) : skeleton(8, 6);
     }
     S.host.innerHTML = shell(body, tabs);
     wire();
@@ -1006,7 +1055,12 @@
       b.onclick = function () { S.scope = 'entity'; S.entityId = b.getAttribute('data-ent'); S.propertyId = null; load(); };
     });
     root.querySelectorAll('[data-prop]').forEach(function (b) {
-      b.onclick = function () {
+      b.onclick = function (ev) {
+        /* The name carries a real href so it can be opened in a new tab;
+           a plain click is handled here instead. Ctrl/cmd/middle click is
+           left alone so "open in new tab" keeps working. */
+        if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1)) return;
+        if (ev && ev.preventDefault) ev.preventDefault();
         S.propertyId = b.getAttribute('data-prop');
         var p = propertyById(S.propertyId);
         S.entityId = p ? p.entityId : S.entityId;
@@ -1038,7 +1092,9 @@
       var vis = tmp.querySelector('.rp-count');
       if (cnt && vis) cnt.textContent = vis.textContent;
       S.host.querySelectorAll('[data-prop]').forEach(function (b) {
-        b.onclick = function () {
+        b.onclick = function (ev) {
+          if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1)) return;
+          if (ev && ev.preventDefault) ev.preventDefault();
           S.propertyId = b.getAttribute('data-prop');
           var p = propertyById(S.propertyId);
           S.entityId = p ? p.entityId : S.entityId;
@@ -1084,7 +1140,7 @@
     if (ex) ex.onclick = function () {
       var d = S.cache.summary || { rows: [] };
       var head = ['Property', 'Source', 'Entity', 'Units', 'Occupancy', 'Total income', 'Total expenses',
-                  'NOI T12', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR mortgage', 'DSCR all debt', 'PM company', 'Ownership',
+                  'NOI, trailing 12 mo', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR mortgage', 'DSCR all debt', 'PM company', 'Ownership',
                   'T12 filed', 'T12 file', 'Rent roll filed', 'Rent roll file'];
       var body = (d.rows || []).filter(function (r) { return !S.status || r.ownership_status === S.status; })
         .map(function (r) {

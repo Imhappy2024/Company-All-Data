@@ -1921,6 +1921,66 @@ right about every name it tested and wrong about the two it did not think of.
 Use it to confirm a name you have reason to expect; do not use a null result
 from it to conclude a capability is missing.
 
+### The property name is a LINK, and the row was always clickable
+The row carried the click from the day it shipped, but nothing on screen said
+so - no colour, no underline, no cursor - so the eleven property tabs behind
+it were effectively undiscoverable from an entity page. The name is now an
+`<a class="rp-link">` with a real `href` (so it opens in a new tab and can be
+pasted), and the row handler preventDefault()s a plain click while leaving
+ctrl/cmd/middle click alone.
+
+An affordance is not decoration here: it is the only route to Monthly
+financials, Optimized NOI and DSCR.
+
+### Units have a THIRD fallback, and the screen names which one it used
+`unit_count_verified` leads, the sum of buildings' `current_total_units` is
+next, and the **latest rent roll's unit count** is the new third step. Both of
+the first two are NULL on a lot of properties - Modern Heights, 500 S Dakota,
+Adventureland, Aksarben and BG Flats all have either no `unit` rows at all or
+rows whose `current_total_units` was never filled - so the page showed a dash
+for properties whose rent roll names 160, 22, 72, 24 and 42 units.
+
+The rent roll is LAST on purpose: it is a snapshot of what was leasable on one
+date, where `unit_count_verified` is a deliberate statement about the asset.
+Where they disagree the verified figure still wins and `units_rent_roll`
+carries the other number, so the disagreement is visible rather than resolved
+silently. **Altoona Terrace is the live case: 84 verified against 83 on the
+rent roll**, shown as an amber `rr 83` tag. `unit_count_reported` is still
+never used.
+
+`units_source` is on every row ('verified' | 'buildings' | 'rent_roll').
+
+### The reporting views are MATERIALISED, and must be refreshed after a sync
+`reporting.property_summary` read the monthly spine four times and took
+**1,147ms in Postgres** for the 170 rows the section opens on.
+
+    reporting.property_month_mv     the monthly spine
+    reporting.property_summary_mv   the Properties page's front door
+    reporting.refresh_reporting()   refreshes both, in that order
+
+Execution is now **0.082ms**. Both carry a unique index so the refresh runs
+CONCURRENTLY and the screen stays up, and the function falls back to a plain
+refresh when a view has never been populated - CONCURRENTLY is rejected
+against an unpopulated matview, and a refresh that throws on a fresh database
+is one nobody can run.
+
+    node tools/refresh-reporting.js      # after a T12 export or rent roll import
+
+**Measure the SERVER, not your own latency.** The original symptom was "2.9
+seconds", of which roughly 1.8s was the round trip from a laptop far from the
+Supabase region. `explain (analyze)` reports execution time and is the number
+worth optimising; the wall clock at a remote client is not.
+
+### A skeleton, never a blank page
+Every loading state renders a table-shaped skeleton rather than the word
+"Loading" or nothing at all: the shape is itself information, so the wait
+reads as a wait. It shimmers unless `prefers-reduced-motion` is set.
+
+It reuses `.rp-tbl` for its rows, which **broke the test harness** - a wait
+that keyed on `.rp-tbl` settled on the placeholder, and the row looked up a
+moment later was detached when the real table replaced it. The harness now
+waits for `.rp-skel` to be gone.
+
 ### Interest has THREE spellings that count, and three that do not
 Verified against the live data, not guessed:
 

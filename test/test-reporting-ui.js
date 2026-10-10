@@ -149,6 +149,11 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
       if (!host) return false;
       var body = host.querySelector('.rp-body') || host;
       if (/Loading/.test(body.textContent || '')) return false;
+      /* The skeleton renders a real <table class="rp-tbl">, so a check for
+         that class alone settles on the PLACEHOLDER - and the row looked up
+         a moment later is detached when the real table replaces it. Wait for
+         the skeleton to be gone. */
+      if (host.querySelector('.rp-skel')) return false;
       return !!body.querySelector('.rp-tbl, .rp-empty, .rp-err, .sv-card, .sv-grid, .sv-tiles, .sv-panel, .sv-list-row');
     }, sel, { timeout: 45000 }); } catch (e) { /* assertions report it */ }
     await pg.waitForTimeout(400);
@@ -413,6 +418,65 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   check('the DSCR tab shows both measures and explains the other interest', () => {
     assert.ok(/DSCR, mortgage/.test(chDscr) && /DSCR, all debt/.test(chDscr), 'both columns required');
     assert.ok(/counted as additional debt service/i.test(chDscr), 'the all-debt column is unexplained');
+  });
+
+  /* ---- the property name is a discoverable link, from an ENTITY page ---- */
+  await go('#brand=leavenwealth&view=properties');
+  const entBtn = pg.locator('.rp-mi[data-ent]');
+  const entCount = await entBtn.count();
+  check('the menu offers entity folders to open', () => assert.ok(entCount > 5, 'only ' + entCount));
+
+  /* open entities until one has properties in its table */
+  let opened = null;
+  for (let i = 0; i < Math.min(entCount, 12) && !opened; i++) {
+    await entBtn.nth(i).click();
+    await settle('#reportingNative');
+    if (await pg.locator('.rp-row').count()) opened = await entBtn.nth(i).textContent();
+  }
+  console.log('entity opened   :', (opened || '(none had rows)').trim().slice(0, 40));
+  check('an entity page lists its properties', () => assert.ok(opened, 'no entity showed any property rows'));
+
+  const linkStyle = await pg.$eval('.rp-row .rp-link', el => {
+    const c = getComputedStyle(el);
+    return { cursor: getComputedStyle(el.closest('tr')).cursor, color: c.color, href: !!el.getAttribute('href') };
+  });
+  console.log('link style      :', JSON.stringify(linkStyle));
+  check('the property name LOOKS like a link', () => {
+    assert.strictEqual(linkStyle.cursor, 'pointer', 'the row is not a pointer cursor');
+    assert.ok(linkStyle.href, 'the name has no href, so it cannot be opened in a new tab');
+  });
+
+  const nameBefore = (await pg.locator('.rp-row .rp-link').first().textContent()).trim();
+  await pg.locator('.rp-row .rp-link').first().click();
+  await settle('#reportingNative');
+  const afterClick = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  console.log('clicked         :', nameBefore, '->', afterClick.slice(0, 90));
+  check('clicking the property name from an ENTITY page opens its tabs', () => {
+    assert.ok(/Monthly financials/.test(afterClick), 'the property tabs did not open');
+    assert.ok(/Optimized NOI/.test(afterClick) && /DSCR/.test(afterClick), 'tabs missing');
+  });
+
+  /* ---- units fall back to the rent roll ---- */
+  await go('#brand=leavenwealth&view=properties');
+  const unitRows = await pg.$$eval('.rp-row', function (els) {
+    return els.map(function (e) {
+      const td = e.querySelectorAll('td');
+      return { name: (td[0] || {}).textContent || '', units: ((td[1] || {}).textContent || '').trim() };
+    });
+  });
+  const named = ['Modern Heights', '500 S Dakota', 'Adventureland', 'Aksarben', 'BG Flats'];
+  named.forEach(function (n) {
+    const row = unitRows.filter(function (r) { return r.name.indexOf(n) >= 0; })[0];
+    check('units are populated for ' + n, function () {
+      assert.ok(row, n + ' is not in the held list');
+      assert.ok(!/^–/.test(row.units), n + ' still shows a dash: "' + row.units + '"');
+    });
+  });
+
+  const hdr2 = (await text('.rp-tbl thead')).replace(/\s+/g, ' ');
+  check('the NOI column is named in full', () => {
+    assert.ok(/NOI, trailing 12 mo/.test(hdr2), 'header still reads: ' + hdr2);
+    assert.ok(!/NOI, T12/.test(hdr2), 'the old label is still there');
   });
 
   /* ---- the whole-release guarantees ---- */

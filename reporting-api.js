@@ -39,6 +39,16 @@ async function q(sql, params) {
   return r.rows;
 }
 
+/* Reads go to the MATERIALISED copies. reporting.property_summary is four
+   passes over the monthly spine plus the six-month windows - 1.1s in Postgres
+   for the 170 rows this section opens on. The data behind it arrives in batch
+   syncs (a T12 export, a rent roll import) rather than continuously, so a
+   refresh-bounded read matches how it actually changes rather than trading
+   correctness for speed.
+
+   Refresh after a sync:  node tools/refresh-reporting.js
+   or in SQL:             select reporting.refresh_reporting(); */
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuidOrNull = v => (typeof v === 'string' && UUID.test(v.trim()) ? v.trim() : null);
 
@@ -65,7 +75,7 @@ async function summary(req, res, who) {
   const entity = uuidOrNull(req.query.entity);
   const rows = await q(
     `select s.*
-       from reporting.property_summary s
+       from reporting.property_summary_mv s
       where s.tenant_id = $1
         and ($2::uuid is null or s.entity_id = $2::uuid)
       order by s.name`,
@@ -108,7 +118,7 @@ async function monthly(req, res, who) {
 
   const rows = await q(
     `select pm.*
-       from reporting.property_month pm
+       from reporting.property_month_mv pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid
         and lower(pm.accounting_basis) = 'cash'
         and pm.month >= make_date($3, 1, 1) and pm.month < make_date($3 + 1, 1, 1)
@@ -117,7 +127,7 @@ async function monthly(req, res, who) {
   );
 
   const prop = (await q(
-    `select s.* from reporting.property_summary s
+    `select s.* from reporting.property_summary_mv s
       where s.tenant_id = $1 and s.id = $2::uuid`,
     [who.tenantId, id]
   ))[0] || null;
@@ -127,7 +137,7 @@ async function monthly(req, res, who) {
      year rendered as twelve dashes states nothing. */
   const years = (await q(
     `select distinct extract(year from pm.month)::int as y
-       from reporting.property_month pm
+       from reporting.property_month_mv pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid and pm.has_data
       order by 1`,
     [who.tenantId, id]
@@ -213,7 +223,7 @@ async function noiAnalysis(req, res, who) {
     `select pm.month, pm.total_operating_income, pm.total_operating_expense,
             pm.noi, pm.debt_service, pm.debt_service_source,
             pm.recurring_other_interest, pm.other_interest_is_debt_service
-       from reporting.property_month pm
+       from reporting.property_month_mv pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid
         and lower(pm.accounting_basis) = 'cash' and pm.has_data
       order by pm.month desc
@@ -309,7 +319,7 @@ async function rentRoll(req, res, who) {
   const s = (await q(
     `select pm.rent_roll_as_of as as_of_date, pm.units, pm.occupied, pm.vacant,
             pm.market_rent_total, pm.rent_total, pm.loss_to_lease, pm.delinquency
-       from reporting.property_month pm
+       from reporting.property_month_mv pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid
         and pm.rent_roll_as_of is not null
       order by pm.month desc limit 1`,

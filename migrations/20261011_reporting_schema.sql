@@ -65,6 +65,8 @@ grant usage on schema reporting to authenticated;
 -- other_interest in the middle of property_month. Nothing holds a foreign key
 -- to a view, and saved_view stores a dataset KEY rather than a reference, so
 -- dropping these is safe. Reverse dependency order.
+drop materialized view if exists reporting.property_summary_mv cascade;
+drop materialized view if exists reporting.property_month_mv   cascade;
 drop view if exists reporting.am_fee_month        cascade;
 drop view if exists reporting.property_summary    cascade;
 drop view if exists reporting.property_month      cascade;
@@ -528,6 +530,58 @@ select
 from resolved r;
 
 -- ===========================================================================
+-- reporting.property_month_mv — the monthly spine, materialised.
+--
+-- property_summary reads property_month FOUR times (trailing twelve, the
+-- six-month windows, the latest occupancy, the year bounds), and each read
+-- re-evaluates the whole CTE chain over t12_monthly. The result was 1.1s in
+-- Postgres and ~2.9s at the browser for a page that is the section's front
+-- door, which reads as broken rather than slow.
+--
+-- The data behind it arrives in BATCH SYNCS - a T12 export, a rent roll
+-- import - not continuously, so a materialised copy is not a staleness
+-- trade so much as a match to how the data actually changes. Refresh it
+-- after a sync: `select reporting.refresh_reporting();`
+--
+-- The unique index is required for REFRESH ... CONCURRENTLY, which is what
+-- lets the refresh run without taking the screen offline. (tenant_id,
+-- property_id, month, accounting_basis) is the view's own grain - `months`
+-- is a SELECT DISTINCT over exactly those four columns.
+-- ===========================================================================
+create materialized view reporting.property_month_mv as
+  select * from reporting.property_month;
+
+create unique index if not exists property_month_mv_key
+  on reporting.property_month_mv (tenant_id, property_id, month, accounting_basis);
+create index if not exists property_month_mv_prop
+  on reporting.property_month_mv (property_id, month desc);
+create index if not exists property_month_mv_tenant
+  on reporting.property_month_mv (tenant_id) where has_data;
+
+-- Concurrently where possible, plainly on the first run when the view has
+-- never been populated (CONCURRENTLY is rejected against an unpopulated
+-- matview, and a refresh that throws on a fresh database is a refresh nobody
+-- can run).
+create or replace function reporting.refresh_reporting()
+returns void language plpgsql security definer set search_path to 'reporting, public' as $fn$
+begin
+  if exists (select 1 from pg_class where relname = 'property_month_mv' and relispopulated) then
+    refresh materialized view concurrently reporting.property_month_mv;
+  else
+    refresh materialized view reporting.property_month_mv;
+  end if;
+
+  -- AFTER the spine, because it is built from it. Refreshing these the other
+  -- way round leaves the summary a generation behind for no reason anyone
+  -- could see from the screen.
+  if exists (select 1 from pg_class where relname = 'property_summary_mv' and relispopulated) then
+    refresh materialized view concurrently reporting.property_summary_mv;
+  else
+    refresh materialized view reporting.property_summary_mv;
+  end if;
+end $fn$;
+
+-- ===========================================================================
 -- 1.3  reporting.rent_roll_unit
 -- ===========================================================================
 create or replace view reporting.rent_roll_unit
@@ -612,22 +666,51 @@ left join latest_balance b on b.loan_id = l.id;
 -- ===========================================================================
 create or replace view reporting.property_summary
 with (security_invoker = true) as
-with units as (
-  -- the unit-count rule from CLAUDE.md: the verified count leads, the sum of
-  -- buildings' current_total_units is the fallback. unit_count_reported is
-  -- NEVER used alone - it holds only the FIRST building's count and reads 26
-  -- against a real 87.
+with rr_units as (
+  -- the latest rent roll's own unit count, which is a COUNT OF UNITS rather
+  -- than of leases (property_month folds leases to units first)
+  select distinct on (property_id) property_id, units, rent_roll_as_of as as_of_date
+    from reporting.property_month_mv
+   where units is not null
+   order by property_id, month desc
+),
+units as (
+  -- The unit-count rule from CLAUDE.md, with a THIRD step.
+  --
+  -- The verified count leads; the sum of buildings' current_total_units is
+  -- the fallback. Both are NULL on a lot of properties - Modern Heights,
+  -- 500 S Dakota, Adventureland, Aksarben and BG Flats all have either no
+  -- unit rows at all or unit rows whose current_total_units was never
+  -- filled - so the page showed a dash for properties whose rent roll names
+  -- 160, 22, 72, 24 and 42 units respectively.
+  --
+  -- The rent roll is the third step. It is LAST on purpose: it is a snapshot
+  -- of what was leasable on one date, where unit_count_verified is a
+  -- deliberate statement about the asset. Where they disagree the verified
+  -- figure still wins, and units_rent_roll carries the other number so the
+  -- disagreement is visible rather than resolved silently. Altoona Terrace
+  -- is the live case: 84 verified against 83 on the rent roll.
+  --
+  -- unit_count_reported is still NEVER used - it holds only the FIRST
+  -- building's count and reads 26 against a real 87.
   select p.id as property_id,
-         coalesce(p.unit_count_verified, bs.building_units) as units
+         coalesce(p.unit_count_verified, bs.building_units, rr.units) as units,
+         case when p.unit_count_verified is not null then 'verified'
+              when bs.building_units     is not null then 'buildings'
+              when rr.units              is not null then 'rent_roll'
+         end as units_source,
+         rr.units      as units_rent_roll,
+         rr.as_of_date as units_rent_roll_as_of
     from public.property p
     left join (select property_id, sum(current_total_units) as building_units
                  from public.unit group by 1) bs on bs.property_id = p.id
+    left join rr_units rr on rr.property_id = p.id
 ),
 t12 as (
   select property_id, accounting_basis,
          max(month) as latest_month,
          count(*) filter (where has_data) as months_with_data
-    from reporting.property_month
+    from reporting.property_month_mv
    group by 1, 2
 ),
 trailing_12 as (
@@ -639,7 +722,7 @@ trailing_12 as (
          sum(pm.debt_service)            as t12_debt_service,
          sum(pm.recurring_other_interest) as t12_other_interest,
          bool_or(pm.debt_service_source = 'interest_only_books') as any_interest_only
-    from reporting.property_month pm
+    from reporting.property_month_mv pm
     join t12 on t12.property_id = pm.property_id and t12.accounting_basis = pm.accounting_basis
    where pm.has_data
      and pm.month > (t12.latest_month - interval '12 months')
@@ -652,7 +735,7 @@ win6 as (
                         order by month rows between 5 preceding and current row) as noi6,
          count(*) over (partition by property_id, accounting_basis
                         order by month rows between 5 preceding and current row) as n6
-    from reporting.property_month
+    from reporting.property_month_mv
    where has_data
 ),
 opt as (
@@ -670,7 +753,7 @@ debt as (
 ),
 occ as (
   select distinct on (property_id) property_id, physical_occupancy, rent_roll_as_of
-    from reporting.property_month
+    from reporting.property_month_mv
    where physical_occupancy is not null
    order by property_id, month desc
 ),
@@ -710,6 +793,12 @@ select
   p.city, p.state,
   p.ownership_status,
   u.units,
+  u.units_source,
+  u.units_rent_roll,
+  u.units_rent_roll_as_of,
+  -- true when the two sources disagree, so a screen can say so
+  (u.units_rent_roll is not null and u.units is not null
+     and u.units_rent_roll <> u.units) as units_disagree,
   occ.physical_occupancy as latest_occupancy,
   occ.rent_roll_as_of    as occupancy_as_of,
   tr12.t12_income, tr12.t12_expense, tr12.t12_noi, tr12.t12_net_income,
@@ -765,6 +854,28 @@ left join t12_doc t12d on t12d.property_id = p.id
 left join rr_doc  rrd  on rrd.property_id = p.id;
 
 -- ===========================================================================
+-- reporting.property_summary_mv — the Properties page's front door.
+--
+-- 170 rows, read on every load of the section, and the most expensive thing
+-- in the schema: four passes over the monthly spine plus the six-month
+-- windows. Materialising the monthly spine took it from 1.1s to ~380ms warm
+-- and ~1.8s cold, which is still a visible stall on the first open of the
+-- day. Materialising the summary itself takes it to a single index scan.
+--
+-- Refreshed by the same function, AFTER property_month_mv, because it is
+-- built from it.
+-- ===========================================================================
+create materialized view reporting.property_summary_mv as
+  select * from reporting.property_summary;
+
+create unique index if not exists property_summary_mv_key
+  on reporting.property_summary_mv (id);
+create index if not exists property_summary_mv_tenant
+  on reporting.property_summary_mv (tenant_id, ownership_status);
+create index if not exists property_summary_mv_entity
+  on reporting.property_summary_mv (entity_id);
+
+-- ===========================================================================
 -- 1.6  reporting.am_fee_month
 -- Schedule row x month: expected, received, variance.
 --
@@ -792,14 +903,14 @@ with cal as (
 gross as (
   select l.schedule_id, pm.month, sum(pm.total_operating_income) as gross_income
     from public.am_fee_schedule_property l
-    join reporting.property_month pm on pm.property_id = l.property_id
+    join reporting.property_month_mv pm on pm.property_id = l.property_id
    where lower(pm.accounting_basis) = 'cash' and pm.has_data
    group by 1, 2
 ),
 booked as (
   select l.schedule_id, pm.month, sum(pm.am_fee_booked) as am_fee_booked
     from public.am_fee_schedule_property l
-    join reporting.property_month pm on pm.property_id = l.property_id
+    join reporting.property_month_mv pm on pm.property_id = l.property_id
    where lower(pm.accounting_basis) = 'cash'
    group by 1, 2
 ),
@@ -852,6 +963,8 @@ select
 from resolved;
 
 grant select on all tables in schema reporting to authenticated;
+grant execute on function reporting.refresh_reporting() to authenticated;
+select reporting.refresh_reporting();
 
 -- ===========================================================================
 -- CONFIRM THE MATCHERS. They were read off real rows by Jay on 2026-10-11,
