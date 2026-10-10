@@ -1,0 +1,269 @@
+[
+  {
+    "name": "Monthly property financials, 2026",
+    "description": "Months across, one property. The same sheet the Properties section renders.",
+    "dataset_key": "property_month",
+    "display_type": "spreadsheet",
+    "config": {
+      "fields": [
+        {
+          "key": "month"
+        },
+        {
+          "key": "units"
+        },
+        {
+          "key": "rent_income"
+        },
+        {
+          "key": "total_operating_income"
+        },
+        {
+          "key": "total_operating_expense"
+        },
+        {
+          "key": "noi"
+        },
+        {
+          "key": "capex"
+        },
+        {
+          "key": "am_fee_booked"
+        },
+        {
+          "key": "debt_service"
+        },
+        {
+          "key": "cash_flow"
+        },
+        {
+          "key": "physical_occupancy"
+        },
+        {
+          "key": "dscr"
+        }
+      ],
+      "filters": [
+        {
+          "field": "has_data",
+          "op": "eq",
+          "value": true
+        },
+        {
+          "field": "accounting_basis",
+          "op": "eq",
+          "value": "Cash"
+        },
+        {
+          "field": "month",
+          "op": "between",
+          "value": [
+            "2026-01-01",
+            "2026-12-01"
+          ]
+        }
+      ],
+      "sort": [
+        {
+          "field": "month",
+          "dir": "asc"
+        }
+      ],
+      "period": {
+        "type": "year",
+        "year": 2026
+      },
+      "pivot": {
+        "rows": "property_id",
+        "columns": "month",
+        "value": "noi"
+      }
+    }
+  },
+  {
+    "name": "Asset management fees, 2026",
+    "description": "Expected, received and variance, grouped by manager.",
+    "dataset_key": "am_fee_month",
+    "display_type": "report",
+    "config": {
+      "fields": [
+        {
+          "key": "manager_group"
+        },
+        {
+          "key": "label"
+        },
+        {
+          "key": "fee_month"
+        },
+        {
+          "key": "expected"
+        },
+        {
+          "key": "received"
+        },
+        {
+          "key": "received_source"
+        },
+        {
+          "key": "variance"
+        }
+      ],
+      "filters": [
+        {
+          "field": "fee_month",
+          "op": "between",
+          "value": [
+            "2026-01-01",
+            "2026-12-01"
+          ]
+        }
+      ],
+      "sort": [
+        {
+          "field": "manager_group",
+          "dir": "asc"
+        },
+        {
+          "field": "fee_month",
+          "dir": "asc"
+        }
+      ],
+      "group_by": [
+        "manager_group"
+      ]
+    }
+  },
+  {
+    "name": "Coverage watchlist",
+    "description": "Properties whose trailing DSCR is below 1.25.",
+    "dataset_key": "property_summary",
+    "display_type": "list",
+    "config": {
+      "fields": [
+        {
+          "key": "name"
+        },
+        {
+          "key": "entity_name"
+        },
+        {
+          "key": "pm_company"
+        },
+        {
+          "key": "units"
+        },
+        {
+          "key": "t12_noi"
+        },
+        {
+          "key": "annual_debt_service"
+        },
+        {
+          "key": "trailing_dscr"
+        },
+        {
+          "key": "next_maturity"
+        },
+        {
+          "key": "debt"
+        }
+      ],
+      "filters": [
+        {
+          "field": "ownership_status",
+          "op": "eq",
+          "value": "held"
+        },
+        {
+          "field": "trailing_dscr",
+          "op": "lt",
+          "value": 1.25
+        }
+      ],
+      "sort": [
+        {
+          "field": "trailing_dscr",
+          "dir": "asc"
+        }
+      ]
+    }
+  },
+  {
+    "name": "Portfolio snapshot",
+    "description": "Held properties: count, units, trailing NOI, optimized NOI and debt.",
+    "dataset_key": "property_summary",
+    "display_type": "dashboard",
+    "config": {
+      "filters": [
+        {
+          "field": "ownership_status",
+          "op": "eq",
+          "value": "held"
+        }
+      ],
+      "layout": [
+        {
+          "type": "number",
+          "title": "Properties",
+          "field": "id",
+          "aggregate": "count",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "number",
+          "title": "Units",
+          "field": "units",
+          "aggregate": "sum",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "number",
+          "title": "Occupancy",
+          "field": "latest_occupancy",
+          "aggregate": "avg",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "number",
+          "title": "Trailing NOI",
+          "field": "t12_noi",
+          "aggregate": "sum",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "number",
+          "title": "Optimized NOI",
+          "field": "optimized_noi",
+          "aggregate": "sum",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "number",
+          "title": "Debt",
+          "field": "debt",
+          "aggregate": "sum",
+          "w": 1,
+          "h": 1
+        },
+        {
+          "type": "table",
+          "title": "Largest by NOI",
+          "fields": [
+            "name",
+            "units",
+            "t12_noi",
+            "trailing_dscr"
+          ],
+          "w": 3,
+          "h": 2
+        }
+      ]
+    }
+  }
+]

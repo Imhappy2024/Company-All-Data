@@ -186,7 +186,7 @@ function ptask(id, name, status, sync) {
      replaced passed for as long as the embed existed, so leaving it would have
      failed on the port rather than on a regression. */
   check('Properties no longer embeds /ops', await page.locator('#embedHost iframe:visible').count(), 0);
-  check('Properties renders its own container', await page.locator('#propertiesNative').count(), 1);
+  check('Properties renders its own container'  /* reportingNative since Phase 2: the section is PortalReporting now, not PortalProperties */, await page.locator('#reportingNative').count(), 1);
   check('Properties is not gated', await page.locator('.pa-gate-card').count(), 0);
   await page.evaluate(() => setView('financials'));
   check('Financials is not gated', await page.locator('.pa-gate-card').count(), 0);

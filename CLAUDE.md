@@ -1883,6 +1883,436 @@ blanking the page.
 Folio's real billing lives on **Reports & Financials** and **App Users** — see
 "Folio Excel: Reports & Financials, App Users, and Whop billing" above.
 
+## Curated datasets (`reporting` schema) - Phase 1, APPLIED 2026-10-11
+
+`migrations/20261011_reporting_schema.sql` + `config/datasets.js` + `am-fee-rules.js`.
+Six views that encode the data rules once, so no screen reads `t12_monthly`,
+`rent_roll_line` or `loan` directly. **Applied 2026-10-11** after a dry run
+over all four files in one transaction: 42 fee schedules, 43 property links,
+42 receipts, 7 reporting views, 0 fee rows without a property.
+
+### The schema was discovered by PROBING, because no credential was available
+There is no `.env` in this repo, the Supabase and database connectors were
+disconnected, and Railway returns variable names with `valuesRedacted: true`
+over OAuth. So the column lists were established by asking PostgREST for one
+column at a time with the publishable anon key: a missing column answers
+`42703`, a missing table answers `PGRST205`, and a table that exists but is
+RLS-closed answers `[]`. **No row was read** - anon has no grant, which is
+correct and is also the reason the content checks below could not be made.
+
+That technique is worth keeping. It settles whether a column exists in one
+command, and this file's opening rule is that a described artifact must be
+queried rather than believed.
+
+### Two of the three "missing" things were a PROBE ARTEFACT, not a gap
+Corrected 2026-10-11 against the live database. The wrong version was
+circulated, so both versions are recorded:
+
+| First reported | Actually |
+|---|---|
+| principal not derivable; `balance_sheet_change` does not exist | **the table does not exist, but principal does.** AppFolio books it in `other_cash_items` as loan/mortgage lines with NEGATIVE amounts (negative = principal paid); Buildium books it in `non_operating_expense` as a positive `Mortgage Principal`. `v_gl_balance_sheet` was a red herring. |
+| `rent_roll_line` has no tenant name | **the column is `tenant_names`**, which the probe's candidate list did not contain. |
+| `property_financials.non_recurring_fee_income` absent | **correct.** Stays NULL. |
+
+**The lesson is about the method, not the data.** A column probe can only
+disprove the names it thinks to try, so "absent from my candidate list" is not
+"absent from the table" - and it reads exactly like a finding. The probe was
+right about every name it tested and wrong about the two it did not think of.
+Use it to confirm a name you have reason to expect; do not use a null result
+from it to conclude a capability is missing.
+
+### Interest has THREE spellings that count, and three that do not
+Verified against the live data, not guessed:
+
+| Label | Properties | Counted? |
+|---|---|---|
+| `Mortgage Interest` | 42 | **yes** |
+| `Interest Exp` | BG Flats, Champion Villas, Doral | **yes** |
+| `Interest Payment` | The Whitney, Uptown Flats | **yes** |
+| `Other Interest Expense` | Cedar Haven, Estrella, Heston Pointe, Sierra Gardens, The Beverly | no |
+| `Other interest` | Franklin Court, Lions Gate | no |
+| `Interest Expense` | Ash Street Place only, 2023-09 to 2024-03 | no |
+
+**The test is whether the property also has a `Mortgage Interest` line.**
+Every property using `Interest Exp` or `Interest Payment` has none, so those
+spellings ARE its interest. Every property with `Other Interest Expense` or
+`Other interest` also carries a real mortgage interest line, so those are
+other debt - a line of credit or similar - and adding them would inflate debt
+service and depress DSCR on seven properties.
+
+`Interest Expense` is in neither list. It is one property's only interest
+line and its data ends in March 2024, before the current reporting period, so
+excluding it moves no live figure. It is surfaced rather than quietly folded
+in either direction, and `property_month.other_interest` exposes the excluded
+amounts so they can be looked at without ever being summed in.
+
+The anchors are load-bearing: `^interest exp$` must not reach
+`Interest Expense`.
+
+### Debt service is a THREE-step fallback, decided per property
+```
+a) books carry principal or an unsplit payment -> income_statement
+b) else every loan states an annual figure     -> loan_record
+c) else the books carry interest               -> interest_only_books
+```
+Step (c) exists because of **Doral**: interest every month from May 2026, no
+principal line and no loan record, so the first two steps both yielded NULL
+and the screen showed a blank debt service for a property that demonstrably
+pays one. Interest alone **understates** the real payment rather than
+estimating it, so the source is named and the monthly sheet says
+*"Interest only, from the books … DSCR is correspondingly optimistic."*
+
+Doral: debt service 25,039.72 (May), 24,386.76 (Jun), 22,830.33 (Jul),
+22,830.34 (Aug and Sep) - which sums to the 117,917.49 of `Interest Exp` on
+file - and DSCR 1.67 / 1.91 / 1.64 / 1.01 / 0.78.
+
+Unchanged by the addition, and re-verified: Dakota Bend Jan 2026 is still
+13,539.14 on `income_statement` at 1.11, and Franklin Court is still
+`loan_record` at 774,391.92 / 12.
+
+### Other interest counts as debt service only when a loan explains it
+Classified by RULE, never by name. Both must hold:
+
+* the line appears with a POSITIVE amount in **>= 6 of the last 12 months**, and
+* the property has a loan on file that could explain it - a loan with a
+  **KNOWN** non-primary `purpose`, or two or more loans.
+
+"Known" is load-bearing. `purpose <> 'primary_mortgage'` is TRUE for a NULL
+purpose, and NULL means nobody recorded what the loan is - which is not
+evidence of extra debt. The positive-amount test is what keeps the two CREDIT
+lines (Franklin Court, Lions Gate) out; a negative can never be debt service.
+
+Qualifying today: **Cedar Haven Duplexes** (seller_carry) and **Heston
+Pointe** (pac_due, pace_equity). Both drop below 1.0 once it is counted:
+
+| | DSCR mortgage | DSCR all debt |
+|---|---|---|
+| Cedar Haven Duplexes | 1.18 | **0.92** |
+| Heston Pointe | 0.91 | **0.73** |
+
+**The Beverly is deliberately OUT and is an open question.** $97,500/yr of
+other interest, every month, against one loan of $171,700 with no recorded
+purpose - $7,500 a month cannot be serviced by that balance, so there is debt
+here the loan records do not describe. It stays visible in `other_interest`.
+Estrella and Sierra Gardens are one-off $25,000 rows in April 2026 and fail
+the six-month test.
+
+### Two DSCRs everywhere, and `dscr` keeps its old meaning
+`DSCR, mortgage` and `DSCR, all debt` appear together on Monthly financials,
+the DSCR tab, Totals and the Properties table.
+
+`property_month.dscr` and `property_summary.trailing_dscr` still mean
+**mortgage only**. The saved Coverage watchlist filters on `trailing_dscr`,
+and redefining it would change what that view means without changing a word
+of its config. The all-debt figures are additive columns.
+
+### An estimate has to say so NEXT TO ITSELF
+A caveat in a paragraph above a table is read by nobody scanning a column.
+
+- DSCR from `interest_only_books` carries an **interest only** tag, tooltip
+  "No principal in the books; coverage is likely overstated."
+- Every value shows its **as-of date**, and one older than six months - or
+  **with no date at all** - is tagged **stale**. "We do not know when this was
+  true" is a different claim from "this is current", and only one of them is
+  safe to divide debt by.
+- "Value at cap rate" is always tagged **estimate**, whatever the rate.
+- LTV states which value it used: on file with its date, or the cap-rate
+  estimate.
+
+### QuickBooks will replace the interest-only fallback - NOT YET BUILT
+See `docs/SYSTEM.md` for the detail. Once monthly QuickBooks balance sheets
+exist per property LLC:
+
+1. **loan balances should come from them**, not `loan_balance`, which is
+   sparse and ragged (54 of 75 loans have any row at all); and
+2. **principal paid = the month-over-month DECREASE in the loan balance**,
+   which is a measurement rather than an inference and retires
+   `interest_only_books` entirely.
+
+It also retires the sign test: a refinance RAISES a balance and can never be
+mistaken for a payment, where today a positive `other_cash_items` row has to
+be told from a negative one by rule.
+
+Do not build the import against assumptions - check what the balance sheets
+actually call the loan accounts and how they map to `loan.id` first.
+
+### `loan_proceeds` is money ARRIVING, and is never netted against anything
+The positive side of `other_cash_items`. Four rows exist: Doral's
+**4,326,000.00 refinance in MAY 2026** and its **200,000.00 `Loan - Other` in
+June**, and two 960.40 `Arrow Loan` rows at Capitol City Villas in January and
+February. `loan_proceeds_note` carries the line label, because 4,326,000.00
+with no name beside it invites exactly the question the label answers.
+
+`Loan - Other` IS proceeds even though it is excluded from principal, so it
+is included here and named.
+
+**An earlier note in this repo said April.** It was read off a helper that
+called `toISOString()` on a DATE, which from UTC+8 renders 2026-05-01 as
+2026-04-30 - the same timezone bug recorded against `paid_at`, this time in
+the tool doing the verifying rather than in the product. Worth remembering:
+the instrument needs the same scrutiny as the thing being measured.
+
+### "In Dropbox" is a real per-property answer
+The Properties table's **In Dropbox (T12 / Rent roll)** column first printed
+the SOURCE SYSTEM, which answers a different question and answers it for
+every property that has any data at all - so it read "T12" for 80 of 80 while
+only **50** actually have one filed.
+
+Both chips now come from the document linked to the property's latest report
+of each kind (`t12_report.document_id`, `rent_roll_report.document_id`; 88 of
+89 and 89 of 90 are populated). Live: of 80 held properties, **50 have a T12
+filed and 51 a rent roll**, and 29 have neither. The chip's title names the
+file. A missing one is a dashed outline rather than an absent chip, because
+"no T12 on file" and "we never looked" are different answers.
+
+### Three near-misses the matchers must NOT catch
+All three contain the word Mortgage and none is debt service:
+
+- `Mortgage Escrow Replacement Reserve` is a reserve.
+- `Expense > Mortgage Escrow Expense` is taxes and insurance, an **operating**
+  expense.
+- `Loan - Other`, and anything matching `security deposit|prepaid|clearing`,
+  is excluded from the principal matcher.
+
+Counting any of them inflates DSCR's denominator. The confirming query at the
+bottom of the migration prints the exclusion list specifically, because every
+row in it is money the principal matcher does not count - and anything there
+that really is a mortgage payment is debt service going missing, with DSCR
+reading high.
+
+`Mortgage Payment` and `Mortgage Payment - Seller Carry` ARE debt service:
+interest and principal in one unsplit line.
+
+### The verified column lists
+`t12_monthly` has **no foreign key to `t12_report`** - the newest export is
+already materialised into it, so `first_active_month` joins on
+(property_id, accounting_basis) and takes the EARLIEST on file.
+
+    t12_monthly      tenant_id property_id month accounting_basis section
+                     account_path depth line_label is_total amount sort_order
+    t12_report       tenant_id property_id entity_id period_start period_end
+                     accounting_basis first_active_month source_system
+                     document_id report_type
+    rent_roll_report tenant_id property_id as_of_date source_system document_id
+    rent_roll_line   tenant_id rent_roll_report_id unit_id unit_label beds baths
+                     occupancy_status rent market_rent balance_due lease_start
+                     lease_end move_in move_out square_feet sort_order
+
+### The matchers are Jay's, and they still fail silently
+The content vocabulary in `reporting.t12_tagged` was read off real rows, not
+guessed. It is still isolated in that one view, because every matcher fails
+**silently to NULL** if a spelling drifts - which on screen is
+indistinguishable from "no data this month". The regression query is at the
+bottom of the migration.
+
+Both source systems spell everything differently and both are live:
+
+    Buildium  'Rent Income'           AppFolio  'RENTS'
+    Buildium  'Capital Improvements'  AppFolio  'CAPITAL EXPENSES'
+    Buildium  'Mortgage Principal'    AppFolio  'Principal Payment', or a
+                                                negative balance-sheet line
+
+Rent is a three-tier fallback: the depth-1 TOTAL line, then a depth-1
+non-total, then AppFolio's `Rent - Residential` total under `INCOME - TENANT`.
+
+### `fee_pct` is a WHOLE percent; `loan.interest_rate_pct` is a FRACTION
+2 means 2% in `am_fee_schedule.fee_pct`, and 0.035 means 3.50% in
+`loan.interest_rate_pct`. Two columns ending `_pct` with opposite conventions
+is a trap, so the divisor is a named constant in `am-fee-rules.js` and a CHECK
+constraint (0..100) is on the column. `reporting.loan` multiplies the loan one
+by 100 once, so no screen has to remember.
+
+### `am-fee-rules.js` is the specification; the SQL is what runs
+The fee arithmetic exists twice on purpose: in `reporting.am_fee_month`, which
+the screens read, and as pure functions, which the tests exercise. A rule you
+can only run by standing up Postgres is a rule whose edge cases nobody checks.
+Nothing requires `am-fee-rules.js` in production.
+
+**They are not automatically kept in agreement, and that is the open risk.**
+`tools/check-folio-sql.js` is the pattern for closing it and has not been
+written for this yet. Two divergences were already found and fixed this way:
+the JS read the LOCAL clock while the view reads the database's `current_date`
+(which flips variance between `-expected` and `null` for the first hours of a
+month in Asia/Manila), and the expected-fee CASE was written twice inside one
+view, so its `expected` and `variance` columns could be edited into
+disagreeing with each other while both still ran.
+
+### The registry is an allowlist, and the server has no RLS behind it
+`config/datasets.js` is what stands between a user-authored saved-view config
+and generated SQL. `supabase-db` connects as the **postgres superuser**, so
+RLS never runs and `current_tenant_ids()` is never called - tenant scoping is
+this layer's job, exactly as it is `financials-api.js`'s.
+
+- `safeColumn()` resolves a field key to a quoted column, or null. Null means
+  "drop the field and say it is missing", never "pass it through".
+- `safeView()` exists because `reporting.property_month` has a dot in it and
+  `safeColumn` would reject it - the FROM clause is otherwise the one part of
+  a generated query with no allowlist behind it.
+- `tenantColumn()` **throws** rather than returning null. A missing scope must
+  never degrade into "no filter".
+- `safeOp` / `safeAggregate` / `safeDir` cover the other identifiers that get
+  concatenated. Filter VALUES are always bound parameters.
+- The registry is **deep-frozen**, because `getField` hands back the live
+  object and anything merging a stored config onto it would rewrite the
+  allowlist process-wide - after which `safeColumn` would happily validate the
+  mutated column.
+- A **load-time self-check throws** on a duplicate field, an unusable column,
+  a missing tenant scope, or a `defaultSort` naming a field that does not
+  exist. That last one is silent at runtime: it yields a dropped ORDER BY,
+  which reads as rows in the wrong order rather than as an error. It caught a
+  real one in `rent_roll_unit`.
+
+`hidden: true` is a UI hint, NOT authorization - a hidden field is still
+selectable by a hand-edited config. Anything that must not leave the server
+belongs out of `fields` entirely.
+
+### Tests
+    node test/test-am-fees.js           # 17 checks, the fee arithmetic
+    node test/test-datasets.js          # 10 checks, the allowlist boundary
+    node test/test-acceptance-math.js   # 16 checks, section 2.10's arithmetic
+
+All three mutation-tested. A truthiness check on `amount_received` turns a
+zero receipt into the books figure and fails by name; dropping a dataset's
+tenant scope throws at require time; removing the calendar-adjacency check
+makes `optimizedNoi` report a six-month window that never happened.
+
+**`test-acceptance-math.js` pins the half of section 2.10 that is arithmetic**,
+which is more than a restatement: the brief gives Dakota Bend's income, NOI,
+expense ratio, interest and principal, and those five only agree if all five
+are right. They agree to the cent, and the same January income (48,469.52)
+produces the seeded February fee of 969.39, so the financial check and the fee
+check are reading one number.
+
+The half that is DATA - does `reporting.property_month` actually RETURN
+149,000.29 for Franklin Court in May 2026 - is deliberately **not** in any
+suite. A fixture cannot answer it, and asserting it against one would be the
+vacuous-test failure recorded under Financials above. It needs a live
+connection.
+
+## Properties is the curated-dataset section now (Phase 2), and it is READ-ONLY
+
+`reporting-api.js` + `public/portal-reporting.{js,css}`, mounted at
+`#reportingNative`. **`portal-properties.js` still loads and still exports
+`PortalProperties`, but nothing routes to it** - delete it once this has been
+live a while. `PROPERTIES_READ_ONLY` defaults true and rides on
+`/api/portfolio-flags`; the existing write endpoints are untouched and
+unreachable from these screens, and a test asserts no new screen issues a
+POST, PUT, PATCH or DELETE.
+
+The left menu lists **folders only, never properties**. A menu of 170
+properties is a directory, not navigation, and the entity page already lists
+them in a table that searches and sorts. When a property is open the menu
+shows that one property under its entity, and no others.
+
+### Identity is verified, because RLS is not behind these routes
+`portal-identity.js` establishes who is calling by asking Supabase to run
+`dash_my_access()` **as the caller**, never by decoding the JWT - a JWT
+payload is base64, not a signature. `supabase-db` connects as the postgres
+SUPERUSER, so RLS never runs and `current_tenant_ids()` is never called:
+every statement filters `tenant_id` from the verified identity, and that is
+this layer's job exactly as it is `financials-api.js`'s.
+
+**`guard()` closes over the local `identify` binding**, so reassigning
+`module.exports.identify` does not stub it. `test/test-reporting-ui.js`
+therefore intercepts the one outbound fetch to `/rpc/dash_my_access`
+instead. Worth knowing before writing the next harness: the obvious stub
+fails silently, the real function runs, and the screen reports "Session
+expired" while everything else works.
+
+## Saved views (Phase 3)
+
+`views-api.js` + `public/portal-saved-views.js`, nav id `views`, catalog rows
+in `migrations/20261011_views_catalog.sql` for Executive Board and
+LeavenWealth only. A view stores a QUESTION - dataset key, display type,
+config - and the rows are fetched fresh every time.
+
+**`/data` scopes to the READER's tenant, never the saved row's owner.** That
+one line is what keeps a share from being a privilege grant: a view shared
+with someone may legitimately show them fewer rows.
+
+No free-typed SQL reaches the database. Column, relation, operator,
+aggregate and sort direction each come from an allowlist helper in
+`config/datasets.js`; every value is a bound parameter. Four injection
+attempts are in the suite and all four are dropped with a stated problem.
+
+### SQL grouping happens only when there are AGGREGATES
+A report groups in the **renderer** - sections, subtotals, a grand total -
+and needs detail rows to do it. Grouping in SQL on a report's `group_by`
+collapsed every row to the manager plus whatever was aggregated, so the other
+seven columns came back absent and the screen filled with dashes. `group_by`
+alone is a presentation instruction.
+
+Relatedly: when a query DOES group, `ORDER BY` may only name a grouped column
+or an aggregate. The default sort comes from the dataset and knows nothing
+about the config, so it turned three of the four starter views into 42803.
+Unusable sorts are dropped, not refused.
+
+## A rent_roll_line is a LEASE, not a unit
+
+This is the correction most likely to be made again. Copperleaf has **494
+lines over 87 units**, and **156 of them are `current` across only 82 units** -
+roommates each get a line and expired leases stay on file.
+
+    occupancy_status: current | past | vacant_unrented | future | notice | vacant_rented
+
+**There is no 'occupied'.** The first version matched that word, found
+nothing, and every occupancy on the portfolio page read **0.0%** - which is
+the silent-NULL trap one level down: the figure was present and wrong rather
+than absent, so nothing looked broken.
+
+`reporting.property_month` folds to one row per unit FIRST (`rr_units`), then
+aggregates: units are `count(distinct unit_label)`, occupied is a distinct
+count of units holding a `current` lease, and rent sums the current leases
+only. Counting rows gives 494 units at a property with 87 and counts every
+roommate's rent separately. Copperleaf now reads 87 units at 87.4%, which
+matches the 87 apartments pinned in `test-sov-properties.js`.
+
+`reporting.rent_roll_unit` carries an `is_current` flag (appended at the end,
+because `create or replace view` cannot rename a column position), and the
+Rent roll tab filters on it rather than listing every expired lease.
+
+## Three browser-level traps, all found by measuring
+
+1. **Repainting inside a `blur` handler throws.** `change` on a text input
+   fires DURING blur, and `paint()` replaces `host.innerHTML`, so the node
+   the browser is mid-blur on is removed from under it:
+   *"The node to be removed is no longer a child of this node. Perhaps it was
+   moved in a 'blur' event handler?"*. The what-if inputs defer by a tick
+   (`setTimeout(paint, 0)`); the search box repaints only the table, which
+   needs no focus restoration at all.
+
+2. **A pending view must say Loading, not "no rows".** Falling back to an
+   empty result while the fetch was in flight rendered *"No rows match this
+   view. 0 of 0 rows"* over a view that has eight - a confident wrong answer
+   in the window before the data arrives, and one a screenshot captures as
+   fact.
+
+3. **`goto()` to a URL differing only by fragment is a same-document
+   navigation.** The module keeps its state, so returning to Properties after
+   the fees tab left `S.tab='fees'` and the assertion looked for property
+   rows on the fee tracker. The harness adds a cache-busting query param;
+   chaining extra navigations to force a reload instead raced the boot chain
+   and left the section unmounted.
+
+## Tests
+
+    node test/test-am-fees.js           # 17, the fee arithmetic
+    node test/test-datasets.js          # 10, the allowlist boundary
+    node test/test-acceptance-math.js   # 16, section 2.10's arithmetic
+    node test/test-reporting-ui.js      # 25, the screens against LIVE data
+                                        #     --shots writes the screenshots
+
+`test-reporting-ui.js` is the opposite of the usual fake: the SQL, the views
+and every figure are the live database, and only the doorman is stubbed.
+CLAUDE.md already records the Folio suite passing 61 green checks over SQL
+that could not parse, because a fake never parses SQL.
+
+It asserts the acceptance figures ARE ON SCREEN - Franklin Court's
+149,000.29, the 970,480 optimized against 828,323 trailing, the max loan
+against the 8,080,000 current balance, and the 4,474.54 / 4,474.99 / +0.45
+fee row - plus that no screen issues a write, that nothing overflows, and
+that a what-if input recomputes and marks itself unsaved.
+
 ## Railway variables: what belongs, and what takes the app down
 
 **`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one

@@ -2108,6 +2108,37 @@ const portfolioDetail = require('./portfolio-detail');
 app.use('/api/portfolio', portfolioList.propertyRoutes());
 app.use('/api/portfolio', portfolioDetail.propertyDetailRoutes({ invalidate: portfolioList.invalidate }));
 
+/* The curated-dataset reads (Phase 2.9) and saved views (Phase 3.5).
+   Mounted AFTER the existing portfolio routers so nothing above changes
+   behaviour: /summary, /:id/monthly, /:id/income-statement and
+   /:id/noi-analysis are new paths, and an existing route that already
+   matched still matches first.
+
+   Both are read-only and both check the signed-in person server-side -
+   supabase-db connects as the postgres superuser, so RLS is not behind
+   them. See portal-identity.js. */
+const reportingApi = require('./reporting-api');
+app.use('/api/portfolio', reportingApi.reportingRoutes());
+app.use('/api/am-fees', reportingApi.amFeeRoutes());
+
+/* noi-analysis.js lives at the repo root because the SERVER uses it too, and
+   the browser needs the SAME file: the what-if inputs recompute client-side,
+   and two copies of that arithmetic would let the screen and the API disagree
+   about one property. Served explicitly rather than copied into public/. */
+app.get('/noi-analysis.js', (_req, res) => {
+  res.type('application/javascript').sendFile(require('path').join(__dirname, 'noi-analysis.js'));
+});
+
+const viewsApi = require('./views-api');
+app.use('/api/datasets', viewsApi.datasetRoutes());
+app.use('/api/views', viewsApi.viewRoutes());
+
+/* Phase 2 ships READ-ONLY: the new Properties screens call no write
+   endpoint. The existing write endpoints are untouched and still mounted;
+   this flag is what the browser reads to know not to offer an edit. */
+const PROPERTIES_READ_ONLY = String(process.env.PROPERTIES_READ_ONLY || 'true').toLowerCase() !== 'false';
+app.get('/api/portfolio-flags', (_req, res) => res.json({ propertiesReadOnly: PROPERTIES_READ_ONLY }));
+
 app.get('/api/properties', async (req, res) => {
   if (supaProps.enabled) {
     try { return res.json({ ...(await supaProps.getPropertiesPayload()), from_cache: false }); }
