@@ -214,6 +214,22 @@
     };
   }
 
+  /* "In Dropbox (T12 / Rent roll)".
+     This used to print the SOURCE SYSTEM, which answers a different question
+     and answers it for every property that has any data at all - so it read
+     "T12" for 80 of 80 while only 50 actually have one filed. Both chips are
+     driven by the document linked to the property's latest report of each
+     kind, and the title says which file. */
+  function dropboxCell(r) {
+    function chip(on, label, file, when) {
+      return '<span class="rp-dbx' + (on ? ' on' : '') + '"' +
+        (on && file ? ' title="' + escS(file) + (when ? ' (' + dateOnly(when) + ')' : '') + '"' : '') +
+        '>' + label + '</span>';
+    }
+    return chip(r.t12_in_dropbox, 'T12', r.t12_file_name, r.t12_period_end) +
+           chip(r.rent_roll_in_dropbox, 'RR', r.rent_roll_file_name, r.rent_roll_as_of);
+  }
+
   function propertiesTab(data) {
     var rows = (data.rows || []).filter(function (r) {
       if (S.status && r.ownership_status !== S.status) return false;
@@ -262,7 +278,7 @@
         '<td class="r ' + c.net + '">' + money$(r.t12_net_income, { whole: true }) + '</td>' +
         '<td class="r ' + c.dscr + '">' + ratio(r.trailing_dscr) + '</td>' +
         '<td>' + escS(r.pm_company || DASH) + '</td>' +
-        '<td class="rp-dim">' + (r.source_system ? 'T12' : DASH) + '</td></tr>');
+        '<td class="rp-dim">' + dropboxCell(r) + '</td></tr>');
     });
 
     var t = data.totals || {};
@@ -395,6 +411,7 @@
     ['Physical Occupancy', 'physical_occupancy', pct, 1],
     ['Economic Occupancy', 'economic_occupancy', pct, 1],
     ['Debt Service', 'debt_service', money, 0],
+    ['Loan Proceeds', 'loan_proceeds', money, 0],
     ['Debt Service Coverage Ratio', 'dscr', ratio, 1],
     ['Loss to Lease', 'loss_to_lease', money, 0],
   ];
@@ -421,12 +438,43 @@
         return '<option value="' + y + '"' + (y === d.year ? ' selected' : '') + '>' + y + '</option>';
       }).join('') + '</select></div>');
 
+    var dsNote = d.debtServiceSource === 'income_statement'
+      ? 'Debt service is this property’s own interest plus principal from its books.'
+      : d.debtServiceSource === 'loan_record'
+      ? 'This property’s books carry no principal line, so debt service is the loan record’s annual figure divided by 12.'
+      : d.debtServiceSource === 'interest_only_books'
+      /* Doral: interest every month, no principal line and no loan record.
+         Interest alone UNDERSTATES the real payment, so the screen says so
+         rather than presenting the figure as complete. */
+      ? '<b>Interest only, from the books.</b> This property books interest but no principal, and has no loan record, ' +
+        'so debt service here is the interest alone and is lower than the real payment. DSCR is correspondingly optimistic.'
+      : 'No debt service could be established for this property.';
+
     h.push('<p class="rp-note rp-src-note">Source: T12 export, <b>' + escS(d.basis) + '</b> basis. ' +
-      (d.debtServiceSource === 'income_statement'
-        ? 'Debt service is this property’s own interest plus principal from its books.'
-        : 'This property’s books carry no principal line, so debt service is the loan record’s annual figure divided by 12.') +
+      dsNote +
       ' Cash flow is NOI less the asset management fee, debt service and capital expense. ' +
+      'Loan proceeds are money arriving, not a cost, and are shown separately rather than netted against anything. ' +
       'A month with no export shows ' + DASH + ', which means not available rather than zero.</p>');
+
+    /* the proceeds label, when there is one - 4,326,000.00 with no line name
+       beside it invites the question the note answers */
+    var notes = [];
+    for (var pm = 1; pm <= 12; pm++) {
+      var rec0 = d.byMonth[d.year + '-' + String(pm).padStart(2, '0')];
+      if (rec0 && rec0.loan_proceeds_note) notes.push(MONTHS[pm - 1] + ': ' + rec0.loan_proceeds_note);
+    }
+    if (notes.length) h.push('<p class="rp-note">Loan proceeds lines — ' + escS(notes.join(' · ')) + '</p>');
+
+    var oi = [];
+    for (var om = 1; om <= 12; om++) {
+      var rec1 = d.byMonth[d.year + '-' + String(om).padStart(2, '0')];
+      if (rec1 && isNum(rec1.other_interest)) oi.push(Number(rec1.other_interest));
+    }
+    if (oi.length) {
+      h.push('<p class="rp-note">This property also books <b>' +
+        money$(oi.reduce(function (a, b) { return a + b; }, 0)) + '</b> of other interest in ' + d.year +
+        ', which is <b>not</b> included in debt service — it sits alongside a mortgage interest line, so it is other debt.</p>');
+    }
 
     h.push('<div class="rp-scroll"><table class="rp-tbl rp-monthly"><thead><tr><th>Line</th>' +
       MONTHS.map(function (m) { return '<th class="r">' + m + '</th>'; }).join('') +
@@ -924,12 +972,15 @@
     if (ex) ex.onclick = function () {
       var d = S.cache.summary || { rows: [] };
       var head = ['Property', 'Source', 'Entity', 'Units', 'Occupancy', 'Total income', 'Total expenses',
-                  'NOI T12', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR', 'PM company', 'Ownership'];
+                  'NOI T12', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR', 'PM company', 'Ownership',
+                  'T12 filed', 'T12 file', 'Rent roll filed', 'Rent roll file'];
       var body = (d.rows || []).filter(function (r) { return !S.status || r.ownership_status === S.status; })
         .map(function (r) {
           return [r.name, r.source_system, r.entity_name, r.units, r.latest_occupancy, r.t12_income,
                   r.t12_expense, r.t12_noi, r.optimized_noi, r.expense_ratio, r.t12_net_income,
-                  r.trailing_dscr, r.pm_company, r.ownership_status];
+                  r.trailing_dscr, r.pm_company, r.ownership_status,
+                  r.t12_in_dropbox ? 'yes' : 'no', r.t12_file_name || '',
+                  r.rent_roll_in_dropbox ? 'yes' : 'no', r.rent_roll_file_name || ''];
         });
       download('properties.csv', csv([head].concat(body)));
     };

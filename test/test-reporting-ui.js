@@ -165,7 +165,22 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   }
 
   const text = async sel => (await pg.locator(sel).first().textContent().catch(() => '')) || '';
-  const shot = async name => { if (SHOTS) await pg.screenshot({ path: path.join(__dirname, 'shot-' + name + '.png'), fullPage: true }); };
+  /* Screenshots only.
+
+     The entity menu is 106 folders tall and it, not the content, drives the
+     page height - so a fullPage shot of a short property tab is mostly menu
+     with the subject scrolled off the top. Capping the menu for the capture
+     lets fullPage follow the CONTENT while keeping the menu in frame.
+     Screenshotting the panel element instead does not work: it sits under a
+     sticky header and comes out clipped. */
+  const SHOT_CSS = '.rp-side{max-height:100vh;overflow:hidden}';
+  const shot = async name => {
+    if (!SHOTS) return;
+    await pg.addStyleTag({ content: SHOT_CSS }).catch(() => {});
+    await pg.evaluate(() => window.scrollTo(0, 0));
+    await pg.waitForTimeout(120);
+    await pg.screenshot({ path: path.join(__dirname, 'shot-' + name + '.png'), fullPage: true });
+  };
 
   /* ---- Company > Properties ---- */
   await go('#brand=leavenwealth&view=properties');
@@ -319,6 +334,39 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   check('the builder opens on step 1 with the datasets listed', () => {
     assert.ok(/Dataset/.test(builder), 'no step list');
     assert.ok(/Monthly property financials|Property summary/.test(builder), 'no datasets offered');
+  });
+
+  /* ---- the four fixes ---- */
+  await go('#brand=leavenwealth&view=properties');
+  const dIdx = await pg.$$eval('.rp-row', function (els) {
+    return els.findIndex(function (e) { return /Doral Apartments/.test(e.textContent || ''); });
+  });
+  check('Doral is in the held list', () => assert.ok(dIdx >= 0));
+  await pg.locator('.rp-row').nth(dIdx).scrollIntoViewIfNeeded();
+  await pg.locator('.rp-row').nth(dIdx).click();
+  await settle('#reportingNative');
+  const doral = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  console.log('Doral monthly    :', doral.slice(0, 150));
+  await shot('rp-doral-monthly');
+
+  check('Doral says its debt service is interest only, from the books', () => {
+    assert.ok(/Interest only, from the books/i.test(doral), 'the caveat is not on screen');
+    assert.ok(/22,830\.3/.test(doral), 'the interest figure is not on screen');
+  });
+  check('Doral shows its 4,326,000.00 loan proceeds, in MAY', () => {
+    assert.ok(/4,326,000\.00/.test(doral), 'proceeds missing');
+    assert.ok(/Loan - Mortgage/.test(doral), 'the proceeds line is not named');
+    assert.ok(/Loan - Other/.test(doral), 'the 200,000 Loan - Other line is not named');
+  });
+
+  const dbx = await pg.$$eval('.rp-dbx', function (e) { return e.length; }).catch(() => 0);
+  await go('#brand=leavenwealth&view=properties');
+  const filed = await pg.$$eval('.rp-dbx.on', function (e) { return e.length; });
+  const allChips = await pg.$$eval('.rp-dbx', function (e) { return e.length; });
+  console.log('dropbox chips    :', allChips, 'of which filed:', filed);
+  check('In Dropbox is a real per-property answer, not the source system', () => {
+    assert.ok(allChips >= 150, 'only ' + allChips + ' chips for 80 properties x 2');
+    assert.ok(filed > 0 && filed < allChips, 'filed=' + filed + ' of ' + allChips + ' - it should not be all or nothing');
   });
 
   /* ---- the whole-release guarantees ---- */

@@ -187,3 +187,14 @@
   .rp-side, .rp-tabs, .rp-bar, .sv-steps, .sv-head { display: none !important; }
   .rp-wrap2 { grid-template-columns: 1fr; }
 }
+
+/* In Dropbox chips. Absent is a dashed outline rather than a missing chip:
+   "no T12 on file" and "we never looked" are different answers, and only the
+   tri-state treatment distinguishes them. */
+.rp-dbx {
+  display: inline-block; margin-right: 4px; font-size: 9px; letter-spacing: .06em;
+  text-transform: uppercase; font-family: var(--font-mono, inherit);
+  padding: 1px 6px; border-radius: 99px;
+  border: 1px dashed var(--border); color: var(--ink-4);
+}
+.rp-dbx.on { border-style: solid; border-color: color-mix(in srgb, var(--good) 50%, transparent); color: var(--good); }

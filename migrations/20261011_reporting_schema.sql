@@ -60,6 +60,19 @@
 create schema if not exists reporting;
 grant usage on schema reporting to authenticated;
 
+-- Dropped and recreated rather than replaced: `create or replace view` cannot
+-- add a column anywhere but the end, and this revision adds loan_proceeds and
+-- other_interest in the middle of property_month. Nothing holds a foreign key
+-- to a view, and saved_view stores a dataset KEY rather than a reference, so
+-- dropping these is safe. Reverse dependency order.
+drop view if exists reporting.am_fee_month        cascade;
+drop view if exists reporting.property_summary    cascade;
+drop view if exists reporting.property_month      cascade;
+drop view if exists reporting.t12_tagged          cascade;
+drop view if exists reporting.rent_roll_unit      cascade;
+drop view if exists reporting.loan                cascade;
+drop view if exists reporting.income_statement_line cascade;
+
 -- ===========================================================================
 -- 1.2  reporting.income_statement_line
 -- Account-by-account income statement. A near-direct projection of
@@ -138,11 +151,43 @@ select
   (t.section = 'other_cash_items' and not t.is_total
      and t.line_label ~* '^capital expenditures$')                as is_capex_cash,
 
-  -- MORTGAGE INTEREST. Non-total, any depth. Buildium nests it under
-  -- 'Mortgage Payment', AppFolio under 'MORTGAGE' or directly under
-  -- 'Other Expense'.
+  -- INTEREST. Non-total, any depth. Three spellings count, and they are
+  -- mutually exclusive in practice: BG Flats, Champion Villas and Doral use
+  -- 'Interest Exp'; The Whitney and Uptown Flats use 'Interest Payment'; and
+  -- NONE of those five carries a 'Mortgage Interest' line, so the alternate
+  -- spellings are their only interest rather than an extra.
+  --
+  -- The anchors matter. '^interest exp$' must not reach 'Interest Expense',
+  -- which is a different label on a different property.
   (t.section = 'non_operating_expense' and not t.is_total
-     and t.line_label ~* '^mortgage interest$')                   as is_interest,
+     and t.line_label ~* '^(mortgage interest|interest exp|interest payment)$') as is_interest,
+
+  -- INTEREST THAT IS DELIBERATELY NOT COUNTED. 'Other Interest Expense'
+  -- (Cedar Haven, Estrella, Heston Pointe, Sierra Gardens, The Beverly) and
+  -- 'Other interest' (Franklin Court, Lions Gate) sit ALONGSIDE a real
+  -- 'Mortgage Interest' line on every one of those properties, so they are
+  -- other debt - a line of credit or similar - and adding them would inflate
+  -- debt service and depress DSCR on seven properties.
+  --
+  -- 'Interest Expense' (Ash Street Place, 2023-09 to 2024-03) is also out: it
+  -- is in neither list, it is that property's only interest line, and its
+  -- data ends before the current reporting period, so excluding it moves no
+  -- live figure. Surfaced rather than silently folded in either direction.
+  (t.section = 'non_operating_expense' and not t.is_total
+     and t.line_label ~* 'interest'
+     and t.line_label !~* '^(mortgage interest|interest exp|interest payment)$') as is_other_interest,
+
+  -- LOAN PROCEEDS. The positive side of other_cash_items: money arriving
+  -- rather than principal paid. Doral's 4,326,000.00 refinance in MAY 2026
+  -- and its 200,000.00 'Loan - Other' in June, plus two 960.40 'Arrow Loan'
+  -- rows at Capitol City Villas.
+  --
+  -- 'Loan - Other' IS proceeds even though it is excluded from principal, so
+  -- it is included here and the label rides along - see loan_proceeds_note.
+  (t.section = 'other_cash_items' and not t.is_total
+     and t.amount > 0
+     and t.line_label ~* '(loan|mortgage)'
+     and t.line_label !~* '(security deposit|prepaid|clearing)')  as is_loan_proceeds,
 
   -- PRINCIPAL, booked as an expense. Already positive.
   (t.section = 'non_operating_expense' and not t.is_total
@@ -153,8 +198,14 @@ select
   --
   -- `amount < 0` IS THE RULE, not a tidy-up. In this section a negative is
   -- money leaving (principal paid) and a POSITIVE is money arriving - a draw.
-  -- The live data holds three: Doral's +4,326,000.00 refinance in Apr 2026,
-  -- its +200,000.00 'Loan - Other', and two +960.40 'Arrow Loan' rows.
+  -- The live data holds four: Doral's +4,326,000.00 refinance in MAY 2026
+  -- and its +200,000.00 'Loan - Other' in June, plus two +960.40 'Arrow Loan'
+  -- rows at Capitol City Villas in January and February.
+  --
+  -- (An earlier note here said April. That was read off a renderer that
+  -- called toISOString() on a DATE, which from UTC+8 shifts 2026-05-01 back
+  -- to 2026-04-30 - the same timezone bug CLAUDE.md records against paid_at,
+  -- this time in the tool doing the verifying rather than in the product.)
   -- Negated, that refinance becomes principal of MINUS 4.3M, a debt service
   -- of minus 4.3M and a wildly positive cash flow, all of which render
   -- perfectly happily.
@@ -238,6 +289,10 @@ agg as (
 
     sum(g.amount) filter (where g.is_am_fee)   as am_fee_booked,
     sum(g.amount) filter (where g.is_interest) as interest,
+    count(*) filter (where g.is_interest)      as interest_lines,
+    sum(g.amount) filter (where g.is_other_interest) as other_interest,
+    sum(g.amount) filter (where g.is_loan_proceeds)  as loan_proceeds,
+    string_agg(distinct g.line_label, ', ') filter (where g.is_loan_proceeds) as loan_proceeds_note,
 
     -- principal: expense lines are positive already, balance-sheet lines are
     -- negative and are negated
@@ -252,10 +307,24 @@ agg as (
   left join public.t12_report rep on rep.id = g.source_t12_report_id
   group by 1, 2, 3, 4
 ),
--- does this property book its own debt service at all?
+-- How does this property's debt service get decided? Three steps, in order,
+-- and the decision is made per PROPERTY over the whole period so a ragged
+-- export cannot flip the source mid-year and mix two of them in one column.
+--
+--   a) its books carry principal or an unsplit payment -> income_statement
+--   b) else every loan on it states an annual figure    -> loan_record
+--   c) else its books carry interest                    -> interest_only_books
+--
+-- (c) exists because of Doral: interest every month from May 2026, no
+-- principal line, and no loan record either - so the first two steps both
+-- yield NULL and the screen showed a blank debt service for a property that
+-- demonstrably pays one. Interest-only is an understatement of the real
+-- payment, not a guess at it, so the source is named and the screen says
+-- "interest only, from the books" rather than presenting it as complete.
 ds_capable as (
   select property_id, accounting_basis,
-         (sum(principal_lines) + sum(unsplit_lines)) > 0 as books_debt_service
+         (sum(principal_lines) + sum(unsplit_lines)) > 0 as books_debt_service,
+         sum(interest_lines) > 0                         as books_interest
     from agg group by 1, 2
 ),
 rr as (
@@ -345,14 +414,23 @@ resolved as (
     case when agg.principal_lines > 0 then agg.principal_raw end as principal,
     agg.unsplit_payment,
 
-    case when dc.books_debt_service then 'income_statement' else 'loan_record' end as debt_service_source,
+    case
+      when dc.books_debt_service                          then 'income_statement'
+      when ld.loans > 0 and ld.loans = ld.loans_with_ds   then 'loan_record'
+      when dc.books_interest                              then 'interest_only_books'
+    end as debt_service_source,
 
     case
       when dc.books_debt_service then
         coalesce(agg.interest, 0) + coalesce(case when agg.principal_lines > 0 then agg.principal_raw end, 0)
           + coalesce(agg.unsplit_payment, 0)
       when ld.loans > 0 and ld.loans = ld.loans_with_ds then ld.annual_debt_service / 12.0
+      when dc.books_interest then agg.interest
     end as debt_service,
+
+    agg.other_interest,
+    agg.loan_proceeds,
+    agg.loan_proceeds_note,
 
     rr_agg.as_of_date as rent_roll_as_of,
     rr_agg.units, rr_agg.occupied, rr_agg.vacant,
@@ -528,6 +606,30 @@ occ as (
     from reporting.property_month
    where physical_occupancy is not null
    order by property_id, month desc
+),
+-- "In Dropbox (T12 / Rent roll)". The brief asks the Properties table to say
+-- whether each report is actually filed, and property_summary had no such
+-- column - the first version printed the SOURCE SYSTEM under that heading,
+-- which answers a different question and answers it for every property that
+-- has any data at all.
+--
+-- Taken from the document linked to the property's LATEST report of each
+-- kind: 88 of 89 t12_reports and 89 of 90 rent_roll_reports carry a
+-- document_id, so the one that does not reads "not filed" rather than
+-- silently inheriting an older report's file.
+t12_doc as (
+  select distinct on (r.property_id)
+         r.property_id, d.id as document_id, d.file_name, d.storage_path, r.period_end
+    from public.t12_report r
+    left join public.document d on d.id = r.document_id
+   order by r.property_id, r.period_end desc nulls last
+),
+rr_doc as (
+  select distinct on (r.property_id)
+         r.property_id, d.id as document_id, d.file_name, d.storage_path, r.as_of_date
+    from public.rent_roll_report r
+    left join public.document d on d.id = r.document_id
+   order by r.property_id, r.as_of_date desc nulls last
 )
 select
   p.id,
@@ -554,7 +656,16 @@ select
   p.current_market_value       as value_on_file,
   p.current_market_value_asof  as value_as_of,
   case when p.current_market_value > 0 then d.debt / p.current_market_value end as ltv,
-  d.next_maturity
+  d.next_maturity,
+
+  (t12d.document_id is not null)            as t12_in_dropbox,
+  t12d.file_name                            as t12_file_name,
+  t12d.storage_path                         as t12_storage_path,
+  t12d.period_end                           as t12_period_end,
+  (rrd.document_id is not null)             as rent_roll_in_dropbox,
+  rrd.file_name                             as rent_roll_file_name,
+  rrd.storage_path                          as rent_roll_storage_path,
+  rrd.as_of_date                            as rent_roll_as_of
 from public.property p
 left join units u      on u.property_id = p.id
 left join public.entity e on e.id = p.entity_id
@@ -564,7 +675,9 @@ left join debt d       on d.property_id = p.id
 left join occ          on occ.property_id = p.id
 left join (select distinct on (property_id) property_id, source_system
              from public.t12_report order by property_id, period_end desc) rep
-       on rep.property_id = p.id;
+       on rep.property_id = p.id
+left join t12_doc t12d on t12d.property_id = p.id
+left join rr_doc  rrd  on rrd.property_id = p.id;
 
 -- ===========================================================================
 -- 1.6  reporting.am_fee_month

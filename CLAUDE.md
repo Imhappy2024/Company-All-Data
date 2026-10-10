@@ -1921,23 +1921,83 @@ right about every name it tested and wrong about the two it did not think of.
 Use it to confirm a name you have reason to expect; do not use a null result
 from it to conclude a capability is missing.
 
-### Debt service is decided per PROPERTY, then summed per month
-A property whose books carry principal or unsplit-payment lines anywhere in
-the period uses its income statement for every month. One whose books carry
-interest only falls back to `loan.debt_service / 12` with
-`debt_service_source = 'loan_record'`. **Franklin Court is the fallback case**
-(interest only, 774,391.92 / 12). Deciding this per MONTH instead flips the
-source mid-year on any ragged export, and the two sources do not agree, so one
-column would silently mix them.
+### Interest has THREE spellings that count, and three that do not
+Verified against the live data, not guessed:
 
-Worked example, Dakota Bend Jan 2026: interest 8,362.74 + principal 5,176.40
-= **13,539.14**, DSCR 1.11 against NOI 15,074.52.
+| Label | Properties | Counted? |
+|---|---|---|
+| `Mortgage Interest` | 42 | **yes** |
+| `Interest Exp` | BG Flats, Champion Villas, Doral | **yes** |
+| `Interest Payment` | The Whitney, Uptown Flats | **yes** |
+| `Other Interest Expense` | Cedar Haven, Estrella, Heston Pointe, Sierra Gardens, The Beverly | no |
+| `Other interest` | Franklin Court, Lions Gate | no |
+| `Interest Expense` | Ash Street Place only, 2023-09 to 2024-03 | no |
 
-**The sign rule is load-bearing.** `other_cash_items` is a balance-sheet
-section where an outflow is negative, so principal and the one AppFolio capex
-line there are negated into positive costs. Get it backwards and Dakota Bend
-reads 8,362.74 - 5,176.40 = 3,186.34: a debt service *smaller than the
-interest alone*, which still renders and still looks plausible.
+**The test is whether the property also has a `Mortgage Interest` line.**
+Every property using `Interest Exp` or `Interest Payment` has none, so those
+spellings ARE its interest. Every property with `Other Interest Expense` or
+`Other interest` also carries a real mortgage interest line, so those are
+other debt - a line of credit or similar - and adding them would inflate debt
+service and depress DSCR on seven properties.
+
+`Interest Expense` is in neither list. It is one property's only interest
+line and its data ends in March 2024, before the current reporting period, so
+excluding it moves no live figure. It is surfaced rather than quietly folded
+in either direction, and `property_month.other_interest` exposes the excluded
+amounts so they can be looked at without ever being summed in.
+
+The anchors are load-bearing: `^interest exp$` must not reach
+`Interest Expense`.
+
+### Debt service is a THREE-step fallback, decided per property
+```
+a) books carry principal or an unsplit payment -> income_statement
+b) else every loan states an annual figure     -> loan_record
+c) else the books carry interest               -> interest_only_books
+```
+Step (c) exists because of **Doral**: interest every month from May 2026, no
+principal line and no loan record, so the first two steps both yielded NULL
+and the screen showed a blank debt service for a property that demonstrably
+pays one. Interest alone **understates** the real payment rather than
+estimating it, so the source is named and the monthly sheet says
+*"Interest only, from the books … DSCR is correspondingly optimistic."*
+
+Doral: debt service 25,039.72 (May), 24,386.76 (Jun), 22,830.33 (Jul),
+22,830.34 (Aug and Sep) - which sums to the 117,917.49 of `Interest Exp` on
+file - and DSCR 1.67 / 1.91 / 1.64 / 1.01 / 0.78.
+
+Unchanged by the addition, and re-verified: Dakota Bend Jan 2026 is still
+13,539.14 on `income_statement` at 1.11, and Franklin Court is still
+`loan_record` at 774,391.92 / 12.
+
+### `loan_proceeds` is money ARRIVING, and is never netted against anything
+The positive side of `other_cash_items`. Four rows exist: Doral's
+**4,326,000.00 refinance in MAY 2026** and its **200,000.00 `Loan - Other` in
+June**, and two 960.40 `Arrow Loan` rows at Capitol City Villas in January and
+February. `loan_proceeds_note` carries the line label, because 4,326,000.00
+with no name beside it invites exactly the question the label answers.
+
+`Loan - Other` IS proceeds even though it is excluded from principal, so it
+is included here and named.
+
+**An earlier note in this repo said April.** It was read off a helper that
+called `toISOString()` on a DATE, which from UTC+8 renders 2026-05-01 as
+2026-04-30 - the same timezone bug recorded against `paid_at`, this time in
+the tool doing the verifying rather than in the product. Worth remembering:
+the instrument needs the same scrutiny as the thing being measured.
+
+### "In Dropbox" is a real per-property answer
+The Properties table's **In Dropbox (T12 / Rent roll)** column first printed
+the SOURCE SYSTEM, which answers a different question and answers it for
+every property that has any data at all - so it read "T12" for 80 of 80 while
+only **50** actually have one filed.
+
+Both chips now come from the document linked to the property's latest report
+of each kind (`t12_report.document_id`, `rent_roll_report.document_id`; 88 of
+89 and 89 of 90 are populated). Live: of 80 held properties, **50 have a T12
+filed and 51 a rent roll**, and 29 have neither. The chip's title names the
+file. A missing one is a dashed outline rather than an absent chip, because
+"no T12 on file" and "we never looked" are different answers.
 
 ### Three near-misses the matchers must NOT catch
 All three contain the word Mortgage and none is debt service:

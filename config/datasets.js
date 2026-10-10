@@ -69,6 +69,13 @@ const DATASETS = {
       F('debt_service_source', 'Debt service source', 'text'),
       F('unsplit_payment', 'Unsplit mortgage payment', 'currency'),
       F('dscr', 'DSCR', 'ratio'),
+      // Interest on other debt - a line of credit or similar. Deliberately
+      // NOT part of debt_service: every property carrying one also carries a
+      // real Mortgage Interest line, so adding it would inflate debt service
+      // and depress DSCR. Exposed so it can be looked at, never summed in.
+      F('other_interest', 'Other interest (not in debt service)', 'currency'),
+      F('loan_proceeds', 'Loan proceeds', 'currency'),
+      F('loan_proceeds_note', 'Loan proceeds line', 'text'),
       F('cash_flow', 'Cash flow', 'currency'),
       F('units', 'Units', 'number'),
       F('occupied', 'Occupied', 'number'),
@@ -189,6 +196,12 @@ const DATASETS = {
       F('value_as_of', 'Value as of', 'date'),
       F('ltv', 'LTV', 'percent'),
       F('next_maturity', 'Next maturity', 'date'),
+      F('t12_in_dropbox', 'T12 filed', 'text'),
+      F('t12_file_name', 'T12 file', 'text'),
+      F('t12_period_end', 'T12 period end', 'date'),
+      F('rent_roll_in_dropbox', 'Rent roll filed', 'text'),
+      F('rent_roll_file_name', 'Rent roll file', 'text'),
+      F('rent_roll_as_of', 'Rent roll as of', 'date'),
     ],
   },
 
