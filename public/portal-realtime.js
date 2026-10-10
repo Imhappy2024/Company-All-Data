@@ -34,9 +34,24 @@
      the shape of the whole app (the tenant, the brand list, who can see what).
   ----------------------------------------------------------------------- */
   var TABLE_VIEWS = {
-    /* real estate */
-    property: ['properties'],
-    unit: ['properties'],
+    /* real estate. The t12_* and rent_roll_* tables are what the curated
+       `reporting` views read, so a new export has to refresh Properties -
+       otherwise the screen keeps painting last month's numbers after the
+       sync lands, which is a wrong figure rather than a slow one. */
+    t12_report: ['properties', 'views'],
+    t12_monthly: ['properties', 'views'],
+    rent_roll_report: ['properties', 'views'],
+    rent_roll_line: ['properties', 'views'],
+
+    /* the fee tracker, and the saved views that read any of it */
+    am_fee_schedule: ['properties', 'views'],
+    am_fee_schedule_property: ['properties', 'views'],
+    am_fee_receipt: ['properties', 'views'],
+    saved_view: ['views'],
+    saved_view_share: ['views'],
+
+    property: ['properties', 'views'],
+    unit: ['properties', 'views'],
     property_financials: ['properties'],
     property_comment: ['properties'],
     property_vendor: ['properties'],
@@ -46,8 +61,8 @@
     entity_owner: ['properties'],
 
     /* debt */
-    loan: ['loans', 'financials'],
-    loan_balance: ['loans', 'financials'],
+    loan: ['loans', 'financials', 'views'],
+    loan_balance: ['loans', 'financials', 'views'],
     loan_collateral: ['loans'],
     guarantor: ['loans'],
     reporting_requirement: ['loans'],

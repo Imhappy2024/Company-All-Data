@@ -100,4 +100,11 @@ function valueAtCap(annualNoi, capRatePct) {
   return annualNoi / c;
 }
 
-module.exports = { monthIndex, bestWindow, optimizedNoi, annualConstant, maxLoan, dscr, valueAtCap };
+/* Both the server and the browser use this. The what-if inputs on the
+   Optimized NOI and DSCR tabs change numbers on screen only and are never
+   saved, so the maths has to run client-side - and it must be the SAME
+   maths, or the screen and the API disagree about the same property. One
+   file, loaded two ways, is what makes that impossible. */
+const API = { monthIndex, bestWindow, optimizedNoi, annualConstant, maxLoan, dscr, valueAtCap };
+if (typeof module !== 'undefined' && module.exports) module.exports = API;
+if (typeof window !== 'undefined') window.NoiAnalysis = API;

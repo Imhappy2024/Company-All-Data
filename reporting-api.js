@@ -276,6 +276,38 @@ async function noiAnalysis(req, res, who) {
 }
 
 /* ---------------------------------------------------------------------------
+   The latest rent roll for one property, plus its summary line.
+--------------------------------------------------------------------------- */
+async function rentRoll(req, res, who) {
+  const id = uuidOrNull(req.params.id);
+  if (!id) return res.status(400).json({ error: 'A property id is required.' });
+
+  const units = await q(
+    `select u.unit, u.beds, u.baths, u.tenant, u.status, u.rent, u.market_rent,
+            u.balance_due, u.lease_start, u.lease_end, u.square_feet, u.as_of_date
+       from reporting.rent_roll_unit u
+      where u.tenant_id = $1 and u.property_id = $2::uuid and u.is_latest
+        and u.is_current
+      order by u.sort_order nulls last, u.unit`,
+    [who.tenantId, id]
+  );
+
+  /* the summary comes from property_month so the figures on this tab cannot
+     disagree with the ones on Monthly financials */
+  const s = (await q(
+    `select pm.rent_roll_as_of as as_of_date, pm.units, pm.occupied, pm.vacant,
+            pm.market_rent_total, pm.rent_total, pm.loss_to_lease, pm.delinquency
+       from reporting.property_month pm
+      where pm.tenant_id = $1 and pm.property_id = $2::uuid
+        and pm.rent_roll_as_of is not null
+      order by pm.month desc limit 1`,
+    [who.tenantId, id]
+  ))[0] || null;
+
+  res.json({ ok: true, units, rentSummary: s });
+}
+
+/* ---------------------------------------------------------------------------
    The asset management fee tracker.
 --------------------------------------------------------------------------- */
 async function amFees(req, res, who) {
@@ -364,6 +396,7 @@ function reportingRoutes() {
   r.get('/:id/monthly', guard(monthly, { nav: 'properties' }));
   r.get('/:id/income-statement', guard(incomeStatement, { nav: 'properties' }));
   r.get('/:id/noi-analysis', guard(noiAnalysis, { nav: 'properties' }));
+  r.get('/:id/rent-roll', guard(rentRoll, { nav: 'properties' }));
   return r;
 }
 

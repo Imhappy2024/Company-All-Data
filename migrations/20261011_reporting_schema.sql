@@ -267,17 +267,42 @@ rr as (
     from public.rent_roll_report r
    order by r.property_id, date_trunc('month', r.as_of_date), r.as_of_date desc
 ),
-rr_agg as (
+-- A rent_roll_line is a LEASE, not a unit. Copperleaf has 494 lines over 87
+-- units, and 156 of them are 'current' across only 82 units - roommates and
+-- co-tenants each get a line, and expired leases stay on file.
+--
+-- So counting ROWS gives 494 units at a property with 87, and summing rent
+-- over rows counts every roommate separately. Both render perfectly happily.
+--
+-- The states are: current, past, vacant_unrented, vacant_rented, future,
+-- notice. There is no 'occupied' - the first version matched that word, found
+-- nothing, and every occupancy on the portfolio page read 0.0%, which is the
+-- silent-NULL trap one level down: the figure was present and wrong rather
+-- than absent.
+--
+-- Fold to one row per UNIT first, then aggregate.
+rr_units as (
   select
     rr.property_id, rr.month, rr.as_of_date,
-    count(l.*)                                                       as units,
-    count(l.*) filter (where l.occupancy_status ilike 'occupied')     as occupied,
-    count(l.*) filter (where l.occupancy_status not ilike 'occupied') as vacant,
-    sum(l.market_rent)                                               as market_rent_total,
-    sum(l.rent)                                                      as rent_total,
-    sum(greatest(l.balance_due, 0))                                  as delinquency
+    coalesce(l.unit_label, l.unit_id::text)                             as unit_key,
+    max(case when l.occupancy_status = 'current' then 1 else 0 end)     as is_occupied,
+    sum(l.rent) filter (where l.occupancy_status = 'current')           as unit_rent,
+    max(l.market_rent)                                                  as unit_market,
+    sum(greatest(l.balance_due, 0))                                     as unit_balance
   from rr
   join public.rent_roll_line l on l.rent_roll_report_id = rr.rent_roll_report_id
+  group by 1, 2, 3, 4
+),
+rr_agg as (
+  select
+    property_id, month, as_of_date,
+    count(*)                        as units,
+    sum(is_occupied)                as occupied,
+    count(*) - sum(is_occupied)     as vacant,
+    sum(unit_market)                as market_rent_total,
+    sum(unit_rent)                  as rent_total,
+    sum(unit_balance)               as delinquency
+  from rr_units
   group by 1, 2, 3
 ),
 pf as (
@@ -390,7 +415,14 @@ select
   l.move_in,
   l.move_out,
   l.square_feet,
-  l.sort_order
+  l.sort_order,
+  -- APPENDED, not inserted: `create or replace view` cannot change the name
+  -- of an existing column position, so a new field goes on the end.
+  --
+  -- A line is a LEASE. 'past' and 'future' are history rather than the unit's
+  -- state today, and a property carries hundreds of them - Copperleaf has 494
+  -- lines over 87 units. The Rent roll tab filters on this.
+  (l.occupancy_status in ('current', 'vacant_unrented', 'vacant_rented', 'notice')) as is_current
 from public.rent_roll_report r
 join public.rent_roll_line l on l.rent_roll_report_id = r.id
 left join latest on latest.id = r.id;

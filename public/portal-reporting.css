@@ -1,0 +1,181 @@
+/* ===========================================================================
+   portal-reporting.css — the Properties section and the Views builder.
+
+   EVERY selector here is prefixed `rp-` or `sv-`, and that is not a style
+   preference. portal.html defines generic names at the top level - .col,
+   .card, .view, .empty - and portal-properties.css was shimmed for COLOURS
+   but never scoped for NAMES. A chart bar called `.col` silently inherited
+   10px of padding and a 1px border from the Property Tasks board, which
+   floored every bar at 22px and drew a solid band across the maturity wall.
+   The inline style said 2px; the browser reported 22px.
+
+   Colours come from tokens.css. Nothing here hard-codes a hex, so one edit
+   there still re-themes this section with everything else.
+   =========================================================================== */
+
+.rp-wrap2 { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 18px; align-items: start; }
+@media (max-width: 900px) { .rp-wrap2 { grid-template-columns: 1fr; } }
+
+/* ---- left menu ---- */
+.rp-side { position: sticky; top: 8px; }
+.rp-menu { display: flex; flex-direction: column; gap: 2px; }
+.rp-mi {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px 7px 14px; border: 0; background: transparent; cursor: pointer;
+  color: var(--ink-2); font: inherit; font-size: 13px; text-align: left;
+  border-radius: var(--r-sm); border-left: 2px solid transparent;
+}
+.rp-mi:hover { background: var(--panel-2); color: var(--ink-1); }
+.rp-mi.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink-1); border-left-color: var(--accent); }
+.rp-mi-ic { opacity: .55; font-size: 10px; }
+.rp-mi-prop { font-weight: 600; }
+
+/* ---- breadcrumb + tabs ---- */
+.rp-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 10px; font-size: 12px; }
+.rp-crumb button { border: 0; background: transparent; color: var(--ink-3); cursor: pointer; font: inherit; padding: 2px 4px; border-radius: 4px; }
+.rp-crumb button:hover { color: var(--ink-1); background: var(--panel-2); }
+.rp-crumb i { color: var(--ink-4); font-style: normal; }
+.rp-crumb span { color: var(--ink-1); font-weight: 600; padding: 2px 4px; }
+
+.rp-phead { margin: 0 0 10px; }
+.rp-phead h2 { margin: 0 0 2px; font-family: var(--font-display, inherit); font-size: 20px; letter-spacing: -.006em; }
+
+.rp-tabs { display: flex; flex-wrap: wrap; gap: 2px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+.rp-tab {
+  border: 0; background: transparent; cursor: pointer; font: inherit; font-size: 13px;
+  color: var(--ink-3); padding: 8px 12px; border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.rp-tab:hover { color: var(--ink-1); }
+.rp-tab.on { color: var(--ink-1); border-bottom-color: var(--accent); font-weight: 600; }
+
+/* ---- bars, inputs ---- */
+.rp-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.rp-bar.rp-wrap { row-gap: 8px; }
+.rp-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-4); font-family: var(--font-mono, inherit); }
+.rp-inp {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--ink-1);
+  border-radius: var(--r-sm); padding: 6px 9px; font: inherit; font-size: 13px;
+}
+.rp-inp:focus { outline: 2px solid color-mix(in srgb, var(--accent) 45%, transparent); outline-offset: 1px; }
+.rp-num { width: 104px; }
+.rp-btn {
+  background: var(--panel-2); border: 1px solid var(--border); color: var(--ink-2);
+  border-radius: var(--r-sm); padding: 6px 11px; font: inherit; font-size: 11px; cursor: pointer;
+  text-transform: uppercase; letter-spacing: .06em; font-family: var(--font-mono, inherit);
+}
+.rp-btn:hover { color: var(--ink-1); border-color: var(--accent); }
+.rp-count, .rp-dim { color: var(--ink-4); font-size: 12px; }
+.rp-state { font-size: 11px; color: var(--ink-4); font-family: var(--font-mono, inherit); text-transform: uppercase; letter-spacing: .06em; }
+
+/* ---- tables ---- */
+.rp-scroll { overflow-x: auto; }
+.rp-tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.rp-tbl th, .rp-tbl td { padding: 7px 10px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+.rp-tbl thead th {
+  position: sticky; top: 0; z-index: 1; background: var(--panel);
+  font-size: 10px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-4); font-family: var(--font-mono, inherit); font-weight: 600; white-space: nowrap;
+}
+.rp-tbl .r, .rp-tbl th.r { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-tbl tfoot td { border-top: 2px solid var(--border); border-bottom: 0; font-weight: 600; background: var(--panel-2); }
+.rp-row { cursor: pointer; }
+.rp-row:hover td { background: var(--panel-2); }
+.rp-strong td { font-weight: 700; }
+.rp-kv { max-width: 520px; }
+.rp-src { display: inline-block; margin-left: 6px; font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink-4); border: 1px solid var(--border); border-radius: 99px; padding: 1px 6px; font-family: var(--font-mono, inherit); }
+
+.rp-grph td { background: var(--panel-2); }
+.rp-rl { color: var(--ink-3); font-size: 12px; white-space: nowrap; }
+.rp-feehead td { border-top: 1px solid var(--border); }
+.rp-varrow td { border-bottom: 2px solid var(--border); }
+.rp-books { font-style: italic; }
+
+.rp-chip, .rp-chip-warn {
+  display: inline-block; margin-left: 8px; font-size: 9px; text-transform: uppercase;
+  letter-spacing: .06em; padding: 2px 7px; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--ink-4); font-family: var(--font-mono, inherit);
+}
+.rp-chip-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }
+
+/* ---- status colour ----
+   The brief's thresholds. These are STATUS colours and they are deliberately
+   not reused as series colours anywhere, because the same jade would then
+   mean "category three" two panels over. */
+.rp-bad  { color: var(--crit); }
+.rp-warn { color: var(--warn); }
+.rp-ok   { color: var(--good); }
+.rp-neg  { color: var(--crit); }
+.rp-pos  { color: var(--good); }
+
+.rp-vneg  { background: color-mix(in srgb, var(--crit) 18%, transparent); color: var(--crit); }
+.rp-vpos  { background: color-mix(in srgb, var(--good) 16%, transparent); color: var(--good); }
+.rp-vzero { color: var(--ink-4); }
+
+/* window highlights on Optimized NOI */
+.rp-w6 td, td.rp-w6 { background: color-mix(in srgb, var(--good) 10%, transparent); }
+.rp-w3 td { background: color-mix(in srgb, var(--good) 22%, transparent); }
+.rp-w1 td { box-shadow: inset 0 0 0 2px var(--good); }
+.rp-legend { display: flex; align-items: center; gap: 6px; margin: 8px 0 16px; font-size: 11px; color: var(--ink-4); }
+.rp-legend .rp-k { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-left: 10px; }
+.rp-legend .rp-k:first-child { margin-left: 0; }
+/* The highlight rules above are scoped to table cells, so a legend swatch
+   matched none of them and rendered as an invisible 14px gap - a legend
+   explaining three colours while showing none. These restate the same fills
+   for the swatch itself. */
+.rp-legend .rp-k.rp-w6 { background: color-mix(in srgb, var(--good) 10%, transparent); border: 1px solid var(--border); }
+.rp-legend .rp-k.rp-w3 { background: color-mix(in srgb, var(--good) 22%, transparent); }
+.rp-legend .rp-k.rp-w1 { background: transparent; box-shadow: inset 0 0 0 2px var(--good); }
+
+.rp-h4 { margin: 20px 0 8px; font-size: 13px; font-family: var(--font-display, inherit); }
+.rp-note { color: var(--ink-3); font-size: 12px; line-height: 1.55; margin: 0 0 12px; }
+.rp-src-note { border-left: 2px solid var(--border); padding-left: 10px; }
+.rp-empty { padding: 28px; text-align: center; color: var(--ink-4); font-size: 13px; }
+.rp-err { padding: 16px; border: 1px solid color-mix(in srgb, var(--crit) 45%, transparent);
+  border-radius: var(--r-md); color: var(--crit); font-size: 13px; }
+
+/* ===========================================================================
+   Saved views (Phase 3)
+   =========================================================================== */
+.sv-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+.sv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 12px; }
+.sv-card {
+  border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px;
+  background: var(--panel); cursor: pointer;
+}
+.sv-card:hover { border-color: var(--accent); }
+.sv-card h4 { margin: 0 0 4px; font-size: 14px; }
+.sv-meta { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+.sv-tag {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .06em; padding: 2px 7px;
+  border-radius: 99px; border: 1px solid var(--border); color: var(--ink-4);
+  font-family: var(--font-mono, inherit);
+}
+.sv-steps { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: 14px; }
+.sv-step {
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--ink-3);
+  border-radius: 99px; padding: 4px 11px; font-size: 11px; cursor: pointer; font: inherit;
+}
+.sv-step.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.sv-step.done { color: var(--ink-1); }
+.sv-panel { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; margin-bottom: 14px; }
+.sv-fieldrow { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.sv-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.sv-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 5px 9px; cursor: pointer; color: var(--ink-2); }
+.sv-chk.on { border-color: var(--accent); color: var(--ink-1); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.sv-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
+.sv-tile { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; }
+.sv-tile .v { font-size: 22px; font-weight: 700; font-family: var(--font-display, inherit); font-variant-numeric: tabular-nums; }
+.sv-tile .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-4);
+  font-family: var(--font-mono, inherit); margin-bottom: 6px; }
+.sv-list-row { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin-bottom: 8px; }
+.sv-list-row h5 { margin: 0 0 6px; font-size: 13px; }
+.sv-list-sec { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--ink-3); }
+.sv-miss { color: var(--warn); font-size: 12px; }
+.sv-probs { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--r-md);
+  padding: 10px 12px; margin-bottom: 12px; font-size: 12px; color: var(--warn); }
+@media print {
+  .rp-side, .rp-tabs, .rp-bar, .sv-steps, .sv-head { display: none !important; }
+  .rp-wrap2 { grid-template-columns: 1fr; }
+}

@@ -193,7 +193,13 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
   const params = [tenantId];
   const where = [`${tenantCol} = $1`].concat(buildWhere(datasetKey, config.filters, params));
 
-  const grouping = (config.group_by && config.group_by.length) || (config.aggregates && config.aggregates.length);
+  /* SQL grouping ONLY when there are aggregates.
+     A report groups in the RENDERER - sections with subtotals and a grand
+     total - and it needs the detail rows to do it. Grouping in SQL on a
+     report's group_by collapsed every row to the manager plus whatever was
+     aggregated, so the other seven columns came back absent and the screen
+     filled with dashes. group_by alone is a presentation instruction. */
+  const grouping = !!(config.aggregates && config.aggregates.length);
 
   let selectList, groupBy = '';
   if (grouping) {
@@ -370,6 +376,25 @@ async function getViewData(req, res, who) {
   res.json(Object.assign({ ok: true, dataset: v.dataset_key, problems }, out));
 }
 
+/* The builder's live preview (step 6). It runs a DRAFT config that has not
+   been saved, so there is no view row to check permissions against - the
+   permission that matters is simply "may this person read this dataset",
+   which is the same tenant scope every other read applies. Nothing is
+   written, and the config goes through exactly the same validation a save
+   would use, so the preview cannot show rows a saved view would not. */
+async function previewData(req, res, who) {
+  const datasetKey = String(req.query.dataset || '');
+  if (!R.getDataset(datasetKey)) return res.status(400).json({ error: 'Unknown dataset.' });
+
+  let raw = {};
+  try { raw = JSON.parse(req.query.config || '{}'); }
+  catch (e) { return res.status(400).json({ error: 'The view configuration could not be read.' }); }
+
+  const { config, problems } = validateConfig(datasetKey, raw);
+  const out = await runDataset(datasetKey, config, who.tenantId, 1, req.query.per_page || 50);
+  res.json(Object.assign({ ok: true, dataset: datasetKey, problems }, out));
+}
+
 async function createView(req, res, who) {
   const b = req.body || {};
   const ds = R.getDataset(b.dataset_key);
@@ -532,6 +557,8 @@ function viewRoutes() {
   r.use(express.json({ limit: '256kb' }));
   r.get('/', guard(listViews));
   r.post('/', guard(createView));
+  /* before /:id, or 'preview' is read as a view id and 400s as a bad uuid */
+  r.get('/preview', rateLimitData, guard(previewData));
   r.get('/:id', guard(getView));
   r.put('/:id', guard(updateView));
   r.delete('/:id', guard(deleteView));

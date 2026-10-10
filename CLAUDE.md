@@ -1883,12 +1883,13 @@ blanking the page.
 Folio's real billing lives on **Reports & Financials** and **App Users** — see
 "Folio Excel: Reports & Financials, App Users, and Whop billing" above.
 
-## Curated datasets (`reporting` schema) - Phase 1, NOT YET APPLIED
+## Curated datasets (`reporting` schema) - Phase 1, APPLIED 2026-10-11
 
 `migrations/20261011_reporting_schema.sql` + `config/datasets.js` + `am-fee-rules.js`.
 Six views that encode the data rules once, so no screen reads `t12_monthly`,
-`rent_roll_line` or `loan` directly. **The migrations are written and reviewed
-but NOT applied** - `migrations/` is review-only, and these are waiting on Jay.
+`rent_roll_line` or `loan` directly. **Applied 2026-10-11** after a dry run
+over all four files in one transaction: 42 fee schedules, 43 property links,
+42 receipts, 7 reporting views, 0 fee rows without a property.
 
 ### The schema was discovered by PROBING, because no credential was available
 There is no `.env` in this repo, the Supabase and database connectors were
@@ -2061,6 +2062,130 @@ The half that is DATA - does `reporting.property_month` actually RETURN
 suite. A fixture cannot answer it, and asserting it against one would be the
 vacuous-test failure recorded under Financials above. It needs a live
 connection.
+
+## Properties is the curated-dataset section now (Phase 2), and it is READ-ONLY
+
+`reporting-api.js` + `public/portal-reporting.{js,css}`, mounted at
+`#reportingNative`. **`portal-properties.js` still loads and still exports
+`PortalProperties`, but nothing routes to it** - delete it once this has been
+live a while. `PROPERTIES_READ_ONLY` defaults true and rides on
+`/api/portfolio-flags`; the existing write endpoints are untouched and
+unreachable from these screens, and a test asserts no new screen issues a
+POST, PUT, PATCH or DELETE.
+
+The left menu lists **folders only, never properties**. A menu of 170
+properties is a directory, not navigation, and the entity page already lists
+them in a table that searches and sorts. When a property is open the menu
+shows that one property under its entity, and no others.
+
+### Identity is verified, because RLS is not behind these routes
+`portal-identity.js` establishes who is calling by asking Supabase to run
+`dash_my_access()` **as the caller**, never by decoding the JWT - a JWT
+payload is base64, not a signature. `supabase-db` connects as the postgres
+SUPERUSER, so RLS never runs and `current_tenant_ids()` is never called:
+every statement filters `tenant_id` from the verified identity, and that is
+this layer's job exactly as it is `financials-api.js`'s.
+
+**`guard()` closes over the local `identify` binding**, so reassigning
+`module.exports.identify` does not stub it. `test/test-reporting-ui.js`
+therefore intercepts the one outbound fetch to `/rpc/dash_my_access`
+instead. Worth knowing before writing the next harness: the obvious stub
+fails silently, the real function runs, and the screen reports "Session
+expired" while everything else works.
+
+## Saved views (Phase 3)
+
+`views-api.js` + `public/portal-saved-views.js`, nav id `views`, catalog rows
+in `migrations/20261011_views_catalog.sql` for Executive Board and
+LeavenWealth only. A view stores a QUESTION - dataset key, display type,
+config - and the rows are fetched fresh every time.
+
+**`/data` scopes to the READER's tenant, never the saved row's owner.** That
+one line is what keeps a share from being a privilege grant: a view shared
+with someone may legitimately show them fewer rows.
+
+No free-typed SQL reaches the database. Column, relation, operator,
+aggregate and sort direction each come from an allowlist helper in
+`config/datasets.js`; every value is a bound parameter. Four injection
+attempts are in the suite and all four are dropped with a stated problem.
+
+### SQL grouping happens only when there are AGGREGATES
+A report groups in the **renderer** - sections, subtotals, a grand total -
+and needs detail rows to do it. Grouping in SQL on a report's `group_by`
+collapsed every row to the manager plus whatever was aggregated, so the other
+seven columns came back absent and the screen filled with dashes. `group_by`
+alone is a presentation instruction.
+
+Relatedly: when a query DOES group, `ORDER BY` may only name a grouped column
+or an aggregate. The default sort comes from the dataset and knows nothing
+about the config, so it turned three of the four starter views into 42803.
+Unusable sorts are dropped, not refused.
+
+## A rent_roll_line is a LEASE, not a unit
+
+This is the correction most likely to be made again. Copperleaf has **494
+lines over 87 units**, and **156 of them are `current` across only 82 units** -
+roommates each get a line and expired leases stay on file.
+
+    occupancy_status: current | past | vacant_unrented | future | notice | vacant_rented
+
+**There is no 'occupied'.** The first version matched that word, found
+nothing, and every occupancy on the portfolio page read **0.0%** - which is
+the silent-NULL trap one level down: the figure was present and wrong rather
+than absent, so nothing looked broken.
+
+`reporting.property_month` folds to one row per unit FIRST (`rr_units`), then
+aggregates: units are `count(distinct unit_label)`, occupied is a distinct
+count of units holding a `current` lease, and rent sums the current leases
+only. Counting rows gives 494 units at a property with 87 and counts every
+roommate's rent separately. Copperleaf now reads 87 units at 87.4%, which
+matches the 87 apartments pinned in `test-sov-properties.js`.
+
+`reporting.rent_roll_unit` carries an `is_current` flag (appended at the end,
+because `create or replace view` cannot rename a column position), and the
+Rent roll tab filters on it rather than listing every expired lease.
+
+## Three browser-level traps, all found by measuring
+
+1. **Repainting inside a `blur` handler throws.** `change` on a text input
+   fires DURING blur, and `paint()` replaces `host.innerHTML`, so the node
+   the browser is mid-blur on is removed from under it:
+   *"The node to be removed is no longer a child of this node. Perhaps it was
+   moved in a 'blur' event handler?"*. The what-if inputs defer by a tick
+   (`setTimeout(paint, 0)`); the search box repaints only the table, which
+   needs no focus restoration at all.
+
+2. **A pending view must say Loading, not "no rows".** Falling back to an
+   empty result while the fetch was in flight rendered *"No rows match this
+   view. 0 of 0 rows"* over a view that has eight - a confident wrong answer
+   in the window before the data arrives, and one a screenshot captures as
+   fact.
+
+3. **`goto()` to a URL differing only by fragment is a same-document
+   navigation.** The module keeps its state, so returning to Properties after
+   the fees tab left `S.tab='fees'` and the assertion looked for property
+   rows on the fee tracker. The harness adds a cache-busting query param;
+   chaining extra navigations to force a reload instead raced the boot chain
+   and left the section unmounted.
+
+## Tests
+
+    node test/test-am-fees.js           # 17, the fee arithmetic
+    node test/test-datasets.js          # 10, the allowlist boundary
+    node test/test-acceptance-math.js   # 16, section 2.10's arithmetic
+    node test/test-reporting-ui.js      # 25, the screens against LIVE data
+                                        #     --shots writes the screenshots
+
+`test-reporting-ui.js` is the opposite of the usual fake: the SQL, the views
+and every figure are the live database, and only the doorman is stubbed.
+CLAUDE.md already records the Folio suite passing 61 green checks over SQL
+that could not parse, because a fake never parses SQL.
+
+It asserts the acceptance figures ARE ON SCREEN - Franklin Court's
+149,000.29, the 970,480 optimized against 828,323 trailing, the max loan
+against the 8,080,000 current balance, and the 4,474.54 / 4,474.99 / +0.45
+fee row - plus that no screen issues a write, that nothing overflows, and
+that a what-if input recomputes and marks itself unsaved.
 
 ## Railway variables: what belongs, and what takes the app down
 

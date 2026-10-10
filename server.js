@@ -2121,6 +2121,14 @@ const reportingApi = require('./reporting-api');
 app.use('/api/portfolio', reportingApi.reportingRoutes());
 app.use('/api/am-fees', reportingApi.amFeeRoutes());
 
+/* noi-analysis.js lives at the repo root because the SERVER uses it too, and
+   the browser needs the SAME file: the what-if inputs recompute client-side,
+   and two copies of that arithmetic would let the screen and the API disagree
+   about one property. Served explicitly rather than copied into public/. */
+app.get('/noi-analysis.js', (_req, res) => {
+  res.type('application/javascript').sendFile(require('path').join(__dirname, 'noi-analysis.js'));
+});
+
 const viewsApi = require('./views-api');
 app.use('/api/datasets', viewsApi.datasetRoutes());
 app.use('/api/views', viewsApi.viewRoutes());
