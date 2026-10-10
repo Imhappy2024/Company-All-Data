@@ -99,7 +99,7 @@ alter table public.am_fee_receipt           enable row level security;
 
 drop policy if exists am_fee_schedule_read on public.am_fee_schedule;
 create policy am_fee_schedule_read on public.am_fee_schedule
-  for select to authenticated using (tenant_id = any (current_tenant_ids()));
+  for select to authenticated using (tenant_id in (select current_tenant_ids()));
 
 drop policy if exists am_fee_schedule_write on public.am_fee_schedule;
 create policy am_fee_schedule_write on public.am_fee_schedule
@@ -114,7 +114,7 @@ drop policy if exists am_fee_schedule_property_read on public.am_fee_schedule_pr
 create policy am_fee_schedule_property_read on public.am_fee_schedule_property
   for select to authenticated using (exists (
     select 1 from public.am_fee_schedule s
-     where s.id = schedule_id and s.tenant_id = any (current_tenant_ids())));
+     where s.id = schedule_id and s.tenant_id in (select current_tenant_ids())));
 
 drop policy if exists am_fee_schedule_property_write on public.am_fee_schedule_property;
 create policy am_fee_schedule_property_write on public.am_fee_schedule_property
@@ -126,7 +126,7 @@ create policy am_fee_schedule_property_write on public.am_fee_schedule_property
 
 drop policy if exists am_fee_receipt_read on public.am_fee_receipt;
 create policy am_fee_receipt_read on public.am_fee_receipt
-  for select to authenticated using (tenant_id = any (current_tenant_ids()));
+  for select to authenticated using (tenant_id in (select current_tenant_ids()));
 
 drop policy if exists am_fee_receipt_write on public.am_fee_receipt;
 create policy am_fee_receipt_write on public.am_fee_receipt

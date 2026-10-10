@@ -121,7 +121,7 @@ select
      and t.line_label ~* '^rent income$')                         as is_rent_depth1,
   (t.section = 'income' and t.is_total
      and t.line_label ~* '^rent - residential$'
-     and t.account_path ~* 'INCOME - TENANT')                     as is_rent_tenant,
+     and array_to_string(t.account_path, ' > ') ~* 'INCOME - TENANT') as is_rent_tenant,
 
   -- ASSET MANAGEMENT FEE. Non-total, any depth. Buildium nests it under
   -- 'Non-operating Expense'; AppFolio under 'Other Expense', 'Corporate
@@ -149,11 +149,21 @@ select
      and t.line_label ~* '^(mortgage principal|principal payment)$')
                                                                   as is_principal_expense,
 
-  -- PRINCIPAL, booked as a balance-sheet movement. Negative in the data.
-  -- The exclusions matter: 'Loan - Other' is not a mortgage, and a security
-  -- deposit, prepaid or clearing account is not debt service. Anything
-  -- excluded here is money that would otherwise be counted as principal.
+  -- PRINCIPAL, booked as a balance-sheet movement.
+  --
+  -- `amount < 0` IS THE RULE, not a tidy-up. In this section a negative is
+  -- money leaving (principal paid) and a POSITIVE is money arriving - a draw.
+  -- The live data holds three: Doral's +4,326,000.00 refinance in Apr 2026,
+  -- its +200,000.00 'Loan - Other', and two +960.40 'Arrow Loan' rows.
+  -- Negated, that refinance becomes principal of MINUS 4.3M, a debt service
+  -- of minus 4.3M and a wildly positive cash flow, all of which render
+  -- perfectly happily.
+  --
+  -- The label exclusions are the second line: 'Loan - Other' is not a
+  -- mortgage, and a security deposit, prepaid or clearing account is not
+  -- debt service.
   (t.section = 'other_cash_items' and not t.is_total
+     and t.amount < 0
      and t.line_label ~* '(loan|mortgage)'
      and t.line_label !~* '^loan - other$'
      and t.line_label !~* '(security deposit|prepaid|clearing)')  as is_principal_cash,
@@ -195,10 +205,18 @@ with months as (
 -- the join is on (property, basis) and takes the EARLIEST on file: a property
 -- re-exported later must not lose history it already had. A month before it is
 -- not "zero", it is "this report does not cover it".
-active as (
-  select property_id, accounting_basis, min(first_active_month) as first_active_month
-    from public.t12_report
-   group by 1, 2
+-- t12_monthly DOES carry a foreign key to t12_report: source_t12_report_id.
+-- An earlier version joined on (property, basis) because a column probe had
+-- not thought to try that name - the same miss as tenant_names. The real key
+-- is exact, so first_active_month comes from the report that actually
+-- supplied the row.
+--
+-- active_any is the fallback for a row whose source report is missing, and
+-- for it the earliest first_active_month on file wins: a property re-exported
+-- later must not lose history it already had.
+active_any as (
+  select property_id, min(first_active_month) as first_active_month
+    from public.t12_report group by 1
 ),
 agg as (
   select
@@ -228,8 +246,10 @@ agg as (
     count(*) filter (where g.is_principal_expense or g.is_principal_cash) as principal_lines,
 
     sum(g.amount) filter (where g.is_unsplit_payment)                     as unsplit_payment,
-    count(*) filter (where g.is_unsplit_payment)                          as unsplit_lines
+    count(*) filter (where g.is_unsplit_payment)                          as unsplit_lines,
+    min(rep.first_active_month)                                           as first_active_month
   from reporting.t12_tagged g
+  left join public.t12_report rep on rep.id = g.source_t12_report_id
   group by 1, 2, 3, 4
 ),
 -- does this property book its own debt service at all?
@@ -285,8 +305,9 @@ loan_ds as (
 resolved as (
   select
     m.tenant_id, m.property_id, m.month, m.accounting_basis,
-    (a.first_active_month is null
-       or m.month >= date_trunc('month', a.first_active_month)::date) as has_data,
+    (coalesce(agg.first_active_month, aa.first_active_month) is null
+       or m.month >= date_trunc('month',
+            coalesce(agg.first_active_month, aa.first_active_month))::date) as has_data,
 
     agg.total_operating_income,
     agg.total_operating_expense,
@@ -322,7 +343,7 @@ resolved as (
     pf.total_expected_income,
     pf.economic_occupancy
   from months m
-  left join active    a   on a.property_id = m.property_id and a.accounting_basis = m.accounting_basis
+  left join active_any aa on aa.property_id = m.property_id
   left join agg           on agg.property_id = m.property_id and agg.month = m.month
                          and agg.accounting_basis = m.accounting_basis
   left join ds_capable dc on dc.property_id = m.property_id and dc.accounting_basis = m.accounting_basis
@@ -435,7 +456,7 @@ t12 as (
     from reporting.property_month
    group by 1, 2
 ),
-trailing as (
+trailing_12 as (
   select pm.property_id, pm.accounting_basis,
          sum(pm.total_operating_income)  as t12_income,
          sum(pm.total_operating_expense) as t12_expense,
@@ -479,10 +500,10 @@ occ as (
 select
   p.id,
   p.tenant_id,
-  p.name,
+  coalesce(p.dba_name, p.trade_name) as name,
   e.id            as entity_id,
   e.name          as entity_name,
-  p.manager       as pm_company,
+  p.management_company as pm_company,
   tr12.accounting_basis,
   rep.source_system,
   p.city, p.state,
@@ -498,14 +519,14 @@ select
   case when d.loans > 0 and d.loans = d.loans_with_ds then d.annual_debt_service end as annual_debt_service,
   case when d.loans > 0 and d.loans = d.loans_with_ds and d.annual_debt_service > 0
        then tr12.t12_noi / d.annual_debt_service end as trailing_dscr,
-  p.market_value        as value_on_file,
-  p.market_value_as_of  as value_as_of,
-  case when p.market_value > 0 then d.debt / p.market_value end as ltv,
+  p.current_market_value       as value_on_file,
+  p.current_market_value_asof  as value_as_of,
+  case when p.current_market_value > 0 then d.debt / p.current_market_value end as ltv,
   d.next_maturity
 from public.property p
 left join units u      on u.property_id = p.id
 left join public.entity e on e.id = p.entity_id
-left join trailing tr12 on tr12.property_id = p.id
+left join trailing_12 tr12 on tr12.property_id = p.id
 left join opt          on opt.property_id = p.id and opt.accounting_basis = tr12.accounting_basis
 left join debt d       on d.property_id = p.id
 left join occ          on occ.property_id = p.id
@@ -542,16 +563,16 @@ gross as (
   select l.schedule_id, pm.month, sum(pm.total_operating_income) as gross_income
     from public.am_fee_schedule_property l
     join reporting.property_month pm on pm.property_id = l.property_id
-   where pm.accounting_basis = 'cash' and pm.has_data
+   where lower(pm.accounting_basis) = 'cash' and pm.has_data
    group by 1, 2
 ),
 booked as (
   select l.schedule_id, pm.month, sum(pm.am_fee_booked) as am_fee_booked
     from public.am_fee_schedule_property l
     join reporting.property_month pm on pm.property_id = l.property_id
-   where pm.accounting_basis = 'cash'
+   where lower(pm.accounting_basis) = 'cash'
    group by 1, 2
-)
+),
 -- expected is computed ONCE here. It was written twice - once for the column
 -- and once inside variance - and that is a view whose two outputs can be
 -- edited into disagreeing with each other while both still run.

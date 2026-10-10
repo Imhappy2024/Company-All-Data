@@ -95,7 +95,7 @@ create policy saved_view_read on public.saved_view
   for select to authenticated
   using (
     deleted_at is null
-    and tenant_id = any (current_tenant_ids())
+    and tenant_id in (select current_tenant_ids())
     and (
       owner_staff_id = current_staff_id()
       or exists (
@@ -116,14 +116,14 @@ create policy saved_view_read on public.saved_view
 drop policy if exists saved_view_owner_write on public.saved_view;
 create policy saved_view_owner_write on public.saved_view
   for all to authenticated
-  using (tenant_id = any (current_tenant_ids()) and owner_staff_id = current_staff_id())
-  with check (tenant_id = any (current_tenant_ids()) and owner_staff_id = current_staff_id());
+  using (tenant_id in (select current_tenant_ids()) and owner_staff_id = current_staff_id())
+  with check (tenant_id in (select current_tenant_ids()) and owner_staff_id = current_staff_id());
 
 drop policy if exists saved_view_share_read on public.saved_view_share;
 create policy saved_view_share_read on public.saved_view_share
   for select to authenticated using (exists (
     select 1 from public.saved_view v
-     where v.id = view_id and v.tenant_id = any (current_tenant_ids())));
+     where v.id = view_id and v.tenant_id in (select current_tenant_ids())));
 
 drop policy if exists saved_view_share_write on public.saved_view_share;
 create policy saved_view_share_write on public.saved_view_share
