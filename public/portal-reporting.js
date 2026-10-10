@@ -1,5 +1,5 @@
 /* ===========================================================================
-   portal-reporting.js — the Properties section (Phase 2), READ-ONLY.
+   portal-reporting.js. the Properties section (Phase 2), READ-ONLY.
 
    Replaces the portal-properties.js UI. Everything on screen comes from the
    `reporting` views through /api/portfolio/* and /api/am-fees; no screen here
@@ -83,6 +83,33 @@
 
   function neg(v) { return isNum(v) && Number(v) < 0 ? ' rp-neg' : ''; }
 
+  /* Stored values are enums; the screen speaks the business's own words.
+     "rent_roll" and "appfolio" leaked through as-is, which reads as a
+     database showing through rather than a product. Anything not listed
+     falls back to sentence case rather than to the raw token. */
+  var LABELS = {
+    rent_roll: 'Rent roll', verified: 'Verified count', buildings: 'Building total',
+    appfolio: 'AppFolio', buildium: 'Buildium',
+    held: 'Held', sold: 'Sold', demolished: 'Demolished', not_owned: 'Not owned',
+    on_file: 'On file', income_statement: 'Income statement',
+    loan_record: 'Loan record', interest_only_books: 'Interest only, from the books',
+    same_month: 'Same month', following_month: 'Following month',
+  };
+  function label(v) {
+    if (v === null || v === undefined || v === '') return DASH;
+    var k = String(v);
+    if (Object.prototype.hasOwnProperty.call(LABELS, k.toLowerCase())) return LABELS[k.toLowerCase()];
+    if (/^[a-z0-9_]+$/.test(k)) { var t = k.replace(/_/g, ' '); return t.charAt(0).toUpperCase() + t.slice(1); }
+    return k;
+  }
+
+  /* Icons come from the portal's own thin-line set, so every glyph shares one
+     stroke weight. Resolved at render time: this file loads before the
+     inline script that defines the set. */
+  function icon(name) {
+    return (window.PortalIcons && window.PortalIcons[name]) || '';
+  }
+
   /* A figure that is an estimate has to SAY SO next to itself. A DSCR built
      from interest with no principal is not a coverage ratio, it is an upper
      bound on one, and a reader who sees 1.64 with nothing beside it has no
@@ -126,22 +153,50 @@
     });
   }
 
-  /* ---- state -------------------------------------------------------------- */
+  /* ---- state --------------------------------------------------------------
+
+     Three levels, reached by drilling down rather than by a tree in a
+     sidebar. The entity tree panel is gone: it listed 106 legal entities as
+     navigation, which is a directory, and it took a third of the width from
+     the tables that are the actual content.
+
+       portfolio -> entity -> property
+
+     Every part of that - level, entity, property, tab and period - is in the
+     URL, so a property tab is a link somebody can send.
+  -------------------------------------------------------------------------- */
   var S = {
     host: null,
-    tree: null,            /* /api/portfolio: entities + tree */
-    scope: 'company',      /* company | entity | property */
-    entityId: null,
+    tree: null,                /* /api/portfolio, for building-level data only */
+    level: 'portfolio',        /* portfolio | entity | property */
+    tab: 'entities',           /* portfolio+entity: entities | properties | fees | views */
+    ptab: 'overview',          /* property level */
+    entityId: null,            /* a MANAGING entity id, or '' for the none-on-file bucket */
+    entityName: null,
     propertyId: null,
-    tab: 'properties',     /* company/entity: properties | fees */
-    ptab: 'monthly',       /* property page tab */
+
+    /* period (A4). Months are 1-12; the default is the current year, January
+       to the latest month that actually has data. */
     year: new Date().getFullYear(),
+    fromMonth: 1,
+    toMonth: 12,
+    rentAsOf: null,
+
     search: '',
     status: 'held',
+    withReports: true,
+    source: '',
+    density: 'comfortable',
+    showUnavailable: false,
+    showEmpty: false,
+    collapsed: {},             /* fee groups */
+
     cache: {},
+    seq: 0,                    /* see load(): the stale-response guard */
     busy: false,
     error: null,
-    /* what-if inputs. Never saved, never sent - reload returns to defaults. */
+
+    /* what-if inputs. Never saved, never sent; a reload returns to defaults. */
     whatif: { capRatePct: 7, requiredDscr: 1.25, newRatePct: 6.5, amortYears: 30, loanBalance: null, annualDebtService: null },
     whatifTouched: false,
   };
@@ -151,75 +206,122 @@
     S.whatifTouched = false;
   }
 
-  /* ---- the left menu: folders only, never properties ----------------------
-     The brief is explicit. A menu listing 170 properties is a directory, not
-     navigation, and the entity page already lists them in a table that can
-     be searched and sorted. */
-  function entityChildren(id) {
-    var out = [];
-    (S.tree && S.tree.entities || []).forEach(function (e) {
-      if ((e.parentId || null) === (id || null)) out.push(e);
-    });
-    return out.sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
-  }
-  function entityById(id) {
-    return (S.tree && S.tree.entities || []).filter(function (e) { return e.id === id; })[0] || null;
-  }
-  function propertyById(id) {
-    return (S.tree && S.tree.properties || []).filter(function (p) { return p.id === id; })[0] || null;
-  }
-  function ancestry(entityId) {
-    var out = [], guard = 0, e = entityById(entityId);
-    while (e && guard++ < 50) { out.unshift(e); e = e.parentId ? entityById(e.parentId) : null; }
-    return out;
+  /* ---- URL ----------------------------------------------------------------
+     portal.html owns brand/view/sub and rebuilds the fragment from scratch on
+     every render, so these ride along through the urlParams() hook rather
+     than being written into the hash directly - written directly they were
+     stripped by the next render.
+
+     Navigation inside the section PUSHES, so browser Back steps back through
+     the drill-down. portal.html's own writeState replaces rather than pushes,
+     so it never competes for history entries.
+  -------------------------------------------------------------------------- */
+  /* Read the URL ONCE, before anything can overwrite it.
+
+     portal.html's writeState() runs inside render() BEFORE mount(), and it
+     rebuilds the fragment from scratch using urlParams(). If urlParams()
+     answered from default state, the first render rewrote a bookmarked
+     property link to the portfolio landing before this module ever saw it,
+     so a shared link opened the wrong page. Clicking through never showed
+     this, because a click sets state first; only a cold load did. */
+  var urlRead = false;
+  function ensureUrlRead() { if (!urlRead) { urlRead = true; readUrl(); } }
+
+  function urlParams() {
+    ensureUrlRead();
+    var o = { lvl: S.level };
+    if (S.level !== 'portfolio') { o.ent = S.entityId === null ? '' : S.entityId; }
+    if (S.level === 'property') { o.prop = S.propertyId; o.ptab = S.ptab; }
+    else { o.ptab = S.tab; }
+    o.yr = S.year;
+    if (S.fromMonth !== 1) o.fm = S.fromMonth;
+    if (S.toMonth !== 12) o.tm = S.toMonth;
+    return o;
   }
 
-  function menuHtml() {
-    var h = ['<div class="rp-menu">'];
-    h.push('<button class="rp-mi' + (S.scope === 'company' ? ' on' : '') + '" data-go="company">' +
-           '<span class="rp-mi-ic">▦</span>Company</button>');
+  function readUrl() {
+    var p;
+    try { p = new URLSearchParams((location.hash || '').replace(/^#/, '')); }
+    catch (e) { return; }
+    if (p.get('view') !== 'properties') return;
+    var lvl = p.get('lvl');
+    if (lvl === 'entity' || lvl === 'property' || lvl === 'portfolio') S.level = lvl;
+    if (p.has('ent')) { S.entityId = p.get('ent') || null; }
+    if (p.has('prop')) S.propertyId = p.get('prop');
+    var t = p.get('ptab');
+    if (t) { if (S.level === 'property') S.ptab = t; else S.tab = t; }
+    var y = Number(p.get('yr'));
+    if (y >= 2000 && y <= 2100) S.year = y;
+    var fm = Number(p.get('fm')), tm = Number(p.get('tm'));
+    if (fm >= 1 && fm <= 12) S.fromMonth = fm;
+    if (tm >= 1 && tm <= 12) S.toMonth = tm;
+  }
 
-    function walk(parentId, depth) {
-      entityChildren(parentId).forEach(function (e) {
-        var open = S.entityId === e.id ||
-                   (S.scope === 'property' && ancestry(S.entityId).some(function (a) { return a.id === e.id; }));
-        h.push('<button class="rp-mi' + (S.entityId === e.id && S.scope !== 'property' ? ' on' : '') +
-               '" style="padding-left:' + (14 + depth * 14) + 'px" data-ent="' + escS(e.id) + '">' +
-               '<span class="rp-mi-ic">▸</span>' + escS(e.name) + '</button>');
-        if (open) walk(e.id, depth + 1);
-        /* When a property is open, show ONLY that property, under its
-           entity folder. Not the entity's other properties - the menu is
-           not a list. */
-        if (open && S.scope === 'property') {
-          var p = propertyById(S.propertyId);
-          if (p && p.entityId === e.id) {
-            h.push('<button class="rp-mi on rp-mi-prop" style="padding-left:' + (14 + (depth + 1) * 14) + 'px">' +
-                   '<span class="rp-mi-ic">▪</span>' + escS(p.name) + '</button>');
-          }
-        }
+  function pushUrl() {
+    try {
+      var p = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+      var extra = urlParams();
+      ['lvl', 'ent', 'prop', 'ptab', 'yr', 'fm', 'tm'].forEach(function (k) { p.delete(k); });
+      Object.keys(extra).forEach(function (k) {
+        if (extra[k] !== null && extra[k] !== undefined && extra[k] !== '') p.set(k, extra[k]);
+        else if (k === 'ent') p.set(k, '');
       });
-    }
-    walk(null, 1);
-    h.push('</div>');
-    return h.join('');
+      history.pushState(null, '', location.pathname + location.search + '#' + p.toString());
+    } catch (e) { /* a URL we cannot write is not a reason to refuse to navigate */ }
+  }
+
+  /* ---- navigation --------------------------------------------------------- */
+  function goPortfolio(tab) {
+    S.level = 'portfolio'; S.entityId = null; S.entityName = null; S.propertyId = null;
+    if (tab) S.tab = tab;
+    pushUrl(); load();
+  }
+  function goEntity(id, name, tab) {
+    S.level = 'entity'; S.entityId = id === undefined ? null : id; S.entityName = name || null;
+    S.propertyId = null; S.tab = tab || 'properties';
+    pushUrl(); load();
+  }
+  function goProperty(id) {
+    S.level = 'property'; S.propertyId = id; S.ptab = 'overview';
+    S.rentAsOf = null; reset();
+    pushUrl(); load();
   }
 
   function crumbHtml() {
-    var parts = ['<button data-go="company">Company</button>'];
-    var chain = S.scope === 'property'
-      ? ancestry(propertyById(S.propertyId) ? propertyById(S.propertyId).entityId : null)
-      : ancestry(S.entityId);
-    chain.forEach(function (e) {
-      parts.push('<button data-ent="' + escS(e.id) + '">' + escS(e.name) + '</button>');
-    });
-    if (S.scope === 'property') {
-      var p = propertyById(S.propertyId);
-      parts.push('<span>' + escS(p ? p.name : '') + '</span>');
+    var parts = ['<button class="rp-crumb-b" data-crumb="portfolio">Portfolio</button>'];
+    if (S.level !== 'portfolio') {
+      var nm = S.entityName || entityNameOf(S.entityId) || 'No managing entity';
+      if (S.level === 'property') {
+        parts.push('<button class="rp-crumb-b" data-crumb="entity">' + escS(nm) + '</button>');
+        parts.push('<span>' + escS(propertyNameOf(S.propertyId)) + '</span>');
+      } else {
+        parts.push('<span>' + escS(nm) + '</span>');
+      }
     }
     return '<nav class="rp-crumb">' + parts.join('<i>/</i>') + '</nav>';
   }
 
-  /* ---- company / entity: the Properties tab -------------------------------- */
+  function entityNameOf(id) {
+    var rows = (S.cache.entities && S.cache.entities.rows) || [];
+    for (var i = 0; i < rows.length; i++) {
+      if ((rows[i].managing_entity_id || null) === (id || null)) {
+        return rows[i].managing_entity_name || 'No managing entity';
+      }
+    }
+    return null;
+  }
+  function propertyNameOf(id) {
+    var d = S.cache.prop;
+    if (d && d.summary && d.summary.id === id && d.summary.name) return d.summary.name;
+    var rows = (S.cache.summary && S.cache.summary.rows) || [];
+    for (var i = 0; i < rows.length; i++) if (rows[i].id === id) return rows[i].name;
+    return '';
+  }
+
+  function propertyById(id) {
+    return (S.tree && S.tree.properties || []).filter(function (p) { return p.id === id; })[0] || null;
+  }
+
   /* The mortgage DSCR on the list prefers the BOOKS' own twelve months and
      falls back to the loan-record ratio, so a property whose debt service
      comes from its books is not blank here just because its loan record has
@@ -280,54 +382,71 @@
            chip(r.rent_roll_in_dropbox, 'RR', r.rent_roll_file_name, r.rent_roll_as_of);
   }
 
-  function propertiesTab(data) {
-    var rows = (data.rows || []).filter(function (r) {
+  /* ---- C1/C2: the Properties table ---------------------------------------- */
+  function visibleRows(data) {
+    return (data.rows || []).filter(function (r) {
       if (S.status && r.ownership_status !== S.status) return false;
+      if (S.withReports && !r.source_system) return false;
+      if (S.source && r.source_system !== S.source) return false;
       if (S.search) {
         var q = S.search.toLowerCase();
         if (String(r.name || '').toLowerCase().indexOf(q) < 0 &&
             String(r.pm_company || '').toLowerCase().indexOf(q) < 0 &&
+            String(r.managing_entity_name || '').toLowerCase().indexOf(q) < 0 &&
             String(r.entity_name || '').toLowerCase().indexOf(q) < 0) return false;
       }
       return true;
     });
+  }
 
-    var statuses = {};
-    (data.rows || []).forEach(function (r) { if (r.ownership_status) statuses[r.ownership_status] = 1; });
+  function propertiesTab(data) {
+    var all = data.rows || [];
+    var rows = visibleRows(data);
+    /* "only shown if any property in view has other debt" - a column of
+       dashes for 78 of 80 properties is a column nobody can use. */
+    var showAll = rows.some(function (r) { return isNum(r.trailing_dscr_all_debt) && isNum(r.t12_other_interest) && Number(r.t12_other_interest) > 0; });
+
+    var statuses = {}, sources = {};
+    all.forEach(function (r) {
+      if (r.ownership_status) statuses[r.ownership_status] = 1;
+      if (r.source_system) sources[r.source_system] = 1;
+    });
 
     var h = [];
     h.push('<div class="rp-bar">' +
       '<input class="rp-inp" id="rpSearch" placeholder="Search property, entity or PM" value="' + escS(S.search) + '">' +
       '<select class="rp-inp" id="rpStatus">' +
-      Object.keys(statuses).sort().map(function (s) {
-        return '<option value="' + escS(s) + '"' + (S.status === s ? ' selected' : '') + '>' + escS(s) + '</option>';
-      }).join('') +
-      '<option value=""' + (S.status === '' ? ' selected' : '') + '>all</option></select>' +
-      '<span class="rp-count">' + rows.length + ' of ' + (data.rows || []).length + '</span>' +
+        Object.keys(statuses).sort().map(function (s) {
+          return '<option value="' + escS(s) + '"' + (S.status === s ? ' selected' : '') + '>' + escS(s) + '</option>';
+        }).join('') +
+        '<option value=""' + (S.status === '' ? ' selected' : '') + '>all statuses</option></select>' +
+      '<select class="rp-inp" id="rpSource"><option value="">all sources</option>' +
+        Object.keys(sources).sort().map(function (s) {
+          return '<option value="' + escS(s) + '"' + (S.source === s ? ' selected' : '') + '>' + escS(s) + '</option>';
+        }).join('') + '</select>' +
+      '<label class="sv-chk' + (S.withReports ? ' on' : '') + '" id="rpWithReports">With reports</label>' +
+      '<span class="rp-count">' + rows.length + ' of ' + all.length + '</span>' +
+      '<span class="rp-spacer"></span>' +
+      '<span class="rp-lbl">Density</span>' +
+      '<button class="rp-btn' + (S.density === 'comfortable' ? ' on' : '') + '" data-density="comfortable">Comfortable</button>' +
+      '<button class="rp-btn' + (S.density === 'compact' ? ' on' : '') + '" data-density="compact">Compact</button>' +
       '<button class="rp-btn" id="rpExport">Export CSV</button>' +
       '</div>');
 
-    h.push('<div id="rpTblHost"><div class="rp-scroll"><table class="rp-tbl"><thead><tr>' +
+    h.push('<div id="rpTblHost"><div class="rp-scroll"><table class="rp-tbl rp-frozen"><thead><tr>' +
       '<th>Property</th><th class="r">Units</th><th class="r">Occupancy</th>' +
       '<th class="r">Total income</th><th class="r">Total expenses</th>' +
       '<th class="r">NOI, trailing 12 mo</th><th class="r">Optimized NOI</th>' +
       '<th class="r">Expense ratio</th><th class="r">Net income</th>' +
-      '<th class="r">DSCR, mortgage</th><th class="r">DSCR, all debt</th>' +
+      '<th class="r">DSCR, mortgage</th>' + (showAll ? '<th class="r">DSCR, all debt</th>' : '') +
       '<th>PM company</th><th>In Dropbox</th></tr></thead><tbody>');
 
     rows.forEach(function (r) {
       var c = colourClass(r);
-      /* The name is an <a>, not a bold <td>. The whole row has been clickable
-         since this shipped, but nothing on screen said so - no colour, no
-         underline, no cursor - so the eleven property tabs behind it were
-         effectively undiscoverable. An affordance is not decoration here; it
-         is the only route to Monthly financials, Optimized NOI and DSCR.
-
-         href is a real deep link so the row can be opened in a new tab and
-         pasted to someone; the handler preventDefault()s the plain click. */
       h.push('<tr class="rp-row" data-prop="' + escS(r.id) + '">' +
-        '<td><a class="rp-link" href="#brand=leavenwealth&view=properties&property=' + escS(r.id) + '">' +
-        escS(r.name) + '</a>' + (r.source_system ? '<span class="rp-src">' + escS(r.source_system) + '</span>' : '') + '</td>' +
+        '<td><a class="rp-link" href="#brand=leavenwealth&view=properties&lvl=property&prop=' + escS(r.id) + '">' +
+          escS(r.name) + '</a>' +
+          (r.source_system ? '<span class="rp-src">' + escS(label(r.source_system)) + '</span>' : '') + '</td>' +
         '<td class="r">' + intf(r.units) + unitsNote(r) + '</td>' +
         '<td class="r ' + c.occ + '">' + pct(r.latest_occupancy) + '</td>' +
         '<td class="r">' + money$(r.t12_income, { whole: true }) + '</td>' +
@@ -335,125 +454,167 @@
         '<td class="r ' + c.noi + '">' + money$(r.t12_noi, { whole: true }) + '</td>' +
         '<td class="r">' + money$(r.optimized_noi, { whole: true }) + '</td>' +
         '<td class="r ' + c.exp + '">' + pct(r.expense_ratio) + '</td>' +
-        '<td class="r ' + c.net + '">' + money$(r.t12_net_income, { whole: true }) + '</td>' +
+        /* B4: net income is NOT coloured in tables, only on its own tab */
+        '<td class="r">' + money$(r.t12_net_income, { whole: true }) + '</td>' +
         '<td class="r ' + c.dscr + '">' + ratio(dscrM(r)) +
           (r.debt_service_interest_only ? ' ' + TAG_INTEREST_ONLY() : '') + '</td>' +
-        '<td class="r ' + cls(r.trailing_dscr_all_debt) + '">' + ratio(r.trailing_dscr_all_debt) + '</td>' +
+        (showAll ? '<td class="r ' + cls(r.trailing_dscr_all_debt) + '">' + ratio(r.trailing_dscr_all_debt) + '</td>' : '') +
         '<td>' + escS(r.pm_company || DASH) + '</td>' +
-        '<td class="rp-dim">' + dropboxCell(r) + '</td></tr>');
+        '<td>' + dropboxCell(r) + '</td></tr>');
     });
 
-    var t = data.totals || {};
+    var t = totalsOf(rows);
     h.push('</tbody><tfoot><tr>' +
-      '<td><b>Total</b> <span class="rp-dim">' + (t.properties || 0) + ' held</span></td>' +
-      '<td class="r">' + intf(t.units) + '</td><td class="r">' + DASH + '</td>' +
+      '<td><b>Total</b> <span class="rp-dim">' + rows.length + '</span></td>' +
+      '<td class="r">' + intf(t.units) + '</td><td class="r">' + pct(t.occupancy) + '</td>' +
       '<td class="r">' + money$(t.t12_income, { whole: true }) + '</td>' +
       '<td class="r">' + money$(t.t12_expense, { whole: true }) + '</td>' +
       '<td class="r' + neg(t.t12_noi) + '">' + money$(t.t12_noi, { whole: true }) + '</td>' +
       '<td class="r">' + money$(t.optimized_noi, { whole: true }) + '</td>' +
       '<td class="r">' + pct(t.expense_ratio) + '</td>' +
-      '<td class="r' + neg(t.t12_net_income) + '">' + money$(t.t12_net_income, { whole: true }) + '</td>' +
-      '<td class="r">' + ratio(t.dscr) + '</td><td class="r">' + DASH + '</td>' +
+      '<td class="r">' + money$(t.t12_net_income, { whole: true }) + '</td>' +
+      '<td class="r">' + ratio(t.dscr) + '</td>' +
+      (showAll ? '<td class="r">' + ratio(t.dscr_all) + '</td>' : '') +
       '<td></td><td></td></tr></tfoot></table></div></div>');
-
     return h.join('');
   }
 
-  /* ---- company / entity: the Asset management fees tab --------------------- */
+  /* Totals over what is ON SCREEN, which is what the export writes too - a
+     total that does not match the rows above it is worse than no total. */
+  function totalsOf(rows) {
+    var sum = function (k) {
+      var v = rows.map(function (r) { return r[k]; }).filter(isNum).map(Number);
+      return v.length ? v.reduce(function (a, b) { return a + b; }, 0) : null;
+    };
+    var units = sum('units'), inc = sum('t12_income'), exp = sum('t12_expense');
+    var ds = sum('t12_debt_service'), oi = sum('t12_other_interest') || 0;
+    var noi = sum('t12_noi');
+    /* occupancy is weighted by units, not averaged: a 12-unit property and a
+       235-unit property do not count the same */
+    var occN = 0, occD = 0;
+    rows.forEach(function (r) {
+      if (isNum(r.latest_occupancy) && isNum(r.units)) { occN += Number(r.latest_occupancy) * Number(r.units); occD += Number(r.units); }
+    });
+    return {
+      units: units, t12_income: inc, t12_expense: exp, t12_noi: noi,
+      optimized_noi: sum('optimized_noi'), t12_net_income: sum('t12_net_income'),
+      expense_ratio: inc > 0 ? exp / inc : null,
+      occupancy: occD > 0 ? occN / occD : null,
+      dscr: ds > 0 ? noi / ds : null,
+      dscr_all: (ds || 0) + oi > 0 ? noi / ((ds || 0) + oi) : null,
+      t12_debt_service: ds, t12_other_interest: oi,
+    };
+  }
+
+  /* ---- F: the fee tracker -------------------------------------------------- */
+  /* F4. A variance under a dollar is a rounding difference, not a miss, and
+     rendering it as "(0.01)" in red asks somebody to chase a penny. Under
+     $1.00 reads 0.00 in neutral grey, and the fills are tints rather than
+     blocks so a month of them does not drown the figures. */
+  function varianceCell(v) {
+    if (!isNum(v)) return '<td class="r">' + DASH + '</td>';
+    var n = Number(v);
+    if (Math.abs(n) < 1) return '<td class="r rp-vzero">0.00</td>';
+    return '<td class="r ' + (n < 0 ? 'rp-vneg' : 'rp-vpos') + '">' + money(n) + '</td>';
+  }
+
   function feesTab(fees) {
     var h = [];
     h.push('<div class="rp-bar">' +
-      '<label class="rp-lbl">Year</label>' +
-      '<select class="rp-inp" id="rpFeeYear">' +
+      '<span class="rp-lbl">Year</span>' +
+      '<select class="rp-inp" id="rpYear">' +
       [S.year - 2, S.year - 1, S.year, S.year + 1].map(function (y) {
         return '<option value="' + y + '"' + (y === S.year ? ' selected' : '') + '>' + y + '</option>';
       }).join('') + '</select>' +
-      '<span class="rp-dim">Received is display-only in this release.</span>' +
+      '<span class="rp-dim">Received is display-only in this release. ' +
+      '<i>Italic</i> figures come from the property’s own books rather than a recorded receipt.</span>' +
+      '<span class="rp-spacer"></span>' +
       '<button class="rp-btn" id="rpFeeExport">Export CSV</button></div>');
 
     if (!fees.groups || !fees.groups.length) {
-      h.push('<div class="rp-empty">No fee schedule for ' + S.year + '.</div>');
+      h.push('<div class="rp-empty">' +
+        (S.level === 'entity'
+          ? 'No asset management fees set up for this entity.'
+          : 'No fee schedule for ' + S.year + '.') + '</div>');
       return h.join('');
     }
 
-    h.push('<div class="rp-scroll"><table class="rp-tbl rp-fees"><thead><tr>' +
+    h.push('<div class="rp-scroll"><table class="rp-tbl rp-fees rp-frozen"><thead><tr>' +
       '<th>Fee row</th><th></th>' +
       MONTHS.map(function (m) { return '<th class="r">' + m + '</th>'; }).join('') +
-      '<th class="r">Total</th></tr></thead>');
+      '<th class="r rp-total-col">Total</th></tr></thead>');
 
     var gt = { expected: {}, received: {}, variance: {} };
 
     fees.groups.forEach(function (g) {
+      var open = !S.collapsed[g.manager_group];
       h.push('<tbody class="rp-grp"><tr class="rp-grph"><td colspan="15">' +
+        '<button class="rp-collapse' + (open ? ' open' : '') + '" data-fgroup="' + escS(g.manager_group) + '"' +
+        ' aria-expanded="' + (open ? 'true' : 'false') + '"' +
+        ' aria-label="' + (open ? 'Collapse ' : 'Expand ') + escS(g.manager_group) + '">' +
+        icon('chev') + '</button>' +
         '<b>' + escS(g.manager_group) + '</b>' +
         '<span class="rp-chip">' + (g.payment_timing === 'same_month' ? 'same month' : 'following month') + '</span>' +
         (g.timing_confirmed ? '' : '<span class="rp-chip rp-chip-warn">timing not confirmed</span>') +
+        '<span class="rp-dim"> ' + g.rows.length + ' fee row' + (g.rows.length === 1 ? '' : 's') + '</span>' +
         '</td></tr>');
 
       g.rows.forEach(function (r) {
-        var fee = r.fee_type === 'fixed' ? money$(r.fixed_amount) + ' fixed' : (isNum(r.fee_pct) ? r.fee_pct + '%' : DASH);
+        /* totals accumulate whether or not the group is open - collapsing a
+           group hides rows, it does not remove them from the portfolio */
+        var te = 0, tr = 0, tv = 0, he = false, hr = false, hv = false;
+        var ec = [], rc = [], vc = [];
+        for (var m = 1; m <= 12; m++) {
+          var ev = r.expected[m], rv = r.received[m], vv = r.variance[m];
+          if (isNum(ev)) { te += Number(ev); he = true; gt.expected[m] = (gt.expected[m] || 0) + Number(ev); }
+          if (isNum(rv)) { tr += Number(rv); hr = true; gt.received[m] = (gt.received[m] || 0) + Number(rv); }
+          if (isNum(vv)) { tv += Number(vv); hv = true; gt.variance[m] = (gt.variance[m] || 0) + Number(vv); }
+          ec.push('<td class="r">' + money(ev) + '</td>');
+          rc.push('<td class="r' + (r.received_source[m] === 'books' ? ' rp-books' : '') + '"' +
+            (r.received_source[m] ? ' title="from ' + escS(r.received_source[m]) + '"' : '') + '>' + money(rv) + '</td>');
+          vc.push(varianceCell(vv));
+        }
+        if (!open) return;
+
+        var fee = r.fee_type === 'fixed' ? money$(r.fixed_amount) + ' fixed' : (isNum(r.fee_pct) ? r.fee_pct + '% of gross' : DASH);
         var names = (r.properties || []).map(function (p) { return p.property_name; }).join(', ');
         h.push('<tr class="rp-feehead"><td rowspan="3"><b>' + escS(r.label) + '</b>' +
-          '<div class="rp-dim">' + escS(fee) + (names ? ' · ' + escS(names) : '') + '</div>' +
-          (r.fee_note ? '<div class="rp-note">' + escS(r.fee_note) + '</div>' : '') +
-          '</td><td class="rp-rl">Expected</td>');
-        var te = 0, tr = 0, tv = 0, he = false, hr = false, hv = false;
-        for (var m = 1; m <= 12; m++) {
-          var v = r.expected[m];
-          if (isNum(v)) { te += Number(v); he = true; gt.expected[m] = (gt.expected[m] || 0) + Number(v); }
-          h.push('<td class="r">' + money(v) + '</td>');
-        }
-        h.push('<td class="r"><b>' + (he ? money(te) : DASH) + '</b></td></tr>');
-
-        h.push('<tr><td class="rp-rl">Received</td>');
-        for (var m2 = 1; m2 <= 12; m2++) {
-          var rv = r.received[m2];
-          if (isNum(rv)) { tr += Number(rv); hr = true; gt.received[m2] = (gt.received[m2] || 0) + Number(rv); }
-          var src = r.received_source[m2];
-          h.push('<td class="r' + (src === 'books' ? ' rp-books' : '') + '"' +
-                 (src ? ' title="from ' + escS(src) + '"' : '') + '>' + money(rv) + '</td>');
-        }
-        h.push('<td class="r"><b>' + (hr ? money(tr) : DASH) + '</b></td></tr>');
-
-        h.push('<tr class="rp-varrow"><td class="rp-rl">Variance</td>');
-        for (var m3 = 1; m3 <= 12; m3++) {
-          var vv = r.variance[m3];
-          if (isNum(vv)) { tv += Number(vv); hv = true; gt.variance[m3] = (gt.variance[m3] || 0) + Number(vv); }
-          var cls = !isNum(vv) ? '' : Number(vv) < 0 ? ' rp-vneg' : Number(vv) > 0 ? ' rp-vpos' : ' rp-vzero';
-          h.push('<td class="r' + cls + '">' + money(vv) + '</td>');
-        }
-        h.push('<td class="r"><b>' + (hv ? money(tv) : DASH) + '</b></td></tr>');
+          '<div class="rp-dim rp-sub">' + escS(fee) + (names ? ' · ' + escS(names) : '') + '</div>' +
+          (r.fee_note ? '<div class="rp-note rp-sub">' + escS(r.fee_note) + '</div>' : '') +
+          '</td><td class="rp-rl">Expected</td>' + ec.join('') +
+          '<td class="r rp-total-col"><b>' + (he ? money(te) : DASH) + '</b></td></tr>');
+        h.push('<tr><td class="rp-rl">Received</td>' + rc.join('') +
+          '<td class="r rp-total-col"><b>' + (hr ? money(tr) : DASH) + '</b></td></tr>');
+        h.push('<tr class="rp-varrow"><td class="rp-rl">Variance</td>' + vc.join('') +
+          '<td class="r rp-total-col"><b>' + (hv ? money(tv) : DASH) + '</b></td></tr>');
       });
       h.push('</tbody>');
     });
 
-    function totalRow(label, map, cls) {
+    function totalRow(label, map, isVar) {
       var t = 0, has = false, cells = [];
       for (var m = 1; m <= 12; m++) {
         var v = map[m];
         if (isNum(v)) { t += Number(v); has = true; }
-        var c = cls === 'var' && isNum(v) ? (Number(v) < 0 ? ' rp-vneg' : Number(v) > 0 ? ' rp-vpos' : ' rp-vzero') : '';
-        cells.push('<td class="r' + c + '">' + money(v) + '</td>');
+        cells.push(isVar ? varianceCell(v) : '<td class="r">' + money(v) + '</td>');
       }
       return '<tr><td class="rp-rl">' + label + '</td>' + cells.join('') +
-             '<td class="r"><b>' + (has ? money(t) : DASH) + '</b></td></tr>';
+             '<td class="r rp-total-col"><b>' + (has ? money(t) : DASH) + '</b></td></tr>';
     }
     h.push('<tfoot><tr class="rp-grph"><td colspan="15"><b>All properties</b></td></tr>' +
       '<tr><td rowspan="3"></td>' + totalRow('Expected', gt.expected).slice(4) +
-      totalRow('Received', gt.received) + totalRow('Variance', gt.variance, 'var') + '</tfoot>');
+      totalRow('Received', gt.received) + totalRow('Variance', gt.variance, true) + '</tfoot>');
     h.push('</table></div>');
     return h.join('');
   }
 
   /* ---- the property page --------------------------------------------------- */
-  var PTABS = [
-    ['monthly', 'Monthly financials'], ['is', 'Income & expenses'],
-    ['noi', 'Optimized NOI'], ['dscr', 'DSCR'], ['fee', 'Asset management fee'],
-    ['totals', 'Totals'], ['rent', 'Rent roll'], ['bldg', 'Buildings & units'],
-    ['capex', 'Capex'], ['val', 'Valuation'], ['details', 'Details'],
-  ];
 
-  /* 2.4 Monthly financials, the Excel sheet */
+  /* D2. Row order is the Excel sheet's, not an invention, so the two can be
+     read side by side. The flag on each row says whether it is conditional:
+     a row that is "only if any" is hidden entirely when the property has
+     none, because a permanently blank row teaches the reader to skip that
+     part of the table. */
   var MROWS = [
     ['# of Units', 'units', intf, 0],
     ['Rent Income', 'rent_income', money, 0],
@@ -474,11 +635,11 @@
     ['Physical Occupancy', 'physical_occupancy', pct, 1],
     ['Economic Occupancy', 'economic_occupancy', pct, 1],
     ['Debt Service, mortgage', 'debt_service', money, 0],
-    ['Other Interest (counted as debt)', 'recurring_other_interest', money, 0],
-    ['Debt Service, all debt', 'debt_service_all', money, 1],
-    ['Loan Proceeds', 'loan_proceeds', money, 0],
+    ['Other interest counted as debt', 'recurring_other_interest', money, 0, 'otherDebt'],
+    ['Debt Service, all debt', 'debt_service_all', money, 1, 'otherDebt'],
+    ['Loan Proceeds', 'loan_proceeds', money, 0, 'proceeds'],
     ['DSCR, mortgage', 'dscr', ratio, 1],
-    ['DSCR, all debt', 'dscr_all_debt', ratio, 1],
+    ['DSCR, all debt', 'dscr_all_debt', ratio, 1, 'otherDebt'],
     ['Loss to Lease', 'loss_to_lease', money, 0],
   ];
 
@@ -497,76 +658,85 @@
   }
 
   function monthlyTab(d) {
-    var h = [];
-    h.push('<div class="rp-bar"><label class="rp-lbl">Year</label>' +
-      '<select class="rp-inp" id="rpYear">' +
-      (d.years && d.years.length ? d.years : [S.year]).map(function (y) {
-        return '<option value="' + y + '"' + (y === d.year ? ' selected' : '') + '>' + y + '</option>';
-      }).join('') + '</select></div>');
+    var from = Math.min(S.fromMonth, S.toMonth), to = Math.max(S.fromMonth, S.toMonth);
+    var months = [];
+    for (var m = from; m <= to; m++) months.push(m);
 
+    var anyOther = months.some(function (mm) {
+      var r = d.byMonth[d.year + '-' + String(mm).padStart(2, '0')];
+      return r && isNum(r.recurring_other_interest) && Number(r.recurring_other_interest) !== 0;
+    });
+    var anyProceeds = months.some(function (mm) {
+      var r = d.byMonth[d.year + '-' + String(mm).padStart(2, '0')];
+      return r && isNum(r.loan_proceeds);
+    });
+
+    var h = [];
     var dsNote = d.debtServiceSource === 'income_statement'
       ? 'Debt service is this property’s own interest plus principal from its books.'
       : d.debtServiceSource === 'loan_record'
       ? 'This property’s books carry no principal line, so debt service is the loan record’s annual figure divided by 12.'
       : d.debtServiceSource === 'interest_only_books'
-      /* Doral: interest every month, no principal line and no loan record.
-         Interest alone UNDERSTATES the real payment, so the screen says so
-         rather than presenting the figure as complete. */
-      ? '<b>Interest only, from the books.</b> This property books interest but no principal, and has no loan record, ' +
-        'so debt service here is the interest alone and is lower than the real payment. DSCR is correspondingly optimistic.'
+      ? '<b>Interest only, from the books.</b> This property books interest but no principal and has no loan record, so debt service here is the interest alone and is lower than the real payment. Coverage below is correspondingly optimistic.'
       : 'No debt service could be established for this property.';
 
-    h.push('<p class="rp-note rp-src-note">Source: T12 export, <b>' + escS(d.basis) + '</b> basis. ' +
-      dsNote +
+    h.push('<p class="rp-note rp-src-note">Source: T12 export, <b>' + escS(d.basis) + '</b> basis. ' + dsNote +
       ' Cash flow is NOI less the asset management fee, debt service and capital expense. ' +
-      'Loan proceeds are money arriving, not a cost, and are shown separately rather than netted against anything. ' +
       'A month with no export shows ' + DASH + ', which means not available rather than zero.</p>');
 
-    /* the proceeds label, when there is one - 4,326,000.00 with no line name
-       beside it invites the question the note answers */
-    var notes = [];
-    for (var pm = 1; pm <= 12; pm++) {
-      var rec0 = d.byMonth[d.year + '-' + String(pm).padStart(2, '0')];
-      if (rec0 && rec0.loan_proceeds_note) notes.push(MONTHS[pm - 1] + ': ' + rec0.loan_proceeds_note);
-    }
-    if (notes.length) h.push('<p class="rp-note">Loan proceeds lines — ' + escS(notes.join(' · ')) + '</p>');
-
-    var oi = [];
-    for (var om = 1; om <= 12; om++) {
-      var rec1 = d.byMonth[d.year + '-' + String(om).padStart(2, '0')];
-      if (rec1 && isNum(rec1.other_interest)) oi.push(Number(rec1.other_interest));
-    }
-    if (oi.length) {
-      h.push('<p class="rp-note">This property also books <b>' +
-        money$(oi.reduce(function (a, b) { return a + b; }, 0)) + '</b> of other interest in ' + d.year +
-        ', which is <b>not</b> included in debt service — it sits alongside a mortgage interest line, so it is other debt.</p>');
+    if (anyProceeds) {
+      var notes = [];
+      months.forEach(function (mm) {
+        var r = d.byMonth[d.year + '-' + String(mm).padStart(2, '0')];
+        if (r && r.loan_proceeds_note) notes.push(MONTHS[mm - 1] + ': ' + r.loan_proceeds_note);
+      });
+      if (notes.length) h.push('<p class="rp-note">Loan proceeds are money arriving, not a cost, and are never netted against anything. ' + escS(notes.join(' · ')) + '</p>');
     }
 
-    h.push('<div class="rp-scroll"><table class="rp-tbl rp-monthly"><thead><tr><th>Line</th>' +
-      MONTHS.map(function (m) { return '<th class="r">' + m + '</th>'; }).join('') +
-      '<th class="r">Average</th><th class="r">Total</th></tr></thead><tbody>');
-
+    /* build every row first, so a row that is entirely unavailable can be
+       counted before deciding whether to show the toggle at all */
+    var built = [];
     MROWS.forEach(function (row) {
-      var label = row[0], key = row[1], fmt = row[2], bold = row[3];
+      var label = row[0], key = row[1], fmt = row[2], bold = row[3], cond = row[4];
+      if (cond === 'otherDebt' && !anyOther) return;
+      if (cond === 'proceeds' && !anyProceeds) return;
+
       var vals = [], cells = [];
-      for (var m = 1; m <= 12; m++) {
-        var k = d.year + '-' + String(m).padStart(2, '0');
-        var rec = d.byMonth[k];
+      months.forEach(function (mm) {
+        var rec = d.byMonth[d.year + '-' + String(mm).padStart(2, '0')];
         var v = rec ? derived(rec, key) : null;
         if (isNum(v)) vals.push(Number(v));
-        var cls = (fmt === money && isNum(v) && Number(v) < 0) ? ' rp-neg'
-                : (key === 'noi' && isNum(v)) ? (Number(v) < 0 ? ' rp-neg' : ' rp-pos') : '';
-        cells.push('<td class="r' + cls + '">' + fmt(v) + '</td>');
-      }
+        var c = '';
+        if (key === 'noi' || key === 'cash_flow') c = isNum(v) ? (Number(v) < 0 ? ' rp-neg' : ' rp-pos') : '';
+        else if (key === 'dscr' || key === 'dscr_all_debt') c = ' ' + cls(v);
+        else if (fmt === money && isNum(v) && Number(v) < 0) c = ' rp-neg';
+        cells.push('<td class="r' + c + '">' + fmt(v) + '</td>');
+      });
+
       var sum = vals.length ? vals.reduce(function (a, b) { return a + b; }, 0) : null;
       var avg = vals.length ? sum / vals.length : null;
-      /* a ratio and an occupancy do not SUM; their total column is the
-         average, and the units row is the latest rather than either. */
       var isRate = fmt === pct || fmt === ratio;
       var totalV = isRate ? avg : (key === 'units' ? (vals.length ? vals[vals.length - 1] : null) : sum);
       cells.push('<td class="r">' + fmt(avg) + '</td>');
-      cells.push('<td class="r"><b>' + fmt(totalV) + '</b></td>');
-      h.push('<tr class="' + (bold ? 'rp-strong' : '') + '"><td>' + escS(label) + '</td>' + cells.join('') + '</tr>');
+      cells.push('<td class="r rp-total-col"><b>' + fmt(totalV) + '</b></td>');
+      built.push({ label: label, bold: bold, empty: vals.length === 0, html: cells.join('') });
+    });
+
+    var hidden = built.filter(function (b) { return b.empty; }).length;
+    if (hidden) {
+      h.push('<div class="rp-bar"><label class="sv-chk' + (S.showUnavailable ? ' on' : '') +
+        '" id="rpShowUnavailable">Show unavailable rows</label>' +
+        '<span class="rp-dim">' + hidden + ' row' + (hidden === 1 ? '' : 's') +
+        ' have no data for this period</span></div>');
+    }
+
+    h.push('<div class="rp-scroll"><table class="rp-tbl rp-monthly rp-frozen"><thead><tr><th>Line</th>' +
+      months.map(function (mm) { return '<th class="r">' + MONTHS[mm - 1] + '</th>'; }).join('') +
+      '<th class="r">Average</th><th class="r rp-total-col">Total</th></tr></thead><tbody>');
+    built.forEach(function (b) {
+      if (b.empty && !S.showUnavailable) return;
+      h.push('<tr class="' + (b.bold ? 'rp-strong' : '') + (b.empty ? ' rp-rowempty' : '') + '">' +
+        '<td>' + escS(b.label) + '</td>' + b.html + '</tr>');
     });
     h.push('</tbody></table></div>');
     return h.join('');
@@ -648,7 +818,8 @@
 
     h.push('<h4 class="rp-h4">What it earns at its best</h4>');
     h.push('<table class="rp-tbl"><thead><tr><th></th><th class="r">Months</th>' +
-      '<th class="r">Annual NOI</th><th class="r">Value at ' + cap.toFixed(1) + '% cap</th>' +
+      '<th class="r">Annual NOI</th><th class="r">Value at ' + cap.toFixed(1) + '% cap rate ' +
+        tag('estimate', 'Derived from NOI at the cap rate above, not an observed value.') + '</th>' +
       '<th class="r">vs. trailing 12</th></tr></thead><tbody>');
     scenarios.forEach(function (s) {
       var annual = s[2];
@@ -701,7 +872,7 @@
         'so the two can be compared rather than one replacing the other.</p>');
     }
     if (adsFromBooks) {
-      h.push('<p class="rp-note">Debt service here is this property’s own, from its income statement — ' +
+      h.push('<p class="rp-note">Debt service here is this property’s own, from its income statement. ' +
         '<b>' + money$(ads) + '</b> over ' + f.books_months + ' months. ' +
         'Its loan record states no annual figure, which is a gap in the loan record rather than an absence of debt.</p>');
     }
@@ -983,122 +1154,379 @@
     return h.join('');
   }
 
-  function shell(body, tabs) {
-    return '<div class="rp-wrap2"><aside class="rp-side">' + menuHtml() + '</aside>' +
-      '<section class="rp-main">' + crumbHtml() +
-      (tabs || '') +
-      '<div class="rp-body">' + body + '</div></section></div>';
+  /* ---- A1: the Entities table ---------------------------------------------
+     One row per MANAGING entity. The old screen drilled through 130 legal
+     entities; this drills through 17 managers, which is how the portfolio is
+     actually run.
+  -------------------------------------------------------------------------- */
+  function entitiesTab(d) {
+    var rows = d.rows || [];
+    var showAll = !!d.anyOtherDebt;
+    var h = [];
+    h.push(densityBar(rows.length + ' managing entities'));
+    h.push('<div class="rp-scroll"><table class="rp-tbl rp-frozen"><thead><tr>' +
+      '<th>Managing entity</th><th class="r">Properties</th><th class="r">Units</th>' +
+      '<th class="r">NOI, trailing 12 mo</th><th class="r">Optimized NOI</th>' +
+      '<th class="r">Net income</th><th class="r">Value</th><th class="r">Debt</th>' +
+      '<th class="r">LTV</th><th class="r">DSCR, mortgage</th>' +
+      (showAll ? '<th class="r">DSCR, all debt</th>' : '') +
+      '<th class="r">Flags</th></tr></thead><tbody>');
+
+    rows.forEach(function (r) {
+      var id = r.managing_entity_id || '';
+      var nm = r.managing_entity_name || 'No managing entity on file';
+      var sub = intf(r.properties) + ' propert' + (Number(r.properties) === 1 ? 'y' : 'ies') +
+                (r.main_city ? ', ' + r.main_city : '');
+      h.push('<tr class="rp-row" data-ent="' + escS(id) + '" data-entname="' + escS(nm) + '">' +
+        '<td><a class="rp-link" href="#brand=leavenwealth&view=properties&lvl=entity&ent=' + escS(id) + '">' +
+          escS(nm) + '</a>' + shortCode(nm) +
+          '<div class="rp-dim rp-sub">' + escS(sub) + '</div></td>' +
+        '<td class="r">' + intf(r.properties) + '</td>' +
+        '<td class="r">' + intf(r.units) + '</td>' +
+        '<td class="r' + neg(r.t12_noi) + '">' + money$(r.t12_noi, { whole: true }) + '</td>' +
+        '<td class="r">' + money$(r.optimized_noi, { whole: true }) + '</td>' +
+        '<td class="r">' + money$(r.t12_net_income, { whole: true }) + '</td>' +
+        '<td class="r">' + money$(r.value_on_file, { whole: true }) + '</td>' +
+        '<td class="r">' + money$(r.debt, { whole: true }) + '</td>' +
+        '<td class="r">' + pct(r.ltv) + '</td>' +
+        '<td class="r ' + cls(r.dscr_mortgage) + '">' + ratio(r.dscr_mortgage) + '</td>' +
+        (showAll ? '<td class="r ' + cls(r.dscr_all_debt) + '">' + ratio(r.dscr_all_debt) + '</td>' : '') +
+        '<td class="r">' + flagChip(r) + '</td></tr>');
+    });
+
+    var t = d.totals || {};
+    h.push('</tbody><tfoot><tr><td><b>Total</b></td>' +
+      '<td class="r">' + intf(t.properties) + '</td><td class="r">' + intf(t.units) + '</td>' +
+      '<td class="r' + neg(t.t12_noi) + '">' + money$(t.t12_noi, { whole: true }) + '</td>' +
+      '<td class="r">' + money$(t.optimized_noi, { whole: true }) + '</td>' +
+      '<td class="r">' + money$(t.t12_net_income, { whole: true }) + '</td>' +
+      '<td class="r">' + money$(t.value_on_file, { whole: true }) + '</td>' +
+      '<td class="r">' + money$(t.debt, { whole: true }) + '</td>' +
+      '<td class="r">' + pct(t.ltv) + '</td>' +
+      '<td class="r">' + ratio(t.dscr_mortgage) + '</td>' +
+      (showAll ? '<td class="r">' + DASH + '</td>' : '') +
+      '<td class="r">' + intf(t.flags) + '</td></tr></tfoot></table></div>');
+    return h.join('');
   }
 
-  function tabsHtml(list, active, attr) {
+  /* A short code from the entity name - "Midwest Portfolio Managers 4 LLC"
+     becomes MPM4. Derived, never stored: a code nobody maintains is one that
+     goes stale the first time an entity is renamed. */
+  function shortCode(name) {
+    var words = String(name || '').replace(/\b(LLC|L\.L\.C\.|Inc|LP|Ltd|Co)\b\.?/gi, '').trim().split(/\s+/);
+    var letters = words.filter(function (w) { return /^[A-Za-z]/.test(w); })
+      .map(function (w) { return w[0].toUpperCase(); }).join('');
+    var num = (String(name || '').match(/\b(\d+)\b/) || [])[1] || '';
+    var code = (letters.slice(0, 4) + num).trim();
+    return code && code.length > 1 ? '<span class="rp-code">' + escS(code) + '</span>' : '';
+  }
+
+  function flagChip(r) {
+    if (!r.flags) return '<span class="rp-dim">' + DASH + '</span>';
+    var bits = [];
+    if (r.flag_dscr) bits.push(r.flag_dscr + ' DSCR');
+    if (r.flag_occ) bits.push(r.flag_occ + ' occupancy');
+    if (r.flag_noi) bits.push(r.flag_noi + ' NOI');
+    if (r.flag_maturity) bits.push(r.flag_maturity + ' maturing');
+    if (r.flag_no_t12) bits.push(r.flag_no_t12 + ' no T12');
+    return '<span class="rp-flag" title="' + escS(bits.join(' · ')) + '">' + r.flags + '</span>';
+  }
+
+  /* ---- D1 Overview --------------------------------------------------------- */
+  function overviewTab(d) {
+    var p = d.property || {};
+    var h = [];
+
+    h.push('<h4 class="rp-h4">Needs attention</h4>');
+    if (!d.flags || !d.flags.length) {
+      h.push('<div class="rp-ok-box">Nothing needs attention.</div>');
+    } else {
+      h.push('<ul class="rp-flags">' + d.flags.map(function (f) {
+        return '<li class="rp-flag-' + escS(f.level) + '"><span class="rp-flag-dot"></span>' + escS(f.text) + '</li>';
+      }).join('') + '</ul>');
+    }
+
+    var groups = [
+      ['Ownership', [
+        ['Managing entity', p.managing_entity_name], ['Owner LLC', p.entity_name],
+        ['Property manager', p.pm_company], ['Ownership status', label(p.ownership_status)],
+        ['Report source', p.source_system ? label(p.source_system) : null],
+      ]],
+      ['Physical', [
+        ['Address', p.street], ['City', p.city], ['State', p.state], ['ZIP', p.zip],
+        ['Asset type', p.asset_type], ['Units', intf(p.units)],
+        ['Units source', p.units_source ? label(p.units_source) : null], ['Year built', p.year_built],
+      ]],
+      ['Acquisition and value', [
+        ['Purchase price', money$(p.purchase_price)], ['Purchase date', dateOnly(p.purchase_date)],
+        ['Value on file', money$(p.value_on_file)], ['Value as of', dateOnly(p.value_as_of)],
+        ['Debt', money$(p.debt)], ['LTV', pct(p.ltv)],
+        ['Next maturity', dateOnly(p.next_maturity)],
+      ]],
+    ];
+
+    h.push('<div class="rp-bar"><label class="sv-chk' + (S.showEmpty ? ' on' : '') +
+      '" id="rpShowEmpty">Show empty fields</label></div>');
+    h.push('<div class="rp-cols">');
+    groups.forEach(function (g) {
+      var rows = g[1].filter(function (r) {
+        return S.showEmpty || (r[1] !== null && r[1] !== undefined && r[1] !== '' && r[1] !== DASH);
+      });
+      if (!rows.length) return;
+      h.push('<div class="rp-col"><h5 class="rp-h5">' + escS(g[0]) + '</h5><table class="rp-tbl rp-kv"><tbody>' +
+        rows.map(function (r) {
+          var v = (r[1] === null || r[1] === undefined || r[1] === '') ? DASH : r[1];
+          return '<tr><td>' + escS(r[0]) + '</td><td class="r">' + escS(String(v)) + '</td></tr>';
+        }).join('') + '</tbody></table></div>');
+    });
+    h.push('</div>');
+    return h.join('');
+  }
+
+  /* ---- D11 Documents ------------------------------------------------------- */
+  function documentsTab(d) {
+    var docs = d.documents || [];
+    if (!docs.length) return '<div class="rp-empty">No documents are linked to this property.</div>';
+    var h = ['<div class="rp-scroll"><table class="rp-tbl"><thead><tr>' +
+      '<th>File</th><th>Kind</th><th class="r">Size</th><th>Added</th><th>Path</th>' +
+      '</tr></thead><tbody>'];
+    docs.forEach(function (x) {
+      var kb = isNum(x.file_size_bytes) ? (Number(x.file_size_bytes) / 1024) : null;
+      h.push('<tr><td>' + escS(x.file_name || DASH) + '</td>' +
+        '<td>' + (x.report_kind ? '<span class="rp-dbx on">' + escS(x.report_kind) + '</span>' : '<span class="rp-dim">' + DASH + '</span>') + '</td>' +
+        '<td class="r">' + (kb === null ? DASH : (kb > 1024 ? (kb / 1024).toFixed(1) + ' MB' : kb.toFixed(0) + ' KB')) + '</td>' +
+        '<td>' + dateOnly(x.created_at) + '</td>' +
+        '<td class="rp-dim rp-path">' + escS(x.storage_path || DASH) + '</td></tr>');
+    });
+    h.push('</tbody></table></div>');
+    return h.join('');
+  }
+
+  /* ---- shared chrome ------------------------------------------------------- */
+  function densityBar(countText) {
+    return '<div class="rp-bar">' +
+      (countText ? '<span class="rp-count">' + escS(countText) + '</span>' : '') +
+      '<span class="rp-spacer"></span>' +
+      '<span class="rp-lbl">Density</span>' +
+      '<button class="rp-btn' + (S.density === 'comfortable' ? ' on' : '') + '" data-density="comfortable">Comfortable</button>' +
+      '<button class="rp-btn' + (S.density === 'compact' ? ' on' : '') + '" data-density="compact">Compact</button>' +
+      '</div>';
+  }
+
+  var MONTH_NAMES = MONTHS;
+  function periodBar(years) {
+    var ys = (years && years.length) ? years : [S.year];
+    var h = ['<div class="rp-period">'];
+    h.push('<span class="rp-lbl">Year</span><select class="rp-inp" id="rpYear">' +
+      ys.map(function (y) { return '<option value="' + y + '"' + (y === S.year ? ' selected' : '') + '>' + y + '</option>'; }).join('') +
+      '</select>');
+    h.push('<span class="rp-lbl">From</span><select class="rp-inp" id="rpFrom">' +
+      MONTH_NAMES.map(function (m, i) {
+        return '<option value="' + (i + 1) + '"' + (i + 1 === S.fromMonth ? ' selected' : '') + '>' + m + '</option>';
+      }).join('') + '</select>');
+    h.push('<span class="rp-lbl">To</span><select class="rp-inp" id="rpTo">' +
+      MONTH_NAMES.map(function (m, i) {
+        return '<option value="' + (i + 1) + '"' + (i + 1 === S.toMonth ? ' selected' : '') + '>' + m + '</option>';
+      }).join('') + '</select>');
+    h.push('</div>');
+    return h.join('');
+  }
+
+  function shell(body, head) {
+    /* No sidebar. The entity tree listed 106 legal entities as navigation,
+       which is a directory rather than a route, and it took a third of the
+       width from the tables that are the actual content. */
+    return '<div class="rp-full rp-' + S.density + '">' + crumbHtml() + (head || '') +
+      '<div class="rp-body">' + body + '</div></div>';
+  }
+
+  function tabsHtml(list, active, attr, trailing) {
     return '<nav class="rp-tabs">' + list.map(function (t) {
       return '<button class="rp-tab' + (t[0] === active ? ' on' : '') + '" data-' + attr + '="' + escS(t[0]) + '">' +
         escS(t[1]) + '</button>';
-    }).join('') + '</nav>';
+    }).join('') + (trailing || '') + '</nav>';
   }
 
+  var PORTFOLIO_TABS = [
+    ['entities', 'Entities'], ['properties', 'Properties'],
+    ['fees', 'Asset management fees'], ['views', 'Views'],
+  ];
+  var ENTITY_TABS = [['properties', 'Properties'], ['fees', 'Asset management fees']];
+
+  var PTABS = [
+    ['overview', 'Overview'], ['monthly', 'Monthly financials'], ['is', 'Income & expenses'],
+    ['noi', 'Optimized NOI'], ['dscr', 'DSCR'], ['fee', 'Asset management fee'],
+    ['rent', 'Rent roll'], ['bldg', 'Buildings & units'], ['capex', 'Capex'],
+    ['val', 'Valuation'], ['docs', 'Documents'],
+  ];
+
+  /* key-figure row (A3), each with its source underneath */
+  function keyFigures(p) {
+    var dscr = isNum(p.trailing_dscr_mortgage) ? p.trailing_dscr_mortgage : p.trailing_dscr;
+    var items = [
+      ['Units', intf(p.units), p.units_source === 'rent_roll'
+        ? 'Rent roll, ' + dateOnly(p.units_rent_roll_as_of)
+        : (p.units_source ? label(p.units_source) + (p.units_disagree ? ', rent roll ' + intf(p.units_rent_roll) : '') : null)],
+      ['Occupancy', pct(p.latest_occupancy), p.occupancy_as_of ? 'Rent roll, ' + dateOnly(p.occupancy_as_of) : null],
+      ['NOI, trailing 12 mo', money$(p.t12_noi, { whole: true }), p.source_system ? label(p.source_system) + ' books' : null],
+      ['Optimized NOI', money$(p.optimized_noi, { whole: true }), 'best 6 consecutive months × 2'],
+      ['Net income', money$(p.t12_net_income, { whole: true }), 'after fee, debt service and capex'],
+      ['Market value', money$(p.value_on_file, { whole: true }),
+        p.value_on_file == null ? 'Not on file'
+          : (p.value_as_of ? 'On file, ' + dateOnly(p.value_as_of) : 'On file, undated') +
+            (p.value_is_stale ? ' (stale)' : '')],
+      ['Debt', money$(p.debt, { whole: true }), null],
+      ['LTV', pct(p.ltv), p.ltv_basis === 'on_file' ? 'against the value on file' : 'no value on file'],
+      ['DSCR, mortgage', ratio(dscr), p.debt_service_interest_only ? 'Interest only, likely overstated' : 'Trailing 12 months'],
+    ];
+    return '<div class="rp-keys">' + items.map(function (i) {
+      return '<div class="rp-key"><div class="k">' + escS(i[0]) + '</div>' +
+        '<div class="v' + (i[0].indexOf('DSCR') === 0 ? ' ' + cls(dscr) : '') + '">' + i[1] + '</div>' +
+        '<div class="s">' + (i[2] ? escS(i[2]) : '&nbsp;') + '</div></div>';
+    }).join('') + '</div>';
+  }
+
+  function propertyHead(p) {
+    var tags = [];
+    if (p.ownership_status) tags.push('<span class="rp-tagline">' + escS(label(p.ownership_status)) + '</span>');
+    if (p.asset_type) tags.push('<span class="rp-tagline">' + escS(p.asset_type) + '</span>');
+    if (p.source_system) tags.push('<span class="rp-src">' + escS(label(p.source_system)) + '</span>');
+    /* Labelled fields rather than one line strung together with middle dots:
+       four facts separated by dots read as a run-on, and the reader has to
+       work out which name is the manager and which the owner. */
+    var line = [p.street, p.city, p.state, p.zip].filter(Boolean).join(', ');
+    var meta = [
+      ['Address', line || null],
+      ['Managing entity', p.managing_entity_name || 'None on file'],
+      ['Owner LLC', p.entity_name || null],
+      ['Property manager', p.pm_company || 'None on file'],
+    ];
+    return '<header class="rp-phead"><h2>' + escS(p.name || '') + ' ' + tags.join(' ') + '</h2>' +
+      '<dl class="rp-meta">' + meta.map(function (m) {
+        return '<div><dt>' + escS(m[0]) + '</dt><dd>' + escS(m[1] || DASH) + '</dd></div>';
+      }).join('') + '</dl></header>' +
+      keyFigures(p);
+  }
+
+  /* ---- paint --------------------------------------------------------------- */
   function paint() {
     if (!S.host) return;
-    if (S.error) {
-      S.host.innerHTML = shell('<div class="rp-err">' + escS(S.error) + '</div>', '');
-      wire();
-      return;
-    }
-    if (S.busy && !S.cache.current) {
-      /* A skeleton, not a blank page and not the word "Loading". The shape of
-         what is coming is itself information: the reader knows a table is
-         arriving and roughly how wide, so the wait reads as a wait rather
-         than as an empty screen. */
-      S.host.innerHTML = shell(skeleton(), '');
-      wire();
-      return;
-    }
+    if (S.error) { S.host.innerHTML = shell('<div class="rp-err">' + escS(S.error) + '</div>'); wire(); return; }
 
-    var body = '', tabs = '';
-    if (S.scope === 'property') {
+    var body = '', head = '';
+
+    if (S.level === 'property') {
       var d = S.cache.prop || {};
-      var prop = d.summary || {};
-      tabs = '<header class="rp-phead"><h2>' + escS(prop.name || '') + '</h2>' +
-        '<div class="rp-dim">' + escS(prop.entity_name || DASH) + ' · ' +
-        escS(prop.source_system || DASH) + ' · ' + escS(prop.pm_company || DASH) + '</div></header>' +
-        tabsHtml(PTABS, S.ptab, 'ptab');
+      var p = (d.overview && d.overview.property) || d.summary || {};
+      var needsPeriod = ['monthly', 'is', 'capex', 'fee'].indexOf(S.ptab) >= 0;
+      head = propertyHead(p) +
+        tabsHtml(PTABS, S.ptab, 'ptab', needsPeriod ? periodBar(d.years) : '');
       switch (S.ptab) {
-        case 'monthly': body = d.monthly ? monthlyTab(d.monthly) : skeleton(8, 6); break;
-        case 'is':      body = d.is ? isTab(d.is) : skeleton(8, 6); break;
-        case 'noi':     body = d.noi ? noiTab(d.noi) : skeleton(8, 6); break;
-        case 'dscr':    body = d.noi ? dscrTab(d.noi) : skeleton(8, 6); break;
-        case 'fee':     body = d.fees ? feePropTab(d.fees, S.propertyId) : skeleton(8, 6); break;
-        case 'totals':  body = totalsTab(d, prop); break;
-        case 'rent':    body = rentTab(d); break;
-        case 'bldg':    body = bldgTab(d.raw); break;
-        case 'capex':   body = d.is ? capexTab(d.is) : skeleton(8, 6); break;
-        case 'val':     body = valTab(prop); break;
-        case 'details': body = detailsTab(prop, d.raw); break;
+        case 'overview': body = d.overview ? overviewTab(d.overview) : skeleton(6, 3); break;
+        case 'monthly':  body = d.monthly ? monthlyTab(d.monthly) : skeleton(12, 8); break;
+        case 'is':       body = d.is ? isTab(d.is) : skeleton(12, 8); break;
+        case 'noi':      body = d.noi ? noiTab(d.noi) : skeleton(10, 4); break;
+        case 'dscr':     body = d.noi ? dscrTab(d.noi) : skeleton(10, 5); break;
+        case 'fee':      body = d.fees ? feePropTab(d.fees, S.propertyId) : skeleton(4, 8); break;
+        case 'rent':     body = d.units ? rentTab(d) : skeleton(10, 8); break;
+        case 'bldg':     body = d.raw ? bldgTab(d.raw) : skeleton(6, 3); break;
+        case 'capex':    body = d.is ? capexTab(d.is) : skeleton(8, 8); break;
+        case 'val':      body = valTab(p); break;
+        case 'docs':     body = d.docs ? documentsTab(d.docs) : skeleton(8, 5); break;
       }
     } else {
-      tabs = tabsHtml([['properties', 'Properties'], ['fees', 'Asset management fees']], S.tab, 'tab');
-      if (S.tab === 'fees') body = S.cache.fees ? feesTab(S.cache.fees) : skeleton(8, 6);
-      else body = S.cache.summary ? propertiesTab(S.cache.summary) : skeleton(8, 6);
+      var tabs = S.level === 'portfolio' ? PORTFOLIO_TABS : ENTITY_TABS;
+      head = tabsHtml(tabs, S.tab, 'tab');
+      if (S.tab === 'views') {
+        body = '<div id="rpViewsHost"></div>';
+      } else if (S.tab === 'fees') {
+        body = S.cache.fees ? feesTab(S.cache.fees) : skeleton(9, 10);
+      } else if (S.tab === 'entities' && S.level === 'portfolio') {
+        body = S.cache.entities ? entitiesTab(S.cache.entities) : skeleton(10, 9);
+      } else {
+        body = S.cache.summary ? propertiesTab(S.cache.summary) : skeleton(12, 10);
+      }
     }
-    S.host.innerHTML = shell(body, tabs);
+    S.host.innerHTML = shell(body, head);
     wire();
+
+    /* The Views tab hosts the saved-views module inside the Properties
+       section, so it is reachable without leaving the drill-down. */
+    if (S.level !== 'property' && S.tab === 'views' && window.PortalViews) {
+      PortalViews.mount(S.host.querySelector('#rpViewsHost'));
+    }
   }
 
-  /* ---- wiring: .onclick, never addEventListener --------------------------- */
+  /* ---- wiring: .onclick, never addEventListener ---------------------------- */
   function wire() {
     var root = S.host;
     if (!root) return;
-    root.querySelectorAll('[data-go="company"]').forEach(function (b) {
-      b.onclick = function () { S.scope = 'company'; S.entityId = null; S.propertyId = null; load(); };
+    var plain = function (ev) {
+      return !(ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1));
+    };
+
+    root.querySelectorAll('[data-crumb]').forEach(function (b) {
+      b.onclick = function () {
+        if (b.getAttribute('data-crumb') === 'portfolio') goPortfolio();
+        else goEntity(S.entityId, S.entityName, 'properties');
+      };
     });
     root.querySelectorAll('[data-ent]').forEach(function (b) {
-      b.onclick = function () { S.scope = 'entity'; S.entityId = b.getAttribute('data-ent'); S.propertyId = null; load(); };
+      b.onclick = function (ev) {
+        if (!plain(ev)) return;
+        if (ev && ev.preventDefault) ev.preventDefault();
+        goEntity(b.getAttribute('data-ent') || null, b.getAttribute('data-entname'), 'properties');
+      };
     });
     root.querySelectorAll('[data-prop]').forEach(function (b) {
       b.onclick = function (ev) {
-        /* The name carries a real href so it can be opened in a new tab;
-           a plain click is handled here instead. Ctrl/cmd/middle click is
-           left alone so "open in new tab" keeps working. */
-        if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1)) return;
+        if (!plain(ev)) return;
         if (ev && ev.preventDefault) ev.preventDefault();
-        S.propertyId = b.getAttribute('data-prop');
-        var p = propertyById(S.propertyId);
-        S.entityId = p ? p.entityId : S.entityId;
-        S.scope = 'property'; S.ptab = 'monthly'; reset(); load();
+        goProperty(b.getAttribute('data-prop'));
       };
     });
     root.querySelectorAll('[data-tab]').forEach(function (b) {
-      b.onclick = function () { S.tab = b.getAttribute('data-tab'); load(); };
+      b.onclick = function () { S.tab = b.getAttribute('data-tab'); pushUrl(); load(); };
     });
     root.querySelectorAll('[data-ptab]').forEach(function (b) {
-      b.onclick = function () { S.ptab = b.getAttribute('data-ptab'); load(); };
+      b.onclick = function () { S.ptab = b.getAttribute('data-ptab'); pushUrl(); load(); };
+    });
+    root.querySelectorAll('[data-density]').forEach(function (b) {
+      b.onclick = function () { S.density = b.getAttribute('data-density'); paint(); };
     });
 
-    /* Search repaints ONLY the table, not the section.
-       paint() replaces host.innerHTML, which removes the focused input
-       mid-keystroke; the browser fires blur against a node that is no longer
-       in the tree and throws "The node to be removed is no longer a child of
-       this node". Refocusing afterwards papered over the caret but not the
-       error. Rebuilding just the rows leaves the input in place and needs no
-       focus restoration at all. */
+    var se = root.querySelector('#rpShowEmpty');
+    if (se) se.onclick = function () { S.showEmpty = !S.showEmpty; paint(); };
+    var su = root.querySelector('#rpShowUnavailable');
+    if (su) su.onclick = function () { S.showUnavailable = !S.showUnavailable; paint(); };
+
+    /* period */
+    var y = root.querySelector('#rpYear');
+    if (y) y.onchange = function () { S.year = Number(y.value); dropPeriodCaches(); pushUrl(); load(); };
+    var fm = root.querySelector('#rpFrom');
+    if (fm) fm.onchange = function () { S.fromMonth = Number(fm.value); pushUrl(); paint(); };
+    var tm = root.querySelector('#rpTo');
+    if (tm) tm.onchange = function () { S.toMonth = Number(tm.value); pushUrl(); paint(); };
+    var ra = root.querySelector('#rpAsOf');
+    if (ra) ra.onchange = function () { S.rentAsOf = ra.value; paint(); };
+
+    /* list filters, which repaint only the table so the input keeps focus */
     function repaintTable() {
+      if (!S.cache.summary) { paint(); return; }
       var host = S.host.querySelector('#rpTblHost');
-      if (!host || !S.cache.summary) { paint(); return; }
+      if (!host) { paint(); return; }
       var tmp = document.createElement('div');
       tmp.innerHTML = propertiesTab(S.cache.summary);
       var fresh = tmp.querySelector('#rpTblHost');
-      if (fresh) host.innerHTML = fresh.innerHTML; else paint();
-      var cnt = S.host.querySelector('.rp-count');
-      var vis = tmp.querySelector('.rp-count');
+      if (!fresh) { paint(); return; }
+      host.innerHTML = fresh.innerHTML;
+      var cnt = S.host.querySelector('.rp-count'), vis = tmp.querySelector('.rp-count');
       if (cnt && vis) cnt.textContent = vis.textContent;
       S.host.querySelectorAll('[data-prop]').forEach(function (b) {
         b.onclick = function (ev) {
-          if (ev && (ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button === 1)) return;
+          if (!plain(ev)) return;
           if (ev && ev.preventDefault) ev.preventDefault();
-          S.propertyId = b.getAttribute('data-prop');
-          var p = propertyById(S.propertyId);
-          S.entityId = p ? p.entityId : S.entityId;
-          S.scope = 'property'; S.ptab = 'monthly'; reset(); load();
+          goProperty(b.getAttribute('data-prop'));
         };
       });
     }
@@ -1106,27 +1534,28 @@
     if (s) s.oninput = function () { S.search = s.value; repaintTable(); };
     var st = root.querySelector('#rpStatus');
     if (st) st.onchange = function () { S.status = st.value; repaintTable(); };
+    var wr = root.querySelector('#rpWithReports');
+    if (wr) wr.onclick = function () { S.withReports = !S.withReports; paint(); };
+    var sr = root.querySelector('#rpSource');
+    if (sr) sr.onchange = function () { S.source = sr.value; repaintTable(); };
 
-    var y = root.querySelector('#rpYear');
-    if (y) y.onchange = function () { S.year = Number(y.value); S.cache.prop = Object.assign({}, S.cache.prop, { monthly: null }); load(); };
-    ['#rpFeeYear', '#rpFeeYear2'].forEach(function (sel) {
-      var e = root.querySelector(sel);
-      if (e) e.onchange = function () { S.year = Number(e.value); S.cache.fees = null; load(); };
+    root.querySelectorAll('[data-fgroup]').forEach(function (b) {
+      b.onclick = function () {
+        var g = b.getAttribute('data-fgroup');
+        S.collapsed[g] = !S.collapsed[g];
+        paint();
+      };
     });
 
-    /* `change` on a text input fires DURING blur, and paint() replaces
-       host.innerHTML - so the node the browser is mid-blur on is removed
-       from under it and it throws "The node to be removed is no longer a
-       child of this node. Perhaps it was moved in a 'blur' event handler?".
-       Deferring by a tick lets the blur finish before the DOM changes. */
+    /* what-if, deferred past blur - `change` fires DURING blur and paint()
+       replaces innerHTML, which removes the node the browser is blurring */
     function repaintSoon() { setTimeout(paint, 0); }
-
     function num(sel, key) {
       var e = root.querySelector(sel);
       if (!e) return;
       e.onchange = function () {
-        var v = e.value === '' ? null : Number(e.value);
-        S.whatif[key] = v; S.whatifTouched = true; repaintSoon();
+        S.whatif[key] = e.value === '' ? null : Number(e.value);
+        S.whatifTouched = true; repaintSoon();
       };
     }
     num('#rpCap', 'capRatePct'); num('#rpReq', 'requiredDscr'); num('#rpRate', 'newRatePct');
@@ -1137,98 +1566,138 @@
     });
 
     var ex = root.querySelector('#rpExport');
-    if (ex) ex.onclick = function () {
-      var d = S.cache.summary || { rows: [] };
-      var head = ['Property', 'Source', 'Entity', 'Units', 'Occupancy', 'Total income', 'Total expenses',
-                  'NOI, trailing 12 mo', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR mortgage', 'DSCR all debt', 'PM company', 'Ownership',
-                  'T12 filed', 'T12 file', 'Rent roll filed', 'Rent roll file'];
-      var body = (d.rows || []).filter(function (r) { return !S.status || r.ownership_status === S.status; })
-        .map(function (r) {
-          return [r.name, r.source_system, r.entity_name, r.units, r.latest_occupancy, r.t12_income,
-                  r.t12_expense, r.t12_noi, r.optimized_noi, r.expense_ratio, r.t12_net_income,
-                  dscrM(r), r.trailing_dscr_all_debt, r.pm_company, r.ownership_status,
-                  r.t12_in_dropbox ? 'yes' : 'no', r.t12_file_name || '',
-                  r.rent_roll_in_dropbox ? 'yes' : 'no', r.rent_roll_file_name || ''];
-        });
-      download('properties.csv', csv([head].concat(body)));
-    };
+    if (ex) ex.onclick = exportProperties;
     var fx = root.querySelector('#rpFeeExport');
-    if (fx) fx.onclick = function () {
-      var f = S.cache.fees || { rows: [] };
-      var head = ['Manager', 'Fee row', 'Timing', 'Measure'].concat(MONTHS).concat(['Total']);
-      var out = [head];
-      (f.rows || []).forEach(function (r) {
-        [['Expected', 'expected'], ['Received', 'received'], ['Variance', 'variance']].forEach(function (k) {
-          var vals = [], t = 0, has = false;
-          for (var m = 1; m <= 12; m++) { var v = r[k[1]][m]; if (isNum(v)) { t += Number(v); has = true; } vals.push(isNum(v) ? v : ''); }
-          out.push([r.manager_group, r.label, r.payment_timing, k[0]].concat(vals).concat([has ? t : '']));
-        });
-      });
-      download('am-fees-' + S.year + '.csv', csv(out));
-    };
+    if (fx) fx.onclick = exportFees;
   }
 
-  /* ---- loading ------------------------------------------------------------- */
+  function dropPeriodCaches() {
+    if (S.cache.prop) { S.cache.prop.monthly = null; S.cache.prop.is = null; S.cache.prop.fees = null; }
+    S.cache.fees = null;
+  }
+
+  /* ---- loading ------------------------------------------------------------
+     A6. Every request carries the sequence number it was issued under, and a
+     response whose number is no longer current is DROPPED.
+
+     Without it, switching entity while a slower request was in flight let the
+     older response land last and repaint the new screen with the old
+     entity's rows - the bug where Kouri and Adventureland appeared under
+     4813 Underwood Partners LLC. Nothing about the response says it is
+     stale; only the sequence does.
+  -------------------------------------------------------------------------- */
   function load() {
+    var mine = ++S.seq;
+    var fresh = function () { return mine === S.seq; };
     paint();
-    S.busy = true; S.error = null;
+    S.error = null;
+
     var jobs = [];
+    var entQ = S.level === 'entity'
+      ? (S.entityId ? '?managing=' + encodeURIComponent(S.entityId) : '?managing=none') : '';
 
-    if (!S.tree) jobs.push(fetch('/api/portfolio', { cache: 'no-store' }).then(function (r) { return r.json(); })
-      .then(function (b) { S.tree = b; }));
+    if (!S.tree) {
+      jobs.push(fetch('/api/portfolio', { cache: 'no-store' }).then(function (r) { return r.json(); })
+        .then(function (b) { if (fresh()) S.tree = b; }));
+    }
 
-    if (S.scope === 'property') {
-      S.cache.prop = S.cache.prop || {};
+    if (S.level === 'property') {
       var d = S.cache.prop;
-      if (d._id !== S.propertyId) { S.cache.prop = d = { _id: S.propertyId }; }
-      if (!d.summary) {
-        jobs.push(api('/api/portfolio/summary').then(function (b) {
-          d.summary = (b.rows || []).filter(function (r) { return r.id === S.propertyId; })[0] || {};
-        }));
-      }
-      if (S.ptab === 'monthly' && !d.monthly) {
-        jobs.push(api('/api/portfolio/' + S.propertyId + '/monthly?year=' + S.year).then(function (b) { d.monthly = b; }));
-      }
-      if ((S.ptab === 'is' || S.ptab === 'capex') && !d.is) {
-        jobs.push(api('/api/portfolio/' + S.propertyId + '/income-statement').then(function (b) { d.is = b; }));
-      }
-      if ((S.ptab === 'noi' || S.ptab === 'dscr') && !d.noi) {
-        jobs.push(api('/api/portfolio/' + S.propertyId + '/noi-analysis').then(function (b) { d.noi = b; }));
-      }
-      if (S.ptab === 'fee' && !d.fees) {
-        jobs.push(api('/api/am-fees?year=' + S.year).then(function (b) { d.fees = b; }));
-      }
-      if (S.ptab === 'rent' && !d.units) {
-        jobs.push(api('/api/portfolio/' + S.propertyId + '/rent-roll').then(function (b) {
-          d.units = b.units; d.rentSummary = b.rentSummary;
-        }));
-      }
-      if ((S.ptab === 'bldg' || S.ptab === 'details') && !d.raw) {
+      if (!d || d._id !== S.propertyId) { S.cache.prop = d = { _id: S.propertyId }; }
+      var pid = S.propertyId;
+      var need = function (k, url, assign) {
+        if (d[k]) return;
+        jobs.push(api(url).then(function (b) { if (fresh() && S.propertyId === pid) assign(b); }));
+      };
+      need('overview', '/api/portfolio/' + pid + '/overview', function (b) { d.overview = b; d.summary = b.property; });
+      if (S.ptab === 'monthly') need('monthly', '/api/portfolio/' + pid + '/monthly?year=' + S.year, function (b) { d.monthly = b; d.years = b.years; });
+      if (S.ptab === 'is' || S.ptab === 'capex') need('is', '/api/portfolio/' + pid + '/income-statement', function (b) { d.is = b; });
+      if (S.ptab === 'noi' || S.ptab === 'dscr') need('noi', '/api/portfolio/' + pid + '/noi-analysis', function (b) { d.noi = b; });
+      if (S.ptab === 'fee') need('fees', '/api/am-fees?year=' + S.year, function (b) { d.fees = b; });
+      if (S.ptab === 'rent') need('units', '/api/portfolio/' + pid + '/rent-roll', function (b) { d.units = b.units; d.rentSummary = b.rentSummary; });
+      if (S.ptab === 'docs') need('docs', '/api/portfolio/' + pid + '/documents', function (b) { d.docs = b; });
+      if ((S.ptab === 'bldg') && !d.raw) {
         jobs.push(fetch('/api/portfolio', { cache: 'no-store' }).then(function (r) { return r.json(); })
           .then(function (b) {
-            d.raw = (b.properties || []).filter(function (p) { return p.id === S.propertyId; })[0] || {};
+            if (!fresh() || S.propertyId !== pid) return;
+            d.raw = (b.properties || []).filter(function (x) { return x.id === pid; })[0] || {};
           }));
       }
+    } else if (S.tab === 'views') {
+      /* the module loads itself */
     } else if (S.tab === 'fees') {
-      if (!S.cache.fees) {
-        jobs.push(api('/api/am-fees?year=' + S.year + (S.entityId ? '&entity=' + S.entityId : ''))
-          .then(function (b) { S.cache.fees = b; }));
+      var feeKey = S.level + '|' + (S.entityId || '') + '|' + S.year;
+      if (!S.cache.fees || S.cache.feesKey !== feeKey) {
+        jobs.push(api('/api/am-fees?year=' + S.year + (S.level === 'entity' && S.entityId ? '&managing=' + encodeURIComponent(S.entityId) : ''))
+          .then(function (b) { if (!fresh()) return; S.cache.fees = b; S.cache.feesKey = feeKey; }));
+      }
+    } else if (S.tab === 'entities' && S.level === 'portfolio') {
+      if (!S.cache.entities) {
+        jobs.push(api('/api/portfolio/entities').then(function (b) { if (fresh()) S.cache.entities = b; }));
       }
     } else {
-      var key = S.entityId || 'all';
+      var key = S.level + '|' + (S.entityId === null ? 'all' : S.entityId);
       if (!S.cache.summary || S.cache.summaryKey !== key) {
-        jobs.push(api('/api/portfolio/summary' + (S.entityId ? '?entity=' + S.entityId : ''))
-          .then(function (b) { S.cache.summary = b; S.cache.summaryKey = key; }));
+        jobs.push(api('/api/portfolio/summary' + (S.level === 'entity' ? entQ : ''))
+          .then(function (b) { if (!fresh()) return; S.cache.summary = b; S.cache.summaryKey = key; }));
       }
     }
 
-    Promise.all(jobs).then(function () { S.busy = false; paint(); })
-      .catch(function (e) { S.busy = false; S.error = e.message || String(e); paint(); });
+    Promise.all(jobs)
+      .then(function () { if (fresh()) paint(); })
+      .catch(function (e) { if (fresh()) { S.error = e.message || String(e); paint(); } });
   }
 
+  /* ---- exports ------------------------------------------------------------- */
+  function exportProperties() {
+    var d = S.cache.summary || { rows: [] };
+    var head = ['Property', 'Source', 'Managing entity', 'Owner LLC', 'Units', 'Units source',
+                'Occupancy', 'Total income', 'Total expenses', 'NOI, trailing 12 mo', 'Optimized NOI',
+                'Expense ratio', 'Net income', 'DSCR mortgage', 'DSCR all debt', 'PM company',
+                'Ownership', 'T12 filed', 'T12 file', 'Rent roll filed', 'Rent roll file'];
+    var body = visibleRows(d).map(function (r) {
+      return [r.name, r.source_system, r.managing_entity_name, r.entity_name, r.units, r.units_source,
+              r.latest_occupancy, r.t12_income, r.t12_expense, r.t12_noi, r.optimized_noi,
+              r.expense_ratio, r.t12_net_income, dscrM(r), r.trailing_dscr_all_debt, r.pm_company,
+              r.ownership_status, r.t12_in_dropbox ? 'yes' : 'no', r.t12_file_name || '',
+              r.rent_roll_in_dropbox ? 'yes' : 'no', r.rent_roll_file_name || ''];
+    });
+    download('properties.csv', csv([head].concat(body)));
+  }
+
+  function exportFees() {
+    var f = S.cache.fees || { rows: [] };
+    var head = ['Manager', 'Fee row', 'Timing', 'Measure'].concat(MONTHS).concat(['Total']);
+    var out = [head];
+    (f.rows || []).forEach(function (r) {
+      [['Expected', 'expected'], ['Received', 'received'], ['Variance', 'variance']].forEach(function (k) {
+        var vals = [], t = 0, has = false;
+        for (var m = 1; m <= 12; m++) {
+          var v = r[k[1]][m];
+          if (isNum(v)) { t += Number(v); has = true; }
+          vals.push(isNum(v) ? v : '');
+        }
+        out.push([r.manager_group, r.label, r.payment_timing, k[0]].concat(vals).concat([has ? t : '']));
+      });
+    });
+    download('am-fees-' + S.year + '.csv', csv(out));
+  }
+
+  /* ---- mount --------------------------------------------------------------- */
+  var popBound = false;
   function mount(host) {
     S.host = host;
     if (!host) return;
+    ensureUrlRead();
+    if (!popBound) {
+      /* bound ONCE. mount() runs on every navigation back to the section, and
+         a listener added each time leaves N copies firing N reloads. */
+      window.addEventListener('popstate', function () {
+        if (!S.host || !document.body.contains(S.host)) return;
+        readUrl(); load();
+      });
+      popBound = true;
+    }
     paint();
     load();
   }
@@ -1238,5 +1707,5 @@
     if (S.host) load();
   }
 
-  window.PortalReporting = { mount: mount, invalidate: invalidate, _state: S };
+  window.PortalReporting = { mount: mount, invalidate: invalidate, urlParams: urlParams, _state: S };
 })();

@@ -73,13 +73,25 @@ const num = v => (v === null || v === undefined ? null : Number(v));
 --------------------------------------------------------------------------- */
 async function summary(req, res, who) {
   const entity = uuidOrNull(req.query.entity);
+  /* `managing` is the drill-down level: a MANAGING entity, or the literal
+     'none' for the 35 held properties with no manager on file. Those are a
+     real group - a gap to close - so they get a page rather than being
+     unreachable. */
+  const managingRaw = String(req.query.managing || '');
+  const managingNone = managingRaw === 'none';
+  const managing = managingNone ? null : uuidOrNull(managingRaw);
+  const byManaging = managingNone || !!managing;
+
   const rows = await q(
     `select s.*
        from reporting.property_summary_mv s
       where s.tenant_id = $1
         and ($2::uuid is null or s.entity_id = $2::uuid)
-      order by s.name`,
-    [who.tenantId, entity]
+        and (not $3::boolean
+             or ($4::uuid is null and s.managing_entity_id is null)
+             or s.managing_entity_id = $4::uuid)
+      order by s.t12_noi desc nulls last, s.name`,
+    [who.tenantId, entity, byManaging, managing]
   );
 
   const held = rows.filter(r => r.ownership_status === 'held');
@@ -105,7 +117,216 @@ async function summary(req, res, who) {
   totals.expense_ratio = totals.t12_income > 0 ? totals.t12_expense / totals.t12_income : null;
   totals.dscr = totals.annual_debt_service > 0 ? totals.t12_noi / totals.annual_debt_service : null;
 
-  res.json({ ok: true, entity, rows, totals, generatedAt: new Date().toISOString() });
+  res.json({ ok: true, entity, managing: managingRaw || null, rows, totals, generatedAt: new Date().toISOString() });
+}
+
+/* ---------------------------------------------------------------------------
+   Level 1: one row per MANAGING entity.
+
+   Not one per legal entity. `property.entity_id` is the owner LLC and there
+   are 130 of those; `entity.manager_entity_id` groups them into 17 managing
+   entities, which is the level the portfolio actually drills through.
+
+   35 held properties have no managing entity on file. They are bucketed under
+   a null id rather than dropped: a property with no manager recorded is a gap
+   to close, not a property to hide from the navigation.
+--------------------------------------------------------------------------- */
+async function entities(req, res, who) {
+  const rows = await q(
+    `select s.managing_entity_id, s.managing_entity_name,
+            count(*)                        as properties,
+            sum(s.units)                    as units,
+            sum(s.t12_noi)                  as t12_noi,
+            sum(s.optimized_noi)            as optimized_noi,
+            sum(s.t12_net_income)           as t12_net_income,
+            sum(s.value_on_file)            as value_on_file,
+            sum(s.debt)                     as debt,
+            sum(s.t12_debt_service)         as t12_debt_service,
+            sum(s.t12_other_interest)       as t12_other_interest,
+            count(*) filter (where s.trailing_dscr_mortgage < 1)  as flag_dscr,
+            count(*) filter (where s.latest_occupancy < 0.85)     as flag_occ,
+            count(*) filter (where s.t12_noi < 0)                 as flag_noi,
+            count(*) filter (where s.next_maturity < current_date + interval '12 months') as flag_maturity,
+            count(*) filter (where not s.t12_in_dropbox)          as flag_no_t12,
+            mode() within group (order by s.city)                 as main_city,
+            bool_or(s.t12_other_interest > 0)                     as any_other_debt
+       from reporting.property_summary_mv s
+      where s.tenant_id = $1 and s.ownership_status = 'held'
+      group by 1, 2
+      order by sum(s.t12_noi) desc nulls last`,
+    [who.tenantId]
+  );
+
+  const out = rows.map(r => {
+    const ds = num(r.t12_debt_service);
+    const oi = num(r.t12_other_interest) || 0;
+    return Object.assign({}, r, {
+      ltv: num(r.value_on_file) > 0 ? num(r.debt) / num(r.value_on_file) : null,
+      dscr_mortgage: ds > 0 ? num(r.t12_noi) / ds : null,
+      dscr_all_debt: (ds || 0) + oi > 0 ? num(r.t12_noi) / ((ds || 0) + oi) : null,
+      flags: Number(r.flag_dscr) + Number(r.flag_occ) + Number(r.flag_noi) +
+             Number(r.flag_maturity) + Number(r.flag_no_t12),
+    });
+  });
+
+  const sum = k => {
+    const v = out.map(r => num(r[k])).filter(x => x !== null);
+    return v.length ? v.reduce((a, b) => a + b, 0) : null;
+  };
+  const totalDs = sum('t12_debt_service');
+  res.json({
+    ok: true,
+    rows: out,
+    anyOtherDebt: out.some(r => r.any_other_debt),
+    totals: {
+      entities: out.length,
+      properties: sum('properties'), units: sum('units'),
+      t12_noi: sum('t12_noi'), optimized_noi: sum('optimized_noi'),
+      t12_net_income: sum('t12_net_income'),
+      value_on_file: sum('value_on_file'), debt: sum('debt'),
+      ltv: sum('value_on_file') > 0 ? sum('debt') / sum('value_on_file') : null,
+      dscr_mortgage: totalDs > 0 ? sum('t12_noi') / totalDs : null,
+      flags: out.reduce((a, r) => a + r.flags, 0),
+    },
+  });
+}
+
+/* ---------------------------------------------------------------------------
+   D1 Overview: what needs attention, and the record itself.
+
+   A flag is a SENTENCE naming the thing and its date, not a coloured dot.
+   "Loan from Lincoln Savings matured 2026-03-01" can be acted on; a red
+   square cannot.
+--------------------------------------------------------------------------- */
+async function overview(req, res, who) {
+  const id = uuidOrNull(req.params.id);
+  if (!id) return res.status(400).json({ error: 'A property id is required.' });
+
+  const s = (await q(
+    `select * from reporting.property_summary_mv where tenant_id = $1 and id = $2::uuid`,
+    [who.tenantId, id]))[0];
+  if (!s) return res.status(404).json({ error: 'No such property.' });
+
+  const loans = await q(
+    `select l.lender, l.latest_balance, l.balance_as_of, l.maturity_date,
+            l.interest_rate_pct, l.annual_debt_service, l.status, l.purpose
+       from reporting.loan l where l.tenant_id = $1 and l.property_id = $2::uuid
+      order by l.maturity_date nulls last`, [who.tenantId, id]);
+
+  let ins = [];
+  try {
+    ins = await q(
+      `select carrier, policy_type, effective_date, expiration_date
+         from public.insurance_policy
+        where tenant_id = $1 and property_id = $2::uuid
+        order by expiration_date nulls last limit 12`, [who.tenantId, id]);
+  } catch (e) { ins = []; }
+
+  const flags = [];
+  const today = new Date();
+  const within = (d, months) => {
+    if (!d) return false;
+    const lim = new Date(today); lim.setMonth(lim.getMonth() + months);
+    return new Date(d) <= lim;
+  };
+  /* pg returns a DATE as a JS Date at LOCAL midnight, and String() of that is
+     "Wed Sep 30 2026 00:00:00 GMT...", so slicing it printed "Wed Sep 30" in
+     a flag. Read the local parts - never toISOString(), which shifts the day
+     back for any reader east of UTC - and write the date the way the rest of
+     the screen does. */
+  const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const day = d => {
+    if (!d) return '';
+    if (d instanceof Date) return d.getDate() + ' ' + MON[d.getMonth()] + ' ' + d.getFullYear();
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(d));
+    return m ? Number(m[3]) + ' ' + MON[Number(m[2]) - 1] + ' ' + m[1] : String(d);
+  };
+
+  for (const l of loans) {
+    if (l.maturity_date && new Date(l.maturity_date) < today) {
+      flags.push({ kind: 'maturity', level: 'bad',
+        text: 'Loan from ' + (l.lender || 'an unnamed lender') + ' matured ' + day(l.maturity_date) + '.' });
+    } else if (within(l.maturity_date, 12)) {
+      flags.push({ kind: 'maturity', level: 'warn',
+        text: 'Loan from ' + (l.lender || 'an unnamed lender') + ' matures ' + day(l.maturity_date) + '.' });
+    }
+  }
+
+  const dscr = num(s.trailing_dscr_mortgage) !== null ? num(s.trailing_dscr_mortgage) : num(s.trailing_dscr);
+  if (dscr !== null && dscr < 1) {
+    flags.push({ kind: 'dscr', level: 'bad', text: 'DSCR is below 1.00 (' + dscr.toFixed(2) + ').' });
+  } else if (dscr !== null && dscr < 1.25) {
+    flags.push({ kind: 'dscr', level: 'warn', text: 'DSCR is below 1.25 (' + dscr.toFixed(2) + ').' });
+  }
+  const allDebt = num(s.trailing_dscr_all_debt);
+  if (allDebt !== null && allDebt < 1 && (dscr === null || dscr >= 1)) {
+    flags.push({ kind: 'dscr', level: 'bad',
+      text: 'Coverage falls below 1.00 once other debt is counted (' + allDebt.toFixed(2) + ').' });
+  }
+
+  const occ = num(s.latest_occupancy);
+  if (occ !== null && occ < 0.85) {
+    flags.push({ kind: 'vacancy', level: 'bad', text: 'Occupancy is ' + (occ * 100).toFixed(1) + '%.' });
+  } else if (occ !== null && occ <= 0.90) {
+    flags.push({ kind: 'vacancy', level: 'warn', text: 'Occupancy is ' + (occ * 100).toFixed(1) + '%.' });
+  }
+
+  if (num(s.t12_noi) !== null && num(s.t12_noi) < 0) {
+    flags.push({ kind: 'noi', level: 'bad', text: 'NOI over the trailing 12 months is negative.' });
+  }
+
+  const delinq = (await q(
+    `select pm.delinquency, pm.rent_roll_as_of from reporting.property_month_mv pm
+      where pm.tenant_id = $1 and pm.property_id = $2::uuid and pm.delinquency is not null
+      order by pm.month desc limit 1`, [who.tenantId, id]))[0];
+  if (delinq && Number(delinq.delinquency) > 0) {
+    flags.push({ kind: 'receivables', level: 'warn',
+      text: 'Receivables of $' + Number(delinq.delinquency).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) +
+            ' on the rent roll of ' + day(delinq.rent_roll_as_of) + '.' });
+  }
+
+  for (const i of ins) {
+    if (i.expiration_date && new Date(i.expiration_date) < today) {
+      flags.push({ kind: 'insurance', level: 'bad',
+        text: (i.policy_type || 'A policy') + ' from ' + (i.carrier || 'an unnamed carrier') + ' expired ' + day(i.expiration_date) + '.' });
+    } else if (within(i.expiration_date, 2)) {
+      flags.push({ kind: 'insurance', level: 'warn',
+        text: (i.policy_type || 'A policy') + ' from ' + (i.carrier || 'an unnamed carrier') + ' expires ' + day(i.expiration_date) + '.' });
+    }
+  }
+
+  if (!s.t12_in_dropbox) {
+    flags.push({ kind: 'reports', level: 'warn', text: 'No T12 is filed in Dropbox for this property.' });
+  }
+
+  res.json({ ok: true, property: s, flags, loans, insurance: ins });
+}
+
+/* D11 Documents. The T12 and rent roll files sort first, because those are
+   the two anyone opens this tab looking for. */
+async function documents(req, res, who) {
+  const id = uuidOrNull(req.params.id);
+  if (!id) return res.status(400).json({ error: 'A property id is required.' });
+  const rows = await q(
+    `with kind as (
+       select d.id,
+              case when exists (select 1 from public.t12_report r where r.document_id = d.id) then 'T12'
+                   when exists (select 1 from public.rent_roll_report r where r.document_id = d.id) then 'Rent roll'
+              end as report_kind
+         from public.document d
+        where d.tenant_id = $1 and d.property_id = $2::uuid
+     )
+     select d.id, d.file_name, d.storage_path, d.file_extension,
+            d.file_size_bytes, d.created_at, k.report_kind
+       from public.document d
+       join kind k on k.id = d.id
+      where d.tenant_id = $1 and d.property_id = $2::uuid
+      order by case k.report_kind when 'T12' then 0 when 'Rent roll' then 1 else 2 end,
+               d.created_at desc
+      limit 300`,
+    [who.tenantId, id]
+  );
+  res.json({ ok: true, documents: rows });
 }
 
 /* ---------------------------------------------------------------------------
@@ -335,6 +556,7 @@ async function rentRoll(req, res, who) {
 async function amFees(req, res, who) {
   const year = yearOf(req.query.year);
   const entity = uuidOrNull(req.query.entity);
+  const managing = uuidOrNull(req.query.managing);
 
   const rows = await q(
     `select f.schedule_id, f.label, f.manager_group, f.payment_timing, f.fee_month,
@@ -348,8 +570,12 @@ async function amFees(req, res, who) {
               select 1 from public.am_fee_schedule_property l
                 join public.property p on p.id = l.property_id
                where l.schedule_id = f.schedule_id and p.entity_id = $3::uuid))
+        and ($4::uuid is null or exists (
+              select 1 from public.am_fee_schedule_property l
+                join reporting.property_summary_mv ps on ps.id = l.property_id
+               where l.schedule_id = f.schedule_id and ps.managing_entity_id = $4::uuid))
       order by s.sort_order, f.fee_month`,
-    [who.tenantId, year, entity]
+    [who.tenantId, year, entity, managing]
   );
 
   const props = await q(
@@ -391,7 +617,7 @@ async function amFees(req, res, who) {
   for (const s of list) (groups[s.manager_group] = groups[s.manager_group] || []).push(s);
 
   res.json({
-    ok: true, year, entity,
+    ok: true, year, entity, managing: managing || null,
     groups: Object.keys(groups).map(g => ({
       manager_group: g,
       payment_timing: groups[g][0].payment_timing,
@@ -414,7 +640,10 @@ function reportingRoutes() {
     return res.status(405).json({ error: 'This API is read-only.' });
   });
 
+  r.get('/entities', guard(entities, { nav: 'properties' }));
   r.get('/summary', guard(summary, { nav: 'properties' }));
+  r.get('/:id/overview', guard(overview, { nav: 'properties' }));
+  r.get('/:id/documents', guard(documents, { nav: 'properties' }));
   r.get('/:id/monthly', guard(monthly, { nav: 'properties' }));
   r.get('/:id/income-statement', guard(incomeStatement, { nav: 'properties' }));
   r.get('/:id/noi-analysis', guard(noiAnalysis, { nav: 'properties' }));

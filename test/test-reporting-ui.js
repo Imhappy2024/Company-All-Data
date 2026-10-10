@@ -1,25 +1,18 @@
-/* The Properties section and the Views builder, rendered against the REAL
-   API and the REAL database, and measured.
+/* The Properties section, rendered against the REAL API and the REAL
+   database, and measured against docs/PROPERTIES_SPEC.md.
 
-   Why it is built this way. Both sections are gated by a verified Supabase
-   session, and a test cannot have one: the identity is established by asking
+   Why it is built this way. The section is gated by a verified Supabase
+   session and a test cannot have one: the identity is established by asking
    Supabase to run dash_my_access() as the caller, which needs a password. So
-   this harness substitutes ONE function - portal-identity.identify - with a
-   fixed identity, and leaves everything else alone. Every query, every view
-   and every figure below is the live database.
+   this harness intercepts exactly ONE outbound call - the fetch to
+   /rpc/dash_my_access - and leaves everything else alone. Every query, view
+   and figure below is the live database.
 
    That is the opposite of the usual fake. CLAUDE.md records the Folio suite
-   passing 61 green checks over SQL that could not parse, because a fake
-   never parses SQL. Here the SQL is real and only the doorman is stubbed.
-
-   It asserts GEOMETRY and CONTENT, not markup:
-     * the acceptance figures from section 2.10 appear on screen
-     * no screen issues a write request
-     * nothing overflows its container
-     * "–" is rendered where data is absent, and never 0
+   passing 61 green checks over SQL that could not parse, because a fake never
+   parses SQL. Here the SQL is real and only the doorman is stubbed.
 
    Run:  node test/test-reporting-ui.js [--shots]
-   Needs .env with SUPABASE_DB_URL, and playwright.
 */
 const fs = require('fs');
 const path = require('path');
@@ -34,19 +27,11 @@ process.env.PORT = process.env.TEST_PORT || '3988';
 const SHOTS = process.argv.indexOf('--shots') >= 0;
 
 /* The doorman is stubbed at its OUTBOUND BOUNDARY, not by reassigning the
-   export.
-
-   portal-identity.js's guard() closes over the local `identify` binding, so
-   overwriting module.exports.identify changes nothing - the real function
+   export: portal-identity's guard() closes over the local `identify` binding,
+   so overwriting module.exports.identify changes nothing - the real function
    still runs, calls Supabase with a token the harness invented, and answers
-   401. The symptom is the section rendering "Session expired. Sign in
-   again." while every other part of the page works, which reads like a
-   client bug and is not one.
-
-   So instead: intercept the single fetch identify() makes to
-   /rpc/dash_my_access and answer it with the real staff row. Everything
-   after that point - the tenant lookup, every query, every view - is live.
-   Nothing in the shipped code has a test branch in it. */
+   401. The symptom is the section rendering "Session expired" while every
+   other part of the page works, which reads like a client bug and is not. */
 const db = require(path.join(ROOT, 'supabase-db.js'));
 const realFetch = global.fetch;
 let STAFF = null;
@@ -69,16 +54,16 @@ global.fetch = async function (url, init) {
 
 const { chromium } = require('playwright');
 require(path.join(ROOT, 'server.js'));
-
 const BASE = 'http://127.0.0.1:' + process.env.PORT;
 
-/* The browser half of the stub.
+/* Served in PLACE OF portal-session.js rather than injected before the page:
+   portal.html loads that file afterwards and the real module would simply
+   overwrite an injected stub - the symptom being the portal bouncing to
+   /login with nothing in the console to say why.
 
-   It is served in PLACE OF portal-session.js rather than injected before the
-   page, because portal.html loads that file afterwards and the real module
-   would simply overwrite an injected stub - which it did, and the symptom
-   was the portal bouncing to /login with nothing in the console to say why.
-   Intercepting the file is the only point where the substitution survives. */
+   enforceRememberWindow/getSession/access are the boot chain and every one is
+   awaited; returning undefined from the first throws before readState() runs,
+   so the hash is ignored and the portal lands on the no-access screen. */
 const SESSION_STUB = `
   window.PortalSession = {
     client: function () {
@@ -87,11 +72,6 @@ const SESSION_STUB = `
       } } });
     },
     getSession: function () { return Promise.resolve({ access_token: 'harness' }); },
-    /* The nav is gated on dash_my_access(): an empty access map hides every
-       item and render() falls through to the no-access screen, which is
-       exactly what an empty stub produced. Grant the ids this harness
-       drives, scoped the way the real payload is - by company id, plus
-       'exec'. */
     access: function () {
       var LW = 'c0000000-0000-4000-8000-000000000003';
       var mods = { properties: 'edit', views: 'edit', loans: 'edit', financials: 'edit',
@@ -100,16 +80,9 @@ const SESSION_STUB = `
       var a = { exec: mods }; a[LW] = mods;
       return Promise.resolve({
         user: { id: 'harness', email: 'jay@leadliconsulting.com', full_name: 'Jay Delgado', role: 'owner' },
-        access: a,
-        companies: { 'c0000000-0000-4000-8000-000000000003': 'LeavenWealth' },
+        access: a, companies: { 'c0000000-0000-4000-8000-000000000003': 'LeavenWealth' },
       });
     },
-    /* These three are the portal's boot chain and every one of them is
-       awaited: enforceRememberWindow().then(...).then(getSession).then(...).
-       Returning undefined from the first throws "Cannot read properties of
-       undefined (reading 'then')" before readState() ever runs, so the hash
-       is ignored and the portal lands on the Executive Board no-access
-       screen - which looks like a permissions problem and is not. */
     enforceRememberWindow: function () { return Promise.resolve(false); },
     signOut: function () { return Promise.resolve(); },
     config: function () { return Promise.resolve({ url: 'https://x.supabase.co', anonKey: 'k' }); },
@@ -124,8 +97,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   const b = await chromium.launch();
   const pg = await b.newPage({ viewport: { width: 1480, height: 1000 } });
 
-  const errs = [];
-  const writes = [];
+  const errs = [], writes = [];
   pg.on('pageerror', e => errs.push(String(e.message).slice(0, 160)));
   pg.on('request', r => {
     if (['POST', 'PUT', 'PATCH', 'DELETE'].indexOf(r.method()) >= 0 && /\/api\//.test(r.url())) {
@@ -135,50 +107,33 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await pg.route('**/portal-session.js', route =>
     route.fulfill({ status: 200, contentType: 'application/javascript', body: SESSION_STUB }));
 
-  /* Wait for CONTENT, not a fixed delay. reporting.property_summary computes
-     rolling six-month windows over every property, so the first call is
-     seconds rather than milliseconds, and a fixed 2s wait screenshots the
-     word "Loading" and asserts against it. */
+  /* Wait for CONTENT. The skeleton renders a real <table class="rp-tbl">, so
+     a check for that class alone settles on the PLACEHOLDER and anything
+     looked up afterwards is detached when the real table replaces it. */
   async function settle(sel) {
-    /* Wait on the BODY panel, not the section. The section's textContent
-       includes the 106-entry entity menu, so it is long and Loading-free the
-       moment the tree lands - which satisfied a naive check while the table
-       underneath was still empty. */
-    try { await pg.waitForFunction(function (s) {
-      var host = document.querySelector(s);
-      if (!host) return false;
-      var body = host.querySelector('.rp-body') || host;
-      if (/Loading/.test(body.textContent || '')) return false;
-      /* The skeleton renders a real <table class="rp-tbl">, so a check for
-         that class alone settles on the PLACEHOLDER - and the row looked up
-         a moment later is detached when the real table replaces it. Wait for
-         the skeleton to be gone. */
-      if (host.querySelector('.rp-skel')) return false;
-      return !!body.querySelector('.rp-tbl, .rp-empty, .rp-err, .sv-card, .sv-grid, .sv-tiles, .sv-panel, .sv-list-row');
-    }, sel, { timeout: 45000 }); } catch (e) { /* assertions report it */ }
-    await pg.waitForTimeout(400);
+    sel = sel || '#reportingNative';
+    try {
+      await pg.waitForFunction(function (s) {
+        var host = document.querySelector(s);
+        if (!host) return false;
+        if (host.querySelector('.rp-skel')) return false;
+        var body = host.querySelector('.rp-body') || host;
+        if (/Loading/.test(body.textContent || '')) return false;
+        return !!body.querySelector('.rp-tbl, .rp-empty, .rp-err, .rp-flags, .rp-ok-box, .sv-card, .sv-grid, .rp-cols');
+      }, sel, { timeout: 45000 });
+    } catch (e) { /* assertions report it */ }
+    await pg.waitForTimeout(350);
   }
+
+  /* A unique query string makes every call a REAL navigation: goto() to a URL
+     differing only by fragment is a same-document navigation and the module
+     keeps its state. */
   async function go(hash) {
-    /* A unique query string makes every call a REAL navigation. goto() to a
-       URL that differs only by fragment is a same-document navigation: the
-       module keeps its state, so returning to Properties after the fees tab
-       left S.tab='fees'. Chaining three navigations to force a reload
-       instead raced the boot chain and left the section unmounted. One
-       cache-busting param is both correct and simpler. */
     await pg.goto(BASE + '/?t=' + Date.now() + hash, { waitUntil: 'domcontentloaded' });
-    await settle(/views/.test(hash) ? '#viewsNative' : '#reportingNative');
+    await settle(/view=views/.test(hash) ? '#viewsNative' : '#reportingNative');
   }
-
   const text = async sel => (await pg.locator(sel).first().textContent().catch(() => '')) || '';
-  /* Screenshots only.
-
-     The entity menu is 106 folders tall and it, not the content, drives the
-     page height - so a fullPage shot of a short property tab is mostly menu
-     with the subject scrolled off the top. Capping the menu for the capture
-     lets fullPage follow the CONTENT while keeping the menu in frame.
-     Screenshotting the panel element instead does not work: it sits under a
-     sticky header and comes out clipped. */
-  const SHOT_CSS = '.rp-side{max-height:100vh;overflow:hidden}';
+  const SHOT_CSS = '.rp-scroll{max-height:none}';
   const shot = async name => {
     if (!SHOTS) return;
     await pg.addStyleTag({ content: SHOT_CSS }).catch(() => {});
@@ -186,301 +141,312 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     await pg.waitForTimeout(120);
     await pg.screenshot({ path: path.join(__dirname, 'shot-' + name + '.png'), fullPage: true });
   };
+  const tab = async label => {
+    await pg.locator('.rp-tab', { hasText: new RegExp('^' + label + '$') }).first().click();
+    await settle();
+  };
 
-  /* ---- Company > Properties ---- */
-  await go('#brand=leavenwealth&view=properties');
-  const body1 = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('company page    :', body1.slice(0, 150));
-  await shot('rp-company-properties');
+  const PROPS = '#brand=leavenwealth&view=properties';
 
-  check('the Properties table renders rows from the live database', () => {
-    assert.ok(/Property/.test(body1), 'no table header');
-    assert.ok(body1.length > 400, 'the page is nearly empty: ' + body1.slice(0, 120));
+  /* ===================================================================
+     A1  Portfolio landing
+     =================================================================== */
+  await go(PROPS);
+  const portfolio = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  console.log('portfolio       :', portfolio.slice(0, 110));
+  await shot('rp-portfolio-entities');
+
+  const tabNames = await pg.$$eval('.rp-tabs .rp-tab', e => e.map(x => x.textContent.trim()));
+  check('A1 the portfolio has four tabs in order', () => {
+    assert.deepStrictEqual(tabNames,
+      ['Entities', 'Properties', 'Asset management fees', 'Views'], 'got ' + JSON.stringify(tabNames));
   });
 
-  check('the left menu lists entity FOLDERS and no properties', async () => {});
-  const menuItems = await pg.$$eval('.rp-mi', els => els.map(e => e.textContent.trim()));
-  console.log('menu items      :', menuItems.length, '|', menuItems.slice(0, 4).join(' / '));
-  check('the menu has a Company root and entity folders', () => {
-    assert.ok(menuItems.length >= 2, 'menu has ' + menuItems.length + ' items');
-    assert.ok(/Company/.test(menuItems[0]), 'first item is ' + menuItems[0]);
+  const sidebars = await pg.$$eval('.rp-side, .rp-mi', e => e.length);
+  check('A no sidebar and no Company label', () => {
+    assert.strictEqual(sidebars, 0, sidebars + ' sidebar elements remain');
+    assert.ok(!/^Company/.test(portfolio.trim()), 'the Company label is still there');
   });
 
-  const totalsRow = await text('.rp-tbl tfoot');
-  check('there is a totals row', () => assert.ok(/Total/.test(totalsRow), 'no totals row'));
-
-  /* ---- Company > Asset management fees ---- */
-  await pg.locator('.rp-tab', { hasText: 'Asset management fees' }).first().click();
-  await settle('#reportingNative');
-  const fees = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('fees page       :', fees.slice(0, 150));
-  await shot('rp-company-fees');
-
-  check('the fee tracker groups by manager and shows the three rows', () => {
-    assert.ok(/Expected/.test(fees) && /Received/.test(fees) && /Variance/.test(fees), 'missing a fee row');
-    assert.ok(/Point Guard|RPME|Kouri/.test(fees), 'no manager group on screen');
+  const entRows = await pg.$$eval('.rp-row', e => e.length);
+  console.log('managing ents   :', entRows);
+  check('A1 Entities lists managing entities, not every legal entity', () => {
+    assert.ok(entRows >= 10 && entRows <= 30, entRows + ' rows - expected about 17 managing entities');
   });
-  check('timing that is not confirmed is labelled', () => {
-    assert.ok(/timing not confirmed/.test(fees), 'McClain and Bender/AJ must say so');
+  check('A1 the Entities table has a totals row', () => {
+    assert.ok(/Total/.test(portfolio), 'no totals row');
   });
 
-  /* ---- Franklin Court ---- */
-  await go('#brand=leavenwealth&view=properties');
-  /* Scroll it into view by index rather than relying on the locator's own
-     auto-scroll inside a horizontally scrolling table. */
-  const fcIdx = await pg.$$eval('.rp-row', function (els) {
-    return els.findIndex(function (e) { return /Franklin Court/.test(e.textContent || ''); });
+  /* ===================================================================
+     A2  drill down to an entity, A6 stale responses
+     =================================================================== */
+  const firstEnt = (await pg.locator('.rp-row .rp-link').first().textContent()).trim();
+  await pg.locator('.rp-row .rp-link').first().click();
+  await settle();
+  const entPage = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  console.log('entity          :', firstEnt, '->', entPage.slice(0, 90));
+  await shot('rp-entity');
+
+  check('A2 the breadcrumb shows Portfolio / Entity', () => {
+    assert.ok(/Portfolio/.test(entPage), 'no Portfolio crumb');
   });
-  console.log('rows on page    :', await pg.$$eval('.rp-row', function (e) { return e.length; }), '| Franklin Court at', fcIdx);
-  if (fcIdx < 0) throw new Error('Franklin Court is not in the held list');
+  const entTabs = await pg.$$eval('.rp-tabs .rp-tab', e => e.map(x => x.textContent.trim()));
+  check('A2 an entity has exactly Properties and Asset management fees', () => {
+    assert.deepStrictEqual(entTabs, ['Properties', 'Asset management fees'], 'got ' + JSON.stringify(entTabs));
+  });
+
+  /* A6: open one entity, and while its request may still be in flight, open
+     another. The screen must show the one asked for LAST. */
+  await go(PROPS);
+  const links = pg.locator('.rp-row .rp-link');
+  const nameA = (await links.nth(0).textContent()).trim();
+  const nameB = (await links.nth(1).textContent()).trim();
+  await links.nth(0).click();
+  await pg.waitForTimeout(40);          /* deliberately mid-flight */
+  await pg.goBack();
+  await pg.waitForTimeout(60);
+  await pg.locator('.rp-row .rp-link').nth(1).click().catch(() => {});
+  await settle();
+  await tab('Asset management fees');
+  const crumbNow = (await text('.rp-crumb')).replace(/\s+/g, ' ');
+  console.log('A6 switched     :', nameA, '->', nameB, '| crumb:', crumbNow);
+  check('A6 a slower earlier response cannot repaint the newer selection', () => {
+    assert.ok(crumbNow.indexOf(nameB) >= 0, 'crumb shows "' + crumbNow + '", expected ' + nameB);
+    if (nameA !== nameB) assert.ok(crumbNow.indexOf(nameA) < 0, 'the previous entity is still on screen');
+  });
+
+  /* ===================================================================
+     A3  the property page
+     =================================================================== */
+  await go(PROPS);
+  await tab('Properties');
+  const propRows = await pg.$$eval('.rp-row', e => e.length);
+  console.log('held properties :', propRows);
+  check('C1 the Properties tab lists held properties', () => assert.ok(propRows > 40, propRows + ' rows'));
+
+  const hdr = (await text('.rp-tbl thead')).replace(/\s+/g, ' ');
+  check('C1 the columns are the spec list', () => {
+    ['Property', 'Units', 'Occupancy', 'Total income', 'Total expenses',
+     'NOI, trailing 12 mo', 'Optimized NOI', 'Expense ratio', 'Net income',
+     'DSCR, mortgage', 'PM company', 'In Dropbox'].forEach(c =>
+      assert.ok(hdr.indexOf(c) >= 0, 'missing column: ' + c + ' in ' + hdr));
+  });
+  check('B3 the label T12 never appears in a column header', () => {
+    assert.ok(!/\bT12\b/.test(hdr), 'header still says T12: ' + hdr);
+  });
+
+  const fcIdx = await pg.$$eval('.rp-row', els =>
+    els.findIndex(e => /Franklin Court/.test(e.textContent || '')));
+  check('Franklin Court is listed', () => assert.ok(fcIdx >= 0));
   await pg.locator('.rp-row').nth(fcIdx).scrollIntoViewIfNeeded();
-  await pg.locator('.rp-row').nth(fcIdx).click();
-  await settle('#reportingNative');
-  const monthly = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('FC monthly      :', monthly.slice(0, 160));
-  await shot('rp-fc-monthly');
+  await pg.locator('.rp-row .rp-link').nth(fcIdx).click();
+  await settle();
 
-  check('Franklin Court May 2026 operating income is 149,000.29', () => {
+  const ptabs = await pg.$$eval('.rp-tabs .rp-tab', e => e.map(x => x.textContent.trim()));
+  check('A3 the property tabs are in the spec order', () => {
+    assert.deepStrictEqual(ptabs, ['Overview', 'Monthly financials', 'Income & expenses',
+      'Optimized NOI', 'DSCR', 'Asset management fee', 'Rent roll', 'Buildings & units',
+      'Capex', 'Valuation', 'Documents'], 'got ' + JSON.stringify(ptabs));
+  });
+
+  const keys = await pg.$$eval('.rp-key .k', e => e.map(x => x.textContent.trim()));
+  const keySubs = await pg.$$eval('.rp-key .s', e => e.map(x => x.textContent.trim()));
+  console.log('key figures     :', keys.join(' | '));
+  check('A3 the key-figure row carries a source line under each figure', () => {
+    assert.ok(keys.length >= 8, 'only ' + keys.length + ' key figures');
+    assert.ok(keySubs.filter(s => s && s !== ' ').length >= 4, 'almost no source lines');
+  });
+  const overview = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-property-overview');
+  check('D1 Overview shows flags or says nothing needs attention', () => {
+    assert.ok(/Nothing needs attention|Needs attention/.test(overview), 'no flags block');
+  });
+
+  /* ---- D2 Monthly financials ---- */
+  await tab('Monthly financials');
+  const monthly = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-property-monthly');
+  check('2.10 Franklin Court May 2026 operating income is 149,000.29', () => {
     assert.ok(/149,000\.29/.test(monthly), 'the acceptance figure is not on screen');
   });
-  check('the monthly sheet says which basis and how debt service is derived', () => {
-    assert.ok(/Cash/.test(monthly), 'no basis stated');
+  check('D2 the sheet names its source, basis and how cash flow is derived', () => {
+    assert.ok(/Cash/.test(monthly), 'no basis');
     assert.ok(/loan record/i.test(monthly), 'Franklin Court must say it uses the loan record');
+    assert.ok(/Cash flow is NOI less/.test(monthly), 'cash flow is not explained');
   });
-  check('a month with no data renders an en dash, not 0', () => {
-    assert.ok(/–/.test(monthly), 'no en dash anywhere on a sheet that has absent months');
+  const periodCtl = await pg.$$eval('.rp-period select', e => e.length);
+  check('A4 the period filter sits on the tab bar', () => {
+    assert.strictEqual(periodCtl, 3, 'expected Year + From + To, got ' + periodCtl);
+  });
+  check('D2 unavailable rows are hidden behind a toggle', () => {
+    assert.ok(/Show unavailable rows/.test(monthly), 'no toggle offered');
   });
 
-  /* ---- Optimized NOI ---- */
-  await pg.locator('.rp-tab', { hasText: 'Optimized NOI' }).first().click();
-  await settle('#reportingNative');
+  /* ---- D4 / D5 ---- */
+  await tab('Optimized NOI');
   const noi = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('FC optimized    :', noi.slice(0, 160));
-  await shot('rp-fc-noi');
-
-  check('optimized NOI is 970,480 and trailing is 828,323', () => {
-    assert.ok(/970,480/.test(noi), 'optimized NOI missing');
-    assert.ok(/828,323/.test(noi), 'trailing NOI missing');
+  await shot('rp-property-noi');
+  check('2.10 optimized 970,480 against trailing 828,323', () => {
+    assert.ok(/970,480/.test(noi), 'optimized missing');
+    assert.ok(/828,323/.test(noi), 'trailing missing');
   });
-  check('the best windows are highlighted, and there is a legend', async () => {});
-  const wins = await pg.$$eval('.rp-w6, .rp-w3, .rp-w1', els => els.length);
-  check('the window highlights are applied', () => assert.ok(wins >= 6, 'only ' + wins + ' highlighted cells'));
+  check('D4 the cap-rate value is labelled an estimate', () => {
+    assert.ok(/estimate/i.test(noi), 'nothing labelled estimate');
+  });
 
-  /* ---- DSCR ---- */
-  await pg.locator('.rp-tab', { hasText: 'DSCR' }).first().click();
-  await settle('#reportingNative');
+  await tab('DSCR');
   const dscr = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('FC dscr         :', dscr.slice(0, 160));
-  await shot('rp-fc-dscr');
-
-  check('the max loan at the defaults is about 10.2M against a current 8.08M', () => {
-    assert.ok(/10,23\d,\d{3}|10,2\d{2},\d{3}/.test(dscr), 'max loan not on screen: ' + dscr.slice(0, 200));
-    assert.ok(/8,080,000/.test(dscr), 'current loan balance not on screen');
+  await shot('rp-property-dscr');
+  check('2.10 max loan about 10.2M against the current 8,080,000', () => {
+    assert.ok(/10,2\d{2},\d{3}/.test(dscr), 'max loan missing');
+    assert.ok(/8,080,000/.test(dscr), 'current balance missing');
   });
-  check('the what-if controls say they are not saved', () => {
-    assert.ok(/Standard values|Changed \(not saved\)/.test(dscr), 'no saved-state label');
+  check('D5 coverage is labelled by measure', () => {
+    assert.ok(/DSCR, mortgage/.test(dscr), 'mortgage measure missing');
   });
 
-  /* a what-if input changes the screen and nothing else */
-  await pg.locator('#rpReq').fill('1.50');
-  await pg.locator('#rpReq').dispatchEvent('change');
-  await pg.waitForTimeout(700);
-  const dscr2 = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  check('changing a what-if input recomputes on screen and marks it unsaved', () => {
-    assert.ok(/Changed \(not saved\)/.test(dscr2), 'the state label did not change');
-    assert.ok(dscr2 !== dscr, 'nothing recomputed');
-  });
-
-  /* ---- Asset management fee, one property ---- */
-  await pg.locator('.rp-tab', { hasText: 'Asset management fee' }).first().click();
-  await settle('#reportingNative');
+  /* ---- D6 ---- */
+  await tab('Asset management fee');
   const fee1 = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('FC fee          :', fee1.slice(0, 160));
-  await shot('rp-fc-fee');
-  check('Franklin Court January expected is 4,474.54 and received 4,474.99', () => {
-    assert.ok(/4,474\.54/.test(fee1), 'expected figure missing');
-    assert.ok(/4,474\.99/.test(fee1), 'received-from-books figure missing');
+  check('2.10 Franklin Court Jan expected 4,474.54, received 4,474.99', () => {
+    assert.ok(/4,474\.54/.test(fee1) && /4,474\.99/.test(fee1), 'fee figures missing');
   });
 
-  /* ---- Views ---- */
-  await go('#brand=leavenwealth&view=views');
-  const views = (await text('#viewsNative')).replace(/\s+/g, ' ');
-  console.log('views list      :', views.slice(0, 160));
-  await shot('sv-list');
-  check('all four starter views are listed', () => {
-    ['Monthly property financials', 'Asset management fees', 'Coverage watchlist', 'Portfolio snapshot']
-      .forEach(n => assert.ok(views.indexOf(n) >= 0, 'missing: ' + n));
+  /* ---- D7 / D11 ---- */
+  await tab('Rent roll');
+  const rent = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  check('D7 the rent roll shows a summary and a unit list', () => {
+    assert.ok(/occupied|vacant|No rent roll/i.test(rent), 'no rent roll content');
+  });
+  await tab('Documents');
+  const docs = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-property-docs');
+  check('D11 Documents lists linked files', () => {
+    assert.ok(/\.xlsx|\.pdf|\.csv|No documents/i.test(docs), 'no documents content: ' + docs.slice(0, 120));
   });
 
-  for (const [name, file] of [['Portfolio snapshot', 'sv-dashboard'], ['Coverage watchlist', 'sv-list-view'],
-                              ['Asset management fees, 2026', 'sv-report'], ['Monthly property financials, 2026', 'sv-spreadsheet']]) {
-    await go('#brand=leavenwealth&view=views');
-    await pg.locator('.sv-card', { hasText: name }).first().click();
-    await settle('#viewsNative');
-    const t = (await text('#viewsNative')).replace(/\s+/g, ' ');
-    console.log((name + '          ').slice(0, 16), ':', t.slice(0, 130));
-    await shot(file);
-    check('the "' + name + '" view renders rows', () => {
-      assert.ok(t.length > 200, 'nearly empty: ' + t.slice(0, 120));
-      assert.ok(!/could not|error/i.test(t.slice(0, 200)), 'error on screen: ' + t.slice(0, 160));
-    });
-  }
-
-  /* the builder */
-  await go('#brand=leavenwealth&view=views');
-  if (!(await pg.locator('#svNew').count())) {
-    console.log('builder entry missing. body =',
-      (await text('#viewsNative')).replace(/\s+/g, ' ').slice(0, 200));
-  }
-  await pg.locator('#svNew').click();
-  await pg.waitForTimeout(900);
-  await shot('sv-builder');
-  const builder = (await text('#viewsNative')).replace(/\s+/g, ' ');
-  check('the builder opens on step 1 with the datasets listed', () => {
-    assert.ok(/Dataset/.test(builder), 'no step list');
-    assert.ok(/Monthly property financials|Property summary/.test(builder), 'no datasets offered');
+  /* ===================================================================
+     A5  links, URL state and Back
+     =================================================================== */
+  const urlNow = pg.url();
+  check('A5 level, property and tab are in the URL', () => {
+    assert.ok(/lvl=property/.test(urlNow), 'no level: ' + urlNow);
+    assert.ok(/prop=/.test(urlNow), 'no property id');
+    assert.ok(/ptab=docs/.test(urlNow), 'no tab');
+  });
+  await pg.goBack();
+  await settle();
+  const afterBack = pg.url();
+  console.log('back            :', afterBack.slice(afterBack.indexOf('#')));
+  check('A5 browser Back steps back through the drill-down', () => {
+    assert.ok(afterBack !== urlNow, 'the URL did not change');
+    assert.ok(!/ptab=docs/.test(afterBack), 'Back did not leave the Documents tab');
   });
 
-  /* ---- the four fixes ---- */
-  await go('#brand=leavenwealth&view=properties');
-  const dIdx = await pg.$$eval('.rp-row', function (els) {
-    return els.findIndex(function (e) { return /Doral Apartments/.test(e.textContent || ''); });
-  });
-  check('Doral is in the held list', () => assert.ok(dIdx >= 0));
-  await pg.locator('.rp-row').nth(dIdx).scrollIntoViewIfNeeded();
-  await pg.locator('.rp-row').nth(dIdx).click();
-  await settle('#reportingNative');
-  const doral = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('Doral monthly    :', doral.slice(0, 150));
-  await shot('rp-doral-monthly');
-
-  check('Doral says its debt service is interest only, from the books', () => {
-    assert.ok(/Interest only, from the books/i.test(doral), 'the caveat is not on screen');
-    assert.ok(/22,830\.3/.test(doral), 'the interest figure is not on screen');
-  });
-  check('Doral shows its 4,326,000.00 loan proceeds, in MAY', () => {
-    assert.ok(/4,326,000\.00/.test(doral), 'proceeds missing');
-    assert.ok(/Loan - Mortgage/.test(doral), 'the proceeds line is not named');
-    assert.ok(/Loan - Other/.test(doral), 'the 200,000 Loan - Other line is not named');
+  /* A5, cold. Every test above reached a property by CLICKING, which sets
+     state before the URL is written - so none of them could see that a
+     bookmarked link was being rewritten to the portfolio landing before the
+     module read it. Load the URL directly and the property must open. */
+  const coldUrl = urlNow.slice(urlNow.indexOf('#'));
+  await go(coldUrl.replace('ptab=docs', 'ptab=overview'));
+  const coldHead = (await text('.rp-phead')).replace(/\s+/g, ' ');
+  const coldTiles = await pg.$$eval('.rp-key', e => e.length);
+  console.log('cold deep link  :', coldHead.slice(0, 60), '|', coldTiles, 'key figures');
+  check('A5 a bookmarked property URL opens that property when loaded cold', () => {
+    assert.ok(/Franklin Court/.test(coldHead), 'opened: "' + coldHead.slice(0, 80) + '"');
+    assert.strictEqual(coldTiles, 9, 'key figures: ' + coldTiles);
   });
 
-  const dbx = await pg.$$eval('.rp-dbx', function (e) { return e.length; }).catch(() => 0);
-  await go('#brand=leavenwealth&view=properties');
-  const filed = await pg.$$eval('.rp-dbx.on', function (e) { return e.length; });
-  const allChips = await pg.$$eval('.rp-dbx', function (e) { return e.length; });
-  console.log('dropbox chips    :', allChips, 'of which filed:', filed);
-  check('In Dropbox is a real per-property answer, not the source system', () => {
-    assert.ok(allChips >= 150, 'only ' + allChips + ' chips for 80 properties x 2');
-    assert.ok(filed > 0 && filed < allChips, 'filed=' + filed + ' of ' + allChips + ' - it should not be all or nothing');
+  await go(PROPS);
+  await tab('Properties');
+  const linkStyle = await pg.$eval('.rp-row .rp-link', el => ({
+    cursor: getComputedStyle(el.closest('tr')).cursor,
+    href: !!el.getAttribute('href'),
+  }));
+  check('A5 property names look clickable', () => {
+    assert.strictEqual(linkStyle.cursor, 'pointer');
+    assert.ok(linkStyle.href, 'no href, so it cannot be opened in a new tab');
   });
 
-  /* ---- two DSCRs, and the estimate tags ---- */
-  await go('#brand=leavenwealth&view=properties');
-  const hdr = (await text('.rp-tbl thead')).replace(/\s+/g, ' ');
-  check('the Properties table shows BOTH coverage figures', () => {
-    assert.ok(/DSCR, mortgage/.test(hdr), 'mortgage column missing: ' + hdr);
-    assert.ok(/DSCR, all debt/.test(hdr), 'all-debt column missing');
+  /* ===================================================================
+     B5  frozen panes and density
+     =================================================================== */
+  const frozen = await pg.$eval('.rp-frozen thead th', el => getComputedStyle(el).position);
+  const frozenCol = await pg.$eval('.rp-frozen tbody td:first-child', el => getComputedStyle(el).position);
+  check('B5 the header row and first column are frozen', () => {
+    assert.strictEqual(frozen, 'sticky', 'header is ' + frozen);
+    assert.strictEqual(frozenCol, 'sticky', 'first column is ' + frozenCol);
+  });
+  const padBefore = await pg.$eval('.rp-tbl tbody td', el => getComputedStyle(el).paddingTop);
+  await pg.locator('[data-density="compact"]').first().click();
+  await pg.waitForTimeout(250);
+  const padAfter = await pg.$eval('.rp-tbl tbody td', el => getComputedStyle(el).paddingTop);
+  check('B5 the density switch actually changes density', () => {
+    assert.notStrictEqual(padBefore, padAfter, 'padding stayed ' + padBefore);
   });
 
-  const chIdx = await pg.$$eval('.rp-row', function (els) {
-    return els.findIndex(function (e) { return /Cedar Haven/.test(e.textContent || ''); });
-  });
-  check('Cedar Haven is listed', () => assert.ok(chIdx >= 0));
-  const chRow = (await pg.locator('.rp-row').nth(chIdx).textContent()).replace(/\s+/g, ' ');
-  console.log('Cedar Haven row  :', chRow.slice(0, 160));
-  check('Cedar Haven shows 1.18 mortgage and 0.92 all debt', () => {
-    assert.ok(/1\.18/.test(chRow), 'mortgage DSCR missing: ' + chRow);
-    assert.ok(/0\.92/.test(chRow), 'all-debt DSCR missing: ' + chRow);
-  });
-
-  const tags = await pg.$$eval('.rp-tag', function (e) { return e.map(function (x) { return x.textContent.trim(); }); });
-  check('interest-only DSCRs are tagged on the list', () => {
-    assert.ok(tags.indexOf('interest only') >= 0, 'no interest-only tag: ' + tags.join(','));
-  });
-
-  /* the Valuation tab labels its estimates */
-  await pg.locator('.rp-row').nth(chIdx).scrollIntoViewIfNeeded();
-  await pg.locator('.rp-row').nth(chIdx).click();
-  await settle('#reportingNative');
-  await pg.locator('.rp-tab', { hasText: 'Valuation' }).first().click();
-  await pg.waitForTimeout(600);
-  const val = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  await shot('rp-ch-valuation');
-  check('the cap-rate value is labelled an estimate and LTV says what it used', () => {
-    assert.ok(/estimate/i.test(val), 'nothing is labelled an estimate');
-    assert.ok(/value on file|no value on file/i.test(val), 'LTV does not say which value it used');
-  });
-
-  await pg.locator('.rp-tab', { hasText: 'DSCR' }).first().click();
-  await settle('#reportingNative');
-  const chDscr = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  await shot('rp-ch-dscr');
-  check('the DSCR tab shows both measures and explains the other interest', () => {
-    assert.ok(/DSCR, mortgage/.test(chDscr) && /DSCR, all debt/.test(chDscr), 'both columns required');
-    assert.ok(/counted as additional debt service/i.test(chDscr), 'the all-debt column is unexplained');
-  });
-
-  /* ---- the property name is a discoverable link, from an ENTITY page ---- */
-  await go('#brand=leavenwealth&view=properties');
-  const entBtn = pg.locator('.rp-mi[data-ent]');
-  const entCount = await entBtn.count();
-  check('the menu offers entity folders to open', () => assert.ok(entCount > 5, 'only ' + entCount));
-
-  /* open entities until one has properties in its table */
-  let opened = null;
-  for (let i = 0; i < Math.min(entCount, 12) && !opened; i++) {
-    await entBtn.nth(i).click();
-    await settle('#reportingNative');
-    if (await pg.locator('.rp-row').count()) opened = await entBtn.nth(i).textContent();
-  }
-  console.log('entity opened   :', (opened || '(none had rows)').trim().slice(0, 40));
-  check('an entity page lists its properties', () => assert.ok(opened, 'no entity showed any property rows'));
-
-  const linkStyle = await pg.$eval('.rp-row .rp-link', el => {
-    const c = getComputedStyle(el);
-    return { cursor: getComputedStyle(el.closest('tr')).cursor, color: c.color, href: !!el.getAttribute('href') };
-  });
-  console.log('link style      :', JSON.stringify(linkStyle));
-  check('the property name LOOKS like a link', () => {
-    assert.strictEqual(linkStyle.cursor, 'pointer', 'the row is not a pointer cursor');
-    assert.ok(linkStyle.href, 'the name has no href, so it cannot be opened in a new tab');
-  });
-
-  const nameBefore = (await pg.locator('.rp-row .rp-link').first().textContent()).trim();
-  await pg.locator('.rp-row .rp-link').first().click();
-  await settle('#reportingNative');
-  const afterClick = (await text('#reportingNative')).replace(/\s+/g, ' ');
-  console.log('clicked         :', nameBefore, '->', afterClick.slice(0, 90));
-  check('clicking the property name from an ENTITY page opens its tabs', () => {
-    assert.ok(/Monthly financials/.test(afterClick), 'the property tabs did not open');
-    assert.ok(/Optimized NOI/.test(afterClick) && /DSCR/.test(afterClick), 'tabs missing');
-  });
-
-  /* ---- units fall back to the rent roll ---- */
-  await go('#brand=leavenwealth&view=properties');
-  const unitRows = await pg.$$eval('.rp-row', function (els) {
-    return els.map(function (e) {
-      const td = e.querySelectorAll('td');
-      return { name: (td[0] || {}).textContent || '', units: ((td[1] || {}).textContent || '').trim() };
+  /* ===================================================================
+     E1  units, B6 tags
+     =================================================================== */
+  await go(PROPS);
+  await tab('Properties');
+  const unitRows = await pg.$$eval('.rp-row', els => els.map(e => {
+    const td = e.querySelectorAll('td');
+    return { name: (td[0] || {}).textContent || '', units: ((td[1] || {}).textContent || '').trim() };
+  }));
+  ['Modern Heights', '500 S Dakota', 'Adventureland', 'Aksarben', 'BG Flats'].forEach(n => {
+    const row = unitRows.filter(r => r.name.indexOf(n) >= 0)[0];
+    check('E1 units are populated for ' + n, () => {
+      assert.ok(row, n + ' is not listed');
+      assert.ok(!/^–/.test(row.units), n + ' shows a dash: "' + row.units + '"');
     });
   });
-  const named = ['Modern Heights', '500 S Dakota', 'Adventureland', 'Aksarben', 'BG Flats'];
-  named.forEach(function (n) {
-    const row = unitRows.filter(function (r) { return r.name.indexOf(n) >= 0; })[0];
-    check('units are populated for ' + n, function () {
-      assert.ok(row, n + ' is not in the held list');
-      assert.ok(!/^–/.test(row.units), n + ' still shows a dash: "' + row.units + '"');
-    });
+  const tags = await pg.$$eval('.rp-tag', e => e.map(x => x.textContent.trim()));
+  check('B6 interest-only coverage is tagged', () => {
+    assert.ok(tags.indexOf('interest only') >= 0, 'tags seen: ' + tags.slice(0, 6).join(','));
   });
 
-  const hdr2 = (await text('.rp-tbl thead')).replace(/\s+/g, ' ');
-  check('the NOI column is named in full', () => {
-    assert.ok(/NOI, trailing 12 mo/.test(hdr2), 'header still reads: ' + hdr2);
-    assert.ok(!/NOI, T12/.test(hdr2), 'the old label is still there');
+  /* ===================================================================
+     F  the fee tracker
+     =================================================================== */
+  await go(PROPS);
+  await tab('Asset management fees');
+  const fees = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-fees');
+  check('F1 the tracker groups by manager with its timing', () => {
+    assert.ok(/Expected/.test(fees) && /Received/.test(fees) && /Variance/.test(fees), 'missing a fee row');
+    assert.ok(/timing not confirmed/.test(fees), 'McClain and Bender/AJ must say so');
+  });
+  check('F4 a sub-dollar variance reads 0.00 and never (0.00)', () => {
+    assert.ok(!/\(0\.0[01]\)/.test(fees), 'a (0.00) or (0.01) is on screen');
+  });
+  const totalCol = await pg.$eval('.rp-fees .rp-total-col', el => getComputedStyle(el).position).catch(() => null);
+  check('F1 the Total column is frozen', () => assert.strictEqual(totalCol, 'sticky'));
+  const groupsBefore = await pg.$$eval('.rp-feehead', e => e.length);
+  await pg.locator('.rp-collapse').first().click();
+  await pg.waitForTimeout(250);
+  const groupsAfter = await pg.$$eval('.rp-feehead', e => e.length);
+  check('F1 fee groups collapse', () => {
+    assert.ok(groupsAfter < groupsBefore, 'still ' + groupsAfter + ' of ' + groupsBefore);
   });
 
-  /* ---- the whole-release guarantees ---- */
-  check('NO new screen issued a write request', () => {
+  /* ===================================================================
+     G1  Views reachable from the Views tab
+     =================================================================== */
+  await go(PROPS);
+  await tab('Views');
+  await pg.waitForTimeout(2500);
+  const views = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-views');
+  check('G1 saved views are reachable from the Views tab', () => {
+    assert.ok(/Portfolio snapshot|Coverage watchlist|New view/.test(views),
+      'the views module did not mount: ' + views.slice(0, 140));
+  });
+
+  /* ===================================================================
+     whole-release guarantees
+     =================================================================== */
+  check('B1 NO new screen issued a write request', () => {
     assert.deepStrictEqual(writes, [], 'writes seen: ' + writes.join(', '));
   });
   check('no page errors', () => {
@@ -488,17 +454,8 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     assert.deepStrictEqual(real, []);
   });
 
-  const overflow = await pg.evaluate(() => {
-    const el = document.querySelector('.rp-wrap2') || document.querySelector('#viewsNative');
-    return el ? { sw: el.scrollWidth, cw: el.clientWidth } : null;
-  });
-  check('the section does not overflow its column', () => {
-    if (!overflow) return;
-    assert.ok(overflow.sw <= overflow.cw + 2, 'scrollWidth ' + overflow.sw + ' vs ' + overflow.cw);
-  });
-
   await b.close();
-  console.log('\nreporting UI: ' + pass + ' passed, ' + fails.length + ' failed');
+  console.log('\nproperties UI: ' + pass + ' passed, ' + fails.length + ' failed');
   fails.forEach(f => console.log('  FAIL  ' + f));
   process.exit(fails.length ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

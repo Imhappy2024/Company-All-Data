@@ -13,22 +13,6 @@
    there still re-themes this section with everything else.
    =========================================================================== */
 
-.rp-wrap2 { display: grid; grid-template-columns: 232px minmax(0, 1fr); gap: 18px; align-items: start; }
-@media (max-width: 900px) { .rp-wrap2 { grid-template-columns: 1fr; } }
-
-/* ---- left menu ---- */
-.rp-side { position: sticky; top: 8px; }
-.rp-menu { display: flex; flex-direction: column; gap: 2px; }
-.rp-mi {
-  display: flex; align-items: center; gap: 8px; width: 100%;
-  padding: 7px 10px 7px 14px; border: 0; background: transparent; cursor: pointer;
-  color: var(--ink-2); font: inherit; font-size: 13px; text-align: left;
-  border-radius: var(--r-sm); border-left: 2px solid transparent;
-}
-.rp-mi:hover { background: var(--panel-2); color: var(--ink-1); }
-.rp-mi.on { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--ink-1); border-left-color: var(--accent); }
-.rp-mi-ic { opacity: .55; font-size: 10px; }
-.rp-mi-prop { font-weight: 600; }
 
 /* ---- breadcrumb + tabs ---- */
 .rp-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 10px; font-size: 12px; }
@@ -184,8 +168,8 @@
 .sv-probs { border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); border-radius: var(--r-md);
   padding: 10px 12px; margin-bottom: 12px; font-size: 12px; color: var(--warn); }
 @media print {
-  .rp-side, .rp-tabs, .rp-bar, .sv-steps, .sv-head { display: none !important; }
-  .rp-wrap2 { grid-template-columns: 1fr; }
+  .rp-tabs, .rp-bar, .rp-period, .rp-crumb, .sv-steps, .sv-head { display: none !important; }
+  .rp-scroll { max-height: none; overflow: visible; }
 }
 
 /* In Dropbox chips. Absent is a dashed outline rather than a missing chip:
@@ -233,3 +217,273 @@
 @media (prefers-reduced-motion: reduce) {
   .rp-skel-bar, .rp-skel-cell { animation: none; }
 }
+
+/* ===========================================================================
+   Three-level drill-down: full width, no sidebar.
+
+   Motion follows the design-engineering rules: nothing seen dozens of times a
+   day animates, no `transition: all`, hover is gated behind a real pointer so
+   a tap cannot leave a stuck hover state, and every transition names its
+   properties and stays well under 300ms.
+   =========================================================================== */
+.rp-full { width: 100%; }
+.rp-spacer { flex: 1 1 auto; }
+.rp-sub { font-size: 11px; line-height: 1.3; margin-top: 2px; }
+
+/* ---- breadcrumb ---- */
+.rp-crumb { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-bottom: 12px; font-size: 12px; }
+.rp-crumb-b {
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer; font: inherit;
+  padding: 3px 6px; border-radius: 6px;
+  transition: color 120ms ease, background-color 120ms ease, transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+@media (hover: hover) and (pointer: fine) {
+  .rp-crumb-b:hover { color: var(--ink-1); background: var(--panel-2); }
+}
+.rp-crumb-b:active { transform: scale(0.97); }
+.rp-crumb i { color: var(--ink-4); font-style: normal; }
+.rp-crumb span { color: var(--ink-1); font-weight: 600; padding: 3px 6px; }
+
+/* ---- key figures (A3) ---- */
+.rp-keys {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 1px; background: var(--border); border: 1px solid var(--border);
+  border-radius: var(--r-md); overflow: hidden; margin: 12px 0 16px;
+}
+.rp-key { background: var(--panel); padding: 10px 12px; min-width: 0; }
+.rp-key .k {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-4); font-family: var(--font-mono, inherit); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.rp-key .v {
+  font-size: clamp(14px, 1.25vw, 19px); font-weight: 700; margin-top: 3px;
+  font-family: var(--font-display, inherit); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere; line-height: 1.2;
+}
+.rp-key .s { font-size: 10px; color: var(--ink-4); margin-top: 3px; line-height: 1.3; }
+
+.rp-tagline {
+  display: inline-block; font-size: 9px; text-transform: uppercase; letter-spacing: .06em;
+  padding: 2px 7px; border-radius: 99px; border: 1px solid var(--border);
+  color: var(--ink-3); font-family: var(--font-mono, inherit); vertical-align: middle;
+  font-weight: 500;
+}
+.rp-code {
+  display: inline-block; margin-left: 6px; font-size: 9px; letter-spacing: .08em;
+  font-family: var(--font-mono, inherit); color: var(--ink-4);
+  border: 1px solid var(--border); border-radius: 4px; padding: 0 5px;
+}
+
+/* ---- period filter, at the right end of the tab bar (A4) ---- */
+.rp-tabs { align-items: center; }
+.rp-period { margin-left: auto; display: flex; align-items: center; gap: 6px; padding-bottom: 4px; }
+.rp-period .rp-inp { padding: 4px 7px; font-size: 12px; }
+
+/* ---- frozen header AND first column (B5) ----
+   Two sticky axes at once: thead cells stick to the top, the first cell of
+   every row sticks to the left, and the top-left cell needs the higher
+   z-index or the header scrolls over it. */
+.rp-scroll { overflow: auto; max-height: calc(100vh - 260px); }
+.rp-frozen thead th { position: sticky; top: 0; z-index: 2; background: var(--panel); }
+.rp-frozen tbody td:first-child,
+.rp-frozen tfoot td:first-child {
+  position: sticky; left: 0; z-index: 1; background: var(--panel);
+  box-shadow: 1px 0 0 var(--border);
+}
+.rp-frozen thead th:first-child { z-index: 3; }
+.rp-frozen tfoot td { position: sticky; bottom: 0; z-index: 2; background: var(--panel-2); }
+.rp-frozen tfoot td:first-child { z-index: 3; background: var(--panel-2); }
+.rp-total-col { position: sticky; right: 0; background: var(--panel); box-shadow: -1px 0 0 var(--border); }
+.rp-frozen tfoot .rp-total-col { background: var(--panel-2); }
+
+/* Normal-case headers with readable contrast. Tracked uppercase mono was
+   hard to scan across fourteen columns. */
+.rp-tbl thead th {
+  text-transform: none; letter-spacing: 0; font-size: 11px;
+  color: var(--ink-2); font-family: inherit; font-weight: 600;
+}
+
+/* ---- density (B5) ---- */
+.rp-comfortable .rp-tbl th, .rp-comfortable .rp-tbl td { padding: 7px 10px; }
+.rp-compact .rp-tbl th, .rp-compact .rp-tbl td { padding: 3px 8px; font-size: 12px; }
+.rp-compact .rp-sub { display: none; }
+.rp-btn { transition: color 120ms ease, border-color 120ms ease, transform 120ms cubic-bezier(0.23, 1, 0.32, 1); }
+.rp-btn.on { color: var(--ink-1); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.rp-btn:active { transform: scale(0.97); }
+
+/* one-line names with the source tag beside them */
+.rp-tbl td:first-child { white-space: nowrap; }
+
+/* ---- Overview ---- */
+.rp-ok-box {
+  border: 1px solid color-mix(in srgb, var(--good) 40%, transparent);
+  background: color-mix(in srgb, var(--good) 8%, transparent);
+  color: var(--good); border-radius: var(--r-md); padding: 12px 14px; font-size: 13px;
+}
+.rp-flags { list-style: none; margin: 0 0 18px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.rp-flags li {
+  display: flex; align-items: flex-start; gap: 9px; font-size: 13px; line-height: 1.45;
+  border: 1px solid var(--border); border-radius: var(--r-sm); padding: 9px 12px;
+}
+.rp-flag-dot { width: 7px; height: 7px; border-radius: 50%; margin-top: 6px; flex: 0 0 auto; }
+.rp-flag-bad { border-color: color-mix(in srgb, var(--crit) 35%, transparent); }
+.rp-flag-bad .rp-flag-dot { background: var(--crit); }
+.rp-flag-warn { border-color: color-mix(in srgb, var(--warn) 35%, transparent); }
+.rp-flag-warn .rp-flag-dot { background: var(--warn); }
+.rp-flag {
+  display: inline-block; min-width: 20px; text-align: center; font-size: 11px;
+  border-radius: 99px; padding: 1px 7px; font-family: var(--font-mono, inherit);
+  background: color-mix(in srgb, var(--warn) 16%, transparent); color: var(--warn);
+}
+.rp-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 18px; }
+.rp-h5 {
+  margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--ink-4); font-family: var(--font-mono, inherit);
+}
+.rp-path { font-size: 11px; max-width: 420px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- fee tracker ---- */
+.rp-collapse {
+  border: 0; background: transparent; color: var(--ink-3); cursor: pointer;
+  font: inherit; font-size: 11px; padding: 0 7px 0 0;
+  transition: transform 120ms cubic-bezier(0.23, 1, 0.32, 1);
+}
+.rp-collapse:active { transform: scale(0.9); }
+.rp-rowempty td { opacity: .45; }
+
+/* F4: tints, not blocks. A month of solid fills drowns the figures. */
+.rp-vneg { background: color-mix(in srgb, var(--crit) 10%, transparent); color: var(--crit); }
+.rp-vpos { background: color-mix(in srgb, var(--good) 9%, transparent); color: var(--good); }
+.rp-vzero { color: var(--ink-4); }
+
+@media (max-width: 760px) {
+  .rp-keys { grid-template-columns: repeat(2, 1fr); }
+  .rp-period { margin-left: 0; width: 100%; }
+  .rp-scroll { max-height: none; }
+}
+
+/* ===========================================================================
+   Design-skill pass: ui-ux-pro-max, impeccable, Emil Kowalski, taste.
+   Each rule below names the finding it fixes.
+   =========================================================================== */
+
+/* CONTRAST (ui-ux-pro-max: 4.5:1 for normal text). The LeavenWealth brand
+   accent measures 3.90:1 on the panel, and the property name is the one
+   element people must find to navigate. 75% accent + 25% white keeps the
+   brand hue at 5.90:1; the light theme mixes toward black instead, because
+   lightening a link on a light ground makes it worse, not better. */
+.rp-link { color: color-mix(in srgb, var(--accent) 75%, white); }
+:root[data-theme="light"] .rp-link { color: color-mix(in srgb, var(--accent) 82%, black); }
+
+/* FOCUS (impeccable: states include keyboard focus). A table of links
+   reached by Tab needs a visible ring, and the default outline is a browser
+   default that belongs to no design system. */
+.rp-link:focus-visible,
+.rp-tab:focus-visible,
+.rp-btn:focus-visible,
+.rp-crumb-b:focus-visible,
+.rp-collapse:focus-visible,
+.sv-chk:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 75%, white);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.rp-row:focus-within td { background: var(--panel-2); }
+
+/* BROWSER SURFACES (impeccable: selection, scrollbars and tabular numerals
+   ship with browser defaults unless themed). */
+.rp-full ::selection { background: color-mix(in srgb, var(--accent) 38%, transparent); color: var(--ink-1); }
+.rp-scroll { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+.rp-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+.rp-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 99px; border: 2px solid var(--panel); }
+.rp-scroll::-webkit-scrollbar-track { background: transparent; }
+.rp-key .v, .rp-tbl td.r { font-variant-numeric: tabular-nums; }
+
+/* KEY FIGURES (impeccable layout; the fallback default after ui-ux-pro-max
+   returned no database match for a KPI-strip query). Nine figures in an
+   auto-fit grid put the ninth alone on a second row over an empty band.
+   Nine in one row on a wide screen, three by three on a medium one, two
+   across on a phone - every count divides evenly. */
+.rp-keys { grid-template-columns: repeat(9, minmax(0, 1fr)); }
+@media (max-width: 1280px) { .rp-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+/* Nine does not divide by two: a two-up grid on a phone left the ninth tile
+   alone on a fifth row, the same empty band as before at a smaller size.
+   Three across divides nine evenly at every width that matters. */
+@media (max-width: 760px)  { .rp-keys { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 760px)  { .rp-key { padding: 8px 9px; } .rp-key .s { font-size: 9px; } }
+
+/* HEADER META. Labelled fields instead of a line strung together with
+   middle dots (taste: one dot per line, at most). */
+.rp-meta {
+  display: flex; flex-wrap: wrap; gap: 6px 28px; margin: 6px 0 0; padding: 0;
+}
+.rp-meta > div { display: flex; flex-direction: column; min-width: 0; }
+.rp-meta dt {
+  font-size: 10px; color: var(--ink-4); margin: 0;
+}
+.rp-meta dd { margin: 1px 0 0; font-size: 13px; color: var(--ink-2); overflow-wrap: anywhere; }
+
+/* OVERVIEW KEY/VALUE. The labels and values collided ("heldUnits",
+   "appfolioUnits source") because `white-space: nowrap` on every first
+   column - added to keep property NAMES on one line - also applied here,
+   so long values could not wrap and spilled into the next group. Nowrap is
+   now scoped to the frozen data tables it was written for. */
+.rp-tbl td:first-child { white-space: normal; }
+.rp-frozen td:first-child { white-space: nowrap; }
+.rp-kv { table-layout: fixed; width: 100%; }
+.rp-kv td:first-child { width: 44%; color: var(--ink-3); padding-right: 12px; }
+.rp-kv td.r { overflow-wrap: anywhere; color: var(--ink-1); }
+
+/* SOURCE NOTE (impeccable refuse: a colored border-left above 1px on a
+   callout). A quiet tinted panel carries the same "this is context" signal. */
+.rp-src-note {
+  border-left: 0; padding: 9px 12px;
+  background: color-mix(in srgb, var(--panel-2) 70%, transparent);
+  border-radius: var(--r-sm);
+}
+
+/* DISCLOSURE CHEVRON (impeccable refuse: unicode glyphs as icons). Drawn from
+   the portal's own icon set; rotates on open. 160ms ease-out with a strong
+   curve (Emil Kowalski: UI motion under 300ms, never ease-in), and it is
+   motion with a purpose - it shows which way the group will go. */
+.rp-collapse {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; margin-right: 6px; padding: 0; vertical-align: middle;
+  border-radius: 6px; color: var(--ink-3);
+}
+.rp-collapse svg { width: 14px; height: 14px; transition: transform 160ms cubic-bezier(0.23, 1, 0.32, 1); }
+.rp-collapse.open svg { transform: rotate(90deg); }
+@media (hover: hover) and (pointer: fine) {
+  .rp-collapse:hover { background: var(--panel-2); color: var(--ink-1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rp-collapse svg { transition: none; }
+}
+
+/* Key/value cells are right-aligned TEXT, and they borrowed `.r` for the
+   alignment - which also carries the numeric columns' `white-space: nowrap`.
+   A long owner name or address then could not wrap and ran out of its cell. */
+.rp-kv td.r { white-space: normal; }
+
+/* A figure must NEVER break inside its digits. overflow-wrap:anywhere on the
+   key figures let "$10,100,000" split as "$10,100,00" over "0", which reads
+   as a different amount. The figure stays on one line and the type scales to
+   the tile instead - nine across leaves about 107px of content width, and
+   the longest live figure is eleven characters. */
+.rp-key .v {
+  white-space: nowrap; overflow-wrap: normal;
+  font-size: clamp(12px, 1.02vw, 18px);
+}
+@media (max-width: 1280px) { .rp-key .v { font-size: clamp(14px, 1.9vw, 19px); } }
+@media (max-width: 760px)  { .rp-key .v { font-size: clamp(12px, 3.4vw, 15px); } }
+
+/* Size the figure to the TILE, not the viewport. Viewport units cannot know
+   how much width the portal chrome takes at a given breakpoint, so a figure
+   sized by vw still overflowed a narrow tile on a phone. A container query
+   reads the tile's own inline size, so the type always fits the box it is in.
+   cqi = 1% of the tile's inline size; eleven characters need about 11-12. */
+.rp-key { container-type: inline-size; }
+.rp-key .v { font-size: clamp(11px, 13.5cqi, 20px); }
+@media (max-width: 1280px) { .rp-key .v { font-size: clamp(11px, 13.5cqi, 20px); } }
+@media (max-width: 760px)  { .rp-key .v { font-size: clamp(11px, 13.5cqi, 20px); } }

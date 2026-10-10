@@ -443,6 +443,9 @@ const _IW='viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1
 const _svg=(p,w)=>`<svg ${w?_IW.replace('1.4',w):_IW}>${p}</svg>`;
 const I={
   home:_svg('<path d="M2.5 6.6 8 2.5l5.5 4.1V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z"/>'),
+  /* disclosure chevron, drawn in this set's own 1.4 stroke so it is not a
+     unicode triangle standing in for an icon */
+  chev:_svg('<path d="m6 4 4 4-4 4"/>'),
   grid:_svg('<rect x="2.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="2.2" y="9.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="9.2" width="4.6" height="4.6" rx="1"/>'),
   check:_svg('<path d="M3 8.6l3 3 7-7.2"/>'),
   target:_svg('<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.5"/>'),
@@ -472,6 +475,11 @@ const I={
   sun:_svg('<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v1.5M8 13.1v1.5M14.6 8h-1.5M2.9 8H1.4M12.7 3.3l-1 1M4.3 11.7l-1 1M12.7 12.7l-1-1M4.3 4.3l-1-1"/>'),
   moon:_svg('<path d="M13.4 9.6A5.8 5.8 0 0 1 6.4 2.6a5.9 5.9 0 1 0 7 7z"/>'),
 };
+/* The section modules (portal-reporting.js and friends) are separate files and
+   cannot see this const, so they used unicode glyphs instead. Exposing it keeps
+   every icon in one stroke weight. */
+window.PortalIcons=I;
+
 
 const BRANDS={
   /* `logo` is optional - a brand without one keeps the tinted initials chip, and
@@ -1368,6 +1376,14 @@ function writeState(){
     p.set('brand',brand);p.set('view',view);
     const sub=SUBOF[view]&&SUBOF[view]();
     if(sub)p.set('sub',sub);
+    /* A section can contribute its own deep-link params. writeState rebuilds
+       the fragment from scratch, so anything a section wrote directly would be
+       stripped on the next render - Properties needs level, entity, property,
+       tab and period in the URL for a property page to be shareable. */
+    if(view==='properties' && window.PortalReporting && PortalReporting.urlParams){
+      const extra=PortalReporting.urlParams()||{};
+      Object.keys(extra).forEach(k=>{ if(extra[k]!==null&&extra[k]!==undefined&&extra[k]!=='') p.set(k,extra[k]); });
+    }
     /* ?v= is the one-shot hand-back from the ClickUp round trip (see
        defaultReturnPath in portal-auth.js). It has been consumed by now, so drop
        it - leaving it would pin the URL to a screen you have since navigated off. */

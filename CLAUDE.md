@@ -2249,6 +2249,76 @@ suite. A fixture cannot answer it, and asserting it against one would be the
 vacuous-test failure recorded under Financials above. It needs a live
 connection.
 
+## Properties is a three-level drill-down (docs/PROPERTIES_SPEC.md)
+
+`docs/PROPERTIES_SPEC.md` is the single source of truth for this section and
+supersedes every earlier instruction about Properties and Views. Read it
+before changing anything here.
+
+    Portfolio  ->  Entity  ->  Property
+    tabs: Entities | Properties | Asset management fees | Views
+                    tabs: Properties | Asset management fees
+                              tabs: Overview ... Documents (11)
+
+**There is no sidebar.** The entity tree listed 106 legal entities as
+navigation, which is a directory rather than a route, and it took a third of
+the width from the tables. Navigation is drill-down plus breadcrumb.
+
+**The entity level is the MANAGING entity, not the owner LLC.**
+`entity.manager_entity_id` groups 130 legal entities into 17 managers, which
+is how the portfolio is actually run. 35 held properties have no managing
+entity on file; they are a real group under `?managing=none`, reachable and
+counted, because a property with no manager recorded is a gap to close, not a
+property to hide.
+
+### The URL carries level, entity, property, tab and period
+`lvl`, `ent`, `prop`, `ptab`, `yr`, `fm`, `tm`. portal.html's `writeState()`
+rebuilds the fragment from scratch on every render, so these ride through the
+`PortalReporting.urlParams()` hook; written directly into the hash they were
+stripped by the next render. Navigation inside the section PUSHES, so browser
+Back steps back through the drill-down.
+
+**A bookmarked link was broken by load order, and only a cold load showed
+it.** `writeState()` runs inside `render()` BEFORE `mount()`, and it asked
+`urlParams()` for state the module had not read yet, so it rewrote a property
+URL to the portfolio landing before the module saw it. Every test reached a
+property by clicking, which sets state first, so none could see this.
+`ensureUrlRead()` reads the URL once on first use, and the suite now loads a
+property URL cold.
+
+### Stale responses are dropped (A6)
+Every load carries a sequence number and a response whose number is no longer
+current is discarded. Without it, switching entity while a slower request was
+in flight let the older response land last and repaint the new screen with
+the old entity's rows. Nothing about the response says it is stale; only the
+sequence does.
+
+### Design pass: what each skill caught
+Run against the rendered screens, not the source. Findings were fixed in one
+batch and confirmed with measurements, not by eye.
+
+| Skill | Finding |
+|---|---|
+| ui-ux-pro-max | LeavenWealth link colour **3.90:1**, fails AA on the element people must find to navigate. Now 75% accent + white, **5.89:1** measured. Light theme mixes toward black instead. |
+| impeccable | unicode `▾ ▸` standing in for icons (now the portal's own thin-line set, exposed as `window.PortalIcons`); a 2px left-border callout; unthemed selection, scrollbars and focus rings |
+| Emil Kowalski | nothing seen dozens of times a day animates; hover gated behind a real pointer; every transition names its properties and stays under 300ms |
+| taste | **out of scope for dashboards and data tables by its own rules**, so only its cross-cutting ones apply: no em-dashes in copy, middle dots rationed (the header line had four) |
+
+The `–` not-available marker stays: the spec mandates it (B2).
+
+### Two layout bugs worth knowing the cause of
+- **Labels and values collided** on Overview ("heldUnits"). The
+  `white-space: nowrap` added to keep property NAMES on one line applied to
+  every first column, including the key/value tables; and the key/value
+  cells borrowed `.r` for right-alignment, which carries the numeric columns'
+  nowrap too. Nowrap is now scoped to `.rp-frozen`.
+- **A figure split mid-number**: `overflow-wrap: anywhere` broke
+  "$10,100,000" into "$10,100,00" over "0", which reads as a different
+  amount. Figures are `nowrap` and sized to the TILE with a container query
+  (`cqi`), because viewport units cannot know how much width the portal
+  chrome takes at a given breakpoint. Nine figures sit one row on desktop and
+  3x3 on a phone; nine does not divide by two.
+
 ## Properties is the curated-dataset section now (Phase 2), and it is READ-ONLY
 
 `reporting-api.js` + `public/portal-reporting.{js,css}`, mounted at

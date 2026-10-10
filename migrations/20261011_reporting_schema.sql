@@ -785,8 +785,22 @@ select
   p.id,
   p.tenant_id,
   coalesce(p.dba_name, p.trade_name) as name,
+  -- The OWNER LLC, which is what property.entity_id points at.
   e.id            as entity_id,
   e.name          as entity_name,
+  -- The MANAGING entity, which is the level the portfolio drills through.
+  -- entity.manager_entity_id gives 17 of them across the portfolio; 35 held
+  -- properties have none, and they are bucketed rather than hidden - a
+  -- property with no manager on file is a gap to close, not a property to
+  -- drop off the navigation.
+  m.id            as managing_entity_id,
+  m.name          as managing_entity_name,
+  p.street,
+  p.zip,
+  p.asset_type,
+  p.year_built,
+  p.purchase_price,
+  p.purchase_date,
   p.management_company as pm_company,
   tr12.accounting_basis,
   rep.source_system,
@@ -843,6 +857,7 @@ select
 from public.property p
 left join units u      on u.property_id = p.id
 left join public.entity e on e.id = p.entity_id
+left join public.entity m on m.id = e.manager_entity_id
 left join trailing_12 tr12 on tr12.property_id = p.id
 left join opt          on opt.property_id = p.id and opt.accounting_basis = tr12.accounting_basis
 left join debt d       on d.property_id = p.id
