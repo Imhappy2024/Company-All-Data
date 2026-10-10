@@ -1883,6 +1883,128 @@ blanking the page.
 Folio's real billing lives on **Reports & Financials** and **App Users** — see
 "Folio Excel: Reports & Financials, App Users, and Whop billing" above.
 
+## Curated datasets (`reporting` schema) - Phase 1, NOT YET APPLIED
+
+`migrations/20261011_reporting_schema.sql` + `config/datasets.js` + `am-fee-rules.js`.
+Six views that encode the data rules once, so no screen reads `t12_monthly`,
+`rent_roll_line` or `loan` directly. **The migrations are written and reviewed
+but NOT applied** - `migrations/` is review-only, and these are waiting on Jay.
+
+### The schema was discovered by PROBING, because no credential was available
+There is no `.env` in this repo, the Supabase and database connectors were
+disconnected, and Railway returns variable names with `valuesRedacted: true`
+over OAuth. So the column lists were established by asking PostgREST for one
+column at a time with the publishable anon key: a missing column answers
+`42703`, a missing table answers `PGRST205`, and a table that exists but is
+RLS-closed answers `[]`. **No row was read** - anon has no grant, which is
+correct and is also the reason the content checks below could not be made.
+
+That technique is worth keeping. It settles whether a column exists in one
+command, and this file's opening rule is that a described artifact must be
+queried rather than believed.
+
+### Three things in the brief are not in the database
+Found this way, before any view was written:
+
+| Brief says | Reality |
+|---|---|
+| loan principal from `balance_sheet_change` | **that table does not exist.** The only balance-sheet source is `v_gl_balance_sheet`, keyed by ENTITY and holding balances rather than movements. An entity can own several properties, so principal cannot be apportioned to one. |
+| `rent_roll_unit.tenant` | `rent_roll_line` has **no tenant or resident name column**. |
+| `property_financials.non_recurring_fee_income` | no such column. `recurring_fee_income`, `total_expected_income` and `economic_occupancy` are all present. |
+
+`principal` is therefore NULL and `debt_service_source` resolves to
+`loan_record` for every property, which is why the brief's Dakota Bend debt
+service figure cannot be reproduced from the income statement. The `tenant`
+field stays in the registry marked `unavailable` so it renders as a dash
+rather than quietly disappearing from the contract.
+
+### The verified column lists
+`t12_monthly` has **no foreign key to `t12_report`** - the newest export is
+already materialised into it, so `first_active_month` joins on
+(property_id, accounting_basis) and takes the EARLIEST on file.
+
+    t12_monthly      tenant_id property_id month accounting_basis section
+                     account_path depth line_label is_total amount sort_order
+    t12_report       tenant_id property_id entity_id period_start period_end
+                     accounting_basis first_active_month source_system
+                     document_id report_type
+    rent_roll_report tenant_id property_id as_of_date source_system document_id
+    rent_roll_line   tenant_id rent_roll_report_id unit_id unit_label beds baths
+                     occupancy_status rent market_rent balance_due lease_start
+                     lease_end move_in move_out square_feet sort_order
+
+### What is still UNVERIFIED, and why it matters
+The **content vocabulary** - the `section` values and the line-label spellings
+that pick out rent, capex, the asset management fee and mortgage interest.
+Those are taken from the brief, not read from rows, because no row is readable
+without the service role. Every one of them fails **silently to NULL** if the
+spelling is wrong, which on screen is indistinguishable from "no data for this
+month". They are isolated in ONE place, `reporting.t12_tagged`, and the query
+that confirms them is at the bottom of the migration. Run it before applying.
+
+### `fee_pct` is a WHOLE percent; `loan.interest_rate_pct` is a FRACTION
+2 means 2% in `am_fee_schedule.fee_pct`, and 0.035 means 3.50% in
+`loan.interest_rate_pct`. Two columns ending `_pct` with opposite conventions
+is a trap, so the divisor is a named constant in `am-fee-rules.js` and a CHECK
+constraint (0..100) is on the column. `reporting.loan` multiplies the loan one
+by 100 once, so no screen has to remember.
+
+### `am-fee-rules.js` is the specification; the SQL is what runs
+The fee arithmetic exists twice on purpose: in `reporting.am_fee_month`, which
+the screens read, and as pure functions, which the tests exercise. A rule you
+can only run by standing up Postgres is a rule whose edge cases nobody checks.
+Nothing requires `am-fee-rules.js` in production.
+
+**They are not automatically kept in agreement, and that is the open risk.**
+`tools/check-folio-sql.js` is the pattern for closing it and has not been
+written for this yet. Two divergences were already found and fixed this way:
+the JS read the LOCAL clock while the view reads the database's `current_date`
+(which flips variance between `-expected` and `null` for the first hours of a
+month in Asia/Manila), and the expected-fee CASE was written twice inside one
+view, so its `expected` and `variance` columns could be edited into
+disagreeing with each other while both still ran.
+
+### The registry is an allowlist, and the server has no RLS behind it
+`config/datasets.js` is what stands between a user-authored saved-view config
+and generated SQL. `supabase-db` connects as the **postgres superuser**, so
+RLS never runs and `current_tenant_ids()` is never called - tenant scoping is
+this layer's job, exactly as it is `financials-api.js`'s.
+
+- `safeColumn()` resolves a field key to a quoted column, or null. Null means
+  "drop the field and say it is missing", never "pass it through".
+- `safeView()` exists because `reporting.property_month` has a dot in it and
+  `safeColumn` would reject it - the FROM clause is otherwise the one part of
+  a generated query with no allowlist behind it.
+- `tenantColumn()` **throws** rather than returning null. A missing scope must
+  never degrade into "no filter".
+- `safeOp` / `safeAggregate` / `safeDir` cover the other identifiers that get
+  concatenated. Filter VALUES are always bound parameters.
+- The registry is **deep-frozen**, because `getField` hands back the live
+  object and anything merging a stored config onto it would rewrite the
+  allowlist process-wide - after which `safeColumn` would happily validate the
+  mutated column.
+- A **load-time self-check throws** on a duplicate field, an unusable column,
+  a missing tenant scope, or a `defaultSort` naming a field that does not
+  exist. That last one is silent at runtime: it yields a dropped ORDER BY,
+  which reads as rows in the wrong order rather than as an error. It caught a
+  real one in `rent_roll_unit`.
+
+`hidden: true` is a UI hint, NOT authorization - a hidden field is still
+selectable by a hand-edited config. Anything that must not leave the server
+belongs out of `fields` entirely.
+
+### Tests
+    node test/test-am-fees.js    # 17 checks, the fee arithmetic
+    node test/test-datasets.js   # 9 checks, the allowlist boundary
+
+Both mutation-tested. A truthiness check on `amount_received` turns a zero
+receipt into the books figure and fails by name; dropping a dataset's tenant
+scope throws at require time. The brief's acceptance figures that need live
+DATA (Franklin Court May income, the optimized NOI, the DSCR) are deliberately
+NOT in these suites - a fake cannot tell you whether a view matches the
+database, and asserting them against a fixture would be the vacuous-test
+failure recorded under Financials above.
+
 ## Railway variables: what belongs, and what takes the app down
 
 **`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one
