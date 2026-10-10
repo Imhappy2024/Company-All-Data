@@ -67,6 +67,8 @@ const DATASETS = {
       F('principal', 'Principal', 'currency'),
       F('debt_service', 'Debt service', 'currency'),
       F('debt_service_source', 'Debt service source', 'text'),
+      F('unsplit_payment', 'Unsplit mortgage payment', 'currency'),
+      F('dscr', 'DSCR', 'ratio'),
       F('cash_flow', 'Cash flow', 'currency'),
       F('units', 'Units', 'number'),
       F('occupied', 'Occupied', 'number'),
@@ -108,7 +110,7 @@ const DATASETS = {
   rent_roll_unit: {
     key: 'rent_roll_unit',
     label: 'Rent roll units',
-    description: 'One row per unit on a rent roll. Tenant name is not held in this database.',
+    description: 'One row per unit on a rent roll.',
     view: 'reporting.rent_roll_unit',
     scope: { tenantColumn: 'tenant_id' },
     grain: 'property + as-of date + unit',
@@ -120,9 +122,7 @@ const DATASETS = {
       F('unit', 'Unit', 'text'),
       F('beds', 'Beds', 'number'),
       F('baths', 'Baths', 'number'),
-      // present so the contract matches the brief; always null, so it renders
-      // as the not-available dash rather than disappearing.
-      F('tenant', 'Tenant', 'text', { unavailable: 'Not held in this database' }),
+      F('tenant', 'Tenant', 'text'),
       F('status', 'Status', 'text'),
       F('rent', 'Rent', 'currency'),
       F('market_rent', 'Market rent', 'currency'),

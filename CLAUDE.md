@@ -1903,20 +1903,58 @@ That technique is worth keeping. It settles whether a column exists in one
 command, and this file's opening rule is that a described artifact must be
 queried rather than believed.
 
-### Three things in the brief are not in the database
-Found this way, before any view was written:
+### Two of the three "missing" things were a PROBE ARTEFACT, not a gap
+Corrected 2026-10-11 against the live database. The wrong version was
+circulated, so both versions are recorded:
 
-| Brief says | Reality |
+| First reported | Actually |
 |---|---|
-| loan principal from `balance_sheet_change` | **that table does not exist.** The only balance-sheet source is `v_gl_balance_sheet`, keyed by ENTITY and holding balances rather than movements. An entity can own several properties, so principal cannot be apportioned to one. |
-| `rent_roll_unit.tenant` | `rent_roll_line` has **no tenant or resident name column**. |
-| `property_financials.non_recurring_fee_income` | no such column. `recurring_fee_income`, `total_expected_income` and `economic_occupancy` are all present. |
+| principal not derivable; `balance_sheet_change` does not exist | **the table does not exist, but principal does.** AppFolio books it in `other_cash_items` as loan/mortgage lines with NEGATIVE amounts (negative = principal paid); Buildium books it in `non_operating_expense` as a positive `Mortgage Principal`. `v_gl_balance_sheet` was a red herring. |
+| `rent_roll_line` has no tenant name | **the column is `tenant_names`**, which the probe's candidate list did not contain. |
+| `property_financials.non_recurring_fee_income` absent | **correct.** Stays NULL. |
 
-`principal` is therefore NULL and `debt_service_source` resolves to
-`loan_record` for every property, which is why the brief's Dakota Bend debt
-service figure cannot be reproduced from the income statement. The `tenant`
-field stays in the registry marked `unavailable` so it renders as a dash
-rather than quietly disappearing from the contract.
+**The lesson is about the method, not the data.** A column probe can only
+disprove the names it thinks to try, so "absent from my candidate list" is not
+"absent from the table" - and it reads exactly like a finding. The probe was
+right about every name it tested and wrong about the two it did not think of.
+Use it to confirm a name you have reason to expect; do not use a null result
+from it to conclude a capability is missing.
+
+### Debt service is decided per PROPERTY, then summed per month
+A property whose books carry principal or unsplit-payment lines anywhere in
+the period uses its income statement for every month. One whose books carry
+interest only falls back to `loan.debt_service / 12` with
+`debt_service_source = 'loan_record'`. **Franklin Court is the fallback case**
+(interest only, 774,391.92 / 12). Deciding this per MONTH instead flips the
+source mid-year on any ragged export, and the two sources do not agree, so one
+column would silently mix them.
+
+Worked example, Dakota Bend Jan 2026: interest 8,362.74 + principal 5,176.40
+= **13,539.14**, DSCR 1.11 against NOI 15,074.52.
+
+**The sign rule is load-bearing.** `other_cash_items` is a balance-sheet
+section where an outflow is negative, so principal and the one AppFolio capex
+line there are negated into positive costs. Get it backwards and Dakota Bend
+reads 8,362.74 - 5,176.40 = 3,186.34: a debt service *smaller than the
+interest alone*, which still renders and still looks plausible.
+
+### Three near-misses the matchers must NOT catch
+All three contain the word Mortgage and none is debt service:
+
+- `Mortgage Escrow Replacement Reserve` is a reserve.
+- `Expense > Mortgage Escrow Expense` is taxes and insurance, an **operating**
+  expense.
+- `Loan - Other`, and anything matching `security deposit|prepaid|clearing`,
+  is excluded from the principal matcher.
+
+Counting any of them inflates DSCR's denominator. The confirming query at the
+bottom of the migration prints the exclusion list specifically, because every
+row in it is money the principal matcher does not count - and anything there
+that really is a mortgage payment is debt service going missing, with DSCR
+reading high.
+
+`Mortgage Payment` and `Mortgage Payment - Seller Carry` ARE debt service:
+interest and principal in one unsplit line.
 
 ### The verified column lists
 `t12_monthly` has **no foreign key to `t12_report`** - the newest export is
@@ -1933,14 +1971,22 @@ already materialised into it, so `first_active_month` joins on
                      occupancy_status rent market_rent balance_due lease_start
                      lease_end move_in move_out square_feet sort_order
 
-### What is still UNVERIFIED, and why it matters
-The **content vocabulary** - the `section` values and the line-label spellings
-that pick out rent, capex, the asset management fee and mortgage interest.
-Those are taken from the brief, not read from rows, because no row is readable
-without the service role. Every one of them fails **silently to NULL** if the
-spelling is wrong, which on screen is indistinguishable from "no data for this
-month". They are isolated in ONE place, `reporting.t12_tagged`, and the query
-that confirms them is at the bottom of the migration. Run it before applying.
+### The matchers are Jay's, and they still fail silently
+The content vocabulary in `reporting.t12_tagged` was read off real rows, not
+guessed. It is still isolated in that one view, because every matcher fails
+**silently to NULL** if a spelling drifts - which on screen is
+indistinguishable from "no data this month". The regression query is at the
+bottom of the migration.
+
+Both source systems spell everything differently and both are live:
+
+    Buildium  'Rent Income'           AppFolio  'RENTS'
+    Buildium  'Capital Improvements'  AppFolio  'CAPITAL EXPENSES'
+    Buildium  'Mortgage Principal'    AppFolio  'Principal Payment', or a
+                                                negative balance-sheet line
+
+Rent is a three-tier fallback: the depth-1 TOTAL line, then a depth-1
+non-total, then AppFolio's `Rent - Residential` total under `INCOME - TENANT`.
 
 ### `fee_pct` is a WHOLE percent; `loan.interest_rate_pct` is a FRACTION
 2 means 2% in `am_fee_schedule.fee_pct`, and 0.035 means 3.50% in
@@ -1994,16 +2040,27 @@ selectable by a hand-edited config. Anything that must not leave the server
 belongs out of `fields` entirely.
 
 ### Tests
-    node test/test-am-fees.js    # 17 checks, the fee arithmetic
-    node test/test-datasets.js   # 9 checks, the allowlist boundary
+    node test/test-am-fees.js           # 17 checks, the fee arithmetic
+    node test/test-datasets.js          # 10 checks, the allowlist boundary
+    node test/test-acceptance-math.js   # 16 checks, section 2.10's arithmetic
 
-Both mutation-tested. A truthiness check on `amount_received` turns a zero
-receipt into the books figure and fails by name; dropping a dataset's tenant
-scope throws at require time. The brief's acceptance figures that need live
-DATA (Franklin Court May income, the optimized NOI, the DSCR) are deliberately
-NOT in these suites - a fake cannot tell you whether a view matches the
-database, and asserting them against a fixture would be the vacuous-test
-failure recorded under Financials above.
+All three mutation-tested. A truthiness check on `amount_received` turns a
+zero receipt into the books figure and fails by name; dropping a dataset's
+tenant scope throws at require time; removing the calendar-adjacency check
+makes `optimizedNoi` report a six-month window that never happened.
+
+**`test-acceptance-math.js` pins the half of section 2.10 that is arithmetic**,
+which is more than a restatement: the brief gives Dakota Bend's income, NOI,
+expense ratio, interest and principal, and those five only agree if all five
+are right. They agree to the cent, and the same January income (48,469.52)
+produces the seeded February fee of 969.39, so the financial check and the fee
+check are reading one number.
+
+The half that is DATA - does `reporting.property_month` actually RETURN
+149,000.29 for Franklin Court in May 2026 - is deliberately **not** in any
+suite. A fixture cannot answer it, and asserting it against one would be the
+vacuous-test failure recorded under Financials above. It needs a live
+connection.
 
 ## Railway variables: what belongs, and what takes the app down
 

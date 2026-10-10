@@ -79,12 +79,21 @@ check('every field a dataset offers actually resolves', () => {
   }
 });
 
-check('rent_roll_unit.tenant is declared but marked unavailable', () => {
-  /* rent_roll_line has no tenant/resident name column. The field stays in the
-     contract so it renders as the not-available dash instead of vanishing. */
+check('rent_roll_unit.tenant is a real field, not a placeholder', () => {
+  /* An earlier version marked this `unavailable` because a probe could not
+     find a name column. It was wrong: the column is `tenant_names`, which
+     the candidate list did not contain. A probe only disproves the names it
+     thinks to try. */
   const f = D.getField('rent_roll_unit', 'tenant');
   assert.ok(f, 'the field is gone - the brief asks for it');
-  assert.ok(f.unavailable, 'it must say why it is always null');
+  assert.ok(!f.unavailable, 'tenant is populated from rent_roll_line.tenant_names');
+  assert.strictEqual(D.safeColumn('rent_roll_unit', 'tenant'), '"tenant"');
+});
+
+check('non_recurring_fee_income is the one field that really is absent', () => {
+  /* property_financials has no such column; confirmed twice. It stays in the
+     contract so the brief's field renders as a dash rather than vanishing. */
+  assert.ok(D.getField('property_month', 'non_recurring_fee_income'));
 });
 
 console.log('\ndataset registry: ' + pass + ' passed, ' + fails.length + ' failed');

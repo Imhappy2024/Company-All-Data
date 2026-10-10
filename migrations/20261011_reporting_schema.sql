@@ -27,33 +27,34 @@
 --                   baths, occupancy_status, rent, market_rent, balance_due,
 --                   lease_start, lease_end, move_in, move_out, square_feet)
 --
--- THREE THINGS IN THE BRIEF ARE NOT IN THE DATABASE:
+-- CORRECTED 2026-10-11 against the live database by Jay. Two of the three
+-- gaps the probe reported were wrong, and the correction is recorded here
+-- because the wrong versions were circulated:
 --
---   1. `balance_sheet_change` does not exist. It was the brief's source for
---      loan principal. The only balance-sheet source is v_gl_balance_sheet,
---      which is keyed by ENTITY and holds balances, not movements - an entity
---      can own several properties, so principal cannot be apportioned to one
---      property from it. `principal` is therefore NULL here and
---      debt_service_source resolves to 'loan_record' for every property.
---      See the note on debt_service below; this affects the Dakota Bend
---      acceptance figure.
+--   1. PRINCIPAL IS AVAILABLE. There is no `balance_sheet_change` table and
+--      no such section, but principal is in the income statement after all:
+--      AppFolio books it in `other_cash_items` as loan/mortgage lines with
+--      NEGATIVE amounts (negative = principal paid), and Buildium books it
+--      in non_operating_expense as a positive 'Mortgage Principal'.
+--      v_gl_balance_sheet is a red herring - it is entity-keyed and was the
+--      wrong place to look.
 --
---   2. `rent_roll_line` has NO tenant/resident name column. The brief's
---      rent_roll_unit.tenant cannot be populated. It is selected as NULL so
---      the field exists and renders as the not-available dash rather than
---      being silently dropped from the contract.
+--      So debt_service_source is 'income_statement' wherever a property
+--      books principal or an unsplit payment, and falls back to the loan
+--      record only where it does not. Dakota Bend Jan 2026 is the worked
+--      example: interest 8,362.74 + principal 5,176.40 = 13,539.14.
 --
---   3. `property_financials` has recurring_fee_income, total_expected_income
---      and economic_occupancy, but NO non_recurring_fee_income. The brief
---      said "if derivable" - it is not derivable from any column present, so
---      it is NULL.
+--   2. `rent_roll_line` DOES carry the tenant. The column is `tenant_names`,
+--      which the probe's candidate list did not contain. A probe can only
+--      disprove a name it thinks to try, and "absent from my list" is not
+--      "absent from the table" - worth remembering before the next one.
 --
--- UNVERIFIED: the CONTENT vocabulary in MATCHERS below. section values and
--- line-label spellings are taken from the brief, not read from rows, because
--- no row is readable without the service role. Every one of them fails
--- SILENTLY to NULL if wrong - which is exactly the trap CLAUDE.md opens with -
--- so they are isolated in ONE place and must be confirmed against real rows
--- before this is applied. The query to confirm them is at the bottom.
+--   3. `property_financials` genuinely has NO non_recurring_fee_income.
+--      That one stands; it stays NULL.
+--
+-- The MATCHERS below are now Jay's, read off real rows. They are still the
+-- only place content vocabulary appears, and they still fail SILENTLY to
+-- NULL if a spelling drifts, so they stay isolated in one view.
 -- ===========================================================================
 
 create schema if not exists reporting;
@@ -81,33 +82,108 @@ select
 from public.t12_monthly t;
 
 -- ===========================================================================
--- MATCHERS - the only place content vocabulary appears. CONFIRM BEFORE APPLY.
+-- MATCHERS - the only place content vocabulary appears.
+--
+-- These are Jay's, read off the live database on 2026-10-11, NOT guessed.
+-- They cover both source systems, which spell everything differently:
+--
+--   Buildium   'Rent Income'           AppFolio  'RENTS'
+--   Buildium   'Capital Improvements'  AppFolio  'CAPITAL EXPENSES'
+--   Buildium   'Mortgage Principal'    AppFolio  'Principal Payment', or a
+--                                                balance-sheet loan line
+--
+-- The five sections are exactly: income, operating_expense,
+-- non_operating_income, non_operating_expense, other_cash_items.
+--
+-- THE SIGN RULE. other_cash_items is a balance-sheet section: an outflow is
+-- stored NEGATIVE. Principal and the one AppFolio capex line there are
+-- therefore negated into positive figures, so every number this view emits
+-- is a positive cost. Mixing a negative principal into debt service silently
+-- SUBTRACTS the principal from the interest and produces a debt service
+-- smaller than the interest alone - which still renders, and still looks
+-- plausible.
 -- ===========================================================================
 create or replace view reporting.t12_tagged
 with (security_invoker = true) as
 select
   t.*,
-  -- depth-1 rows are the top-level groups the brief sums for the two totals.
+
+  -- the two depth-1 group totals the brief sums
   (t.section = 'income'            and t.depth = 1) as is_operating_income_group,
   (t.section = 'operating_expense' and t.depth = 1) as is_operating_expense_group,
-  -- rent: the brief calls it "RENTS / Rent Income group total"
-  (t.section = 'income' and (t.account_path ilike '%RENTS%'
-                             or t.account_path ilike '%Rent Income%')) as is_rent_group,
-  -- capital expenses, asset management fee and mortgage interest all sit in
-  -- non_operating_expense
-  (t.section = 'non_operating_expense'
-     and (t.account_path ilike '%capital expense%'
-          or t.account_path ilike '%capex%'))                as is_capex,
-  (t.section = 'non_operating_expense'
-     and t.account_path ilike '%asset management%')          as is_am_fee,
-  (t.section = 'non_operating_expense'
-     and (t.account_path ilike '%mortgage interest%'
-          or t.account_path ilike '%interest expense%'))     as is_interest
+
+  -- RENT. Three tiers, taken in order by the aggregate below: the depth-1
+  -- TOTAL line first, then a depth-1 non-total, then AppFolio's
+  -- 'Rent - Residential' total nested under 'INCOME - TENANT'.
+  (t.section = 'income' and t.depth = 1 and t.is_total
+     and (t.line_label ~* '^(rent income|rents)$'))               as is_rent_total,
+  (t.section = 'income' and t.depth = 1 and not t.is_total
+     and t.line_label ~* '^rent income$')                         as is_rent_depth1,
+  (t.section = 'income' and t.is_total
+     and t.line_label ~* '^rent - residential$'
+     and t.account_path ~* 'INCOME - TENANT')                     as is_rent_tenant,
+
+  -- ASSET MANAGEMENT FEE. Non-total, any depth. Buildium nests it under
+  -- 'Non-operating Expense'; AppFolio under 'Other Expense', 'Corporate
+  -- Overhead Expenses' or 'OTHER EXPENSES', with the word Fee(s) cased
+  -- inconsistently.
+  (t.section = 'non_operating_expense' and not t.is_total
+     and t.line_label ~* '^asset management fees?$')              as is_am_fee,
+
+  -- CAPEX. Depth-1 totals in non_operating_expense, plus the single AppFolio
+  -- property that books it in other_cash_items.
+  (t.section = 'non_operating_expense' and t.depth = 1 and t.is_total
+     and t.line_label ~* '^(capital improvements|capital expenses)$')
+                                                                  as is_capex_total,
+  (t.section = 'other_cash_items' and not t.is_total
+     and t.line_label ~* '^capital expenditures$')                as is_capex_cash,
+
+  -- MORTGAGE INTEREST. Non-total, any depth. Buildium nests it under
+  -- 'Mortgage Payment', AppFolio under 'MORTGAGE' or directly under
+  -- 'Other Expense'.
+  (t.section = 'non_operating_expense' and not t.is_total
+     and t.line_label ~* '^mortgage interest$')                   as is_interest,
+
+  -- PRINCIPAL, booked as an expense. Already positive.
+  (t.section = 'non_operating_expense' and not t.is_total
+     and t.line_label ~* '^(mortgage principal|principal payment)$')
+                                                                  as is_principal_expense,
+
+  -- PRINCIPAL, booked as a balance-sheet movement. Negative in the data.
+  -- The exclusions matter: 'Loan - Other' is not a mortgage, and a security
+  -- deposit, prepaid or clearing account is not debt service. Anything
+  -- excluded here is money that would otherwise be counted as principal.
+  (t.section = 'other_cash_items' and not t.is_total
+     and t.line_label ~* '(loan|mortgage)'
+     and t.line_label !~* '^loan - other$'
+     and t.line_label !~* '(security deposit|prepaid|clearing)')  as is_principal_cash,
+
+  -- UNSPLIT PAYMENTS. Interest and principal in one line, so the whole line
+  -- is debt service.
+  --
+  -- The two near-misses are the reason this is spelled out rather than
+  -- matched on 'mortgage payment': 'Mortgage Escrow Replacement Reserve' is
+  -- a reserve, and 'Mortgage Escrow Expense' is taxes and insurance, which
+  -- is an OPERATING expense. Both contain the word Mortgage and neither is
+  -- debt service; counting either inflates DSCR's denominator.
+  (t.section = 'non_operating_expense' and not t.is_total
+     and t.line_label ~* '^mortgage payment( - seller carry)?$')  as is_unsplit_payment
 from public.t12_monthly t;
 
 -- ===========================================================================
 -- 1.1  reporting.property_month
 -- One row per property x month x basis. The spine every monthly screen reads.
+--
+-- DEBT SERVICE is decided at PROPERTY level, then summed per month.
+--
+-- A property whose books carry principal or unsplit-payment lines anywhere in
+-- the period uses its income statement for every month; one whose books carry
+-- interest only falls back to the loan record. Deciding this per MONTH instead
+-- would flip the source mid-year on any property with a ragged export, and the
+-- two sources do not agree, so a column would silently mix them.
+--
+-- Franklin Court is the fallback case: interest only in its books, so its
+-- debt service is the loan record's annual figure / 12.
 -- ===========================================================================
 create or replace view reporting.property_month
 with (security_invoker = true) as
@@ -116,9 +192,9 @@ with months as (
     from public.t12_monthly
 ),
 -- first_active_month comes from t12_report. t12_monthly has no FK to it, so
--- the join is on (property, basis) and takes the EARLIEST first_active_month
--- on file: a property re-exported later must not lose the history it already
--- had. A month before it is not "zero", it is "this report does not cover it".
+-- the join is on (property, basis) and takes the EARLIEST on file: a property
+-- re-exported later must not lose history it already had. A month before it is
+-- not "zero", it is "this report does not cover it".
 active as (
   select property_id, accounting_basis, min(first_active_month) as first_active_month
     from public.t12_report
@@ -127,16 +203,41 @@ active as (
 agg as (
   select
     g.tenant_id, g.property_id, date_trunc('month', g.month)::date as month, g.accounting_basis,
+
     sum(g.amount) filter (where g.is_operating_income_group)  as total_operating_income,
     sum(g.amount) filter (where g.is_operating_expense_group) as total_operating_expense,
-    sum(g.amount) filter (where g.is_rent_group and g.is_total) as rent_income,
-    sum(g.amount) filter (where g.is_capex)    as capex,
+
+    -- rent, in tier order
+    sum(g.amount) filter (where g.is_rent_total)  as rent_total_line,
+    sum(g.amount) filter (where g.is_rent_depth1) as rent_depth1_line,
+    sum(g.amount) filter (where g.is_rent_tenant) as rent_tenant_line,
+
+    -- capex: the expense-section total, plus the balance-sheet line negated
+    -- into a positive cost
+    coalesce(sum(g.amount)  filter (where g.is_capex_total), 0)
+      + coalesce(sum(-g.amount) filter (where g.is_capex_cash), 0)        as capex_raw,
+    count(*) filter (where g.is_capex_total or g.is_capex_cash)           as capex_lines,
+
     sum(g.amount) filter (where g.is_am_fee)   as am_fee_booked,
-    sum(g.amount) filter (where g.is_interest) as interest
+    sum(g.amount) filter (where g.is_interest) as interest,
+
+    -- principal: expense lines are positive already, balance-sheet lines are
+    -- negative and are negated
+    coalesce(sum(g.amount)  filter (where g.is_principal_expense), 0)
+      + coalesce(sum(-g.amount) filter (where g.is_principal_cash), 0)    as principal_raw,
+    count(*) filter (where g.is_principal_expense or g.is_principal_cash) as principal_lines,
+
+    sum(g.amount) filter (where g.is_unsplit_payment)                     as unsplit_payment,
+    count(*) filter (where g.is_unsplit_payment)                          as unsplit_lines
   from reporting.t12_tagged g
   group by 1, 2, 3, 4
 ),
--- the rent roll that lands IN that month, if one was filed
+-- does this property book its own debt service at all?
+ds_capable as (
+  select property_id, accounting_basis,
+         (sum(principal_lines) + sum(unsplit_lines)) > 0 as books_debt_service
+    from agg group by 1, 2
+),
 rr as (
   select distinct on (r.property_id, date_trunc('month', r.as_of_date))
          r.property_id,
@@ -149,17 +250,16 @@ rr as (
 rr_agg as (
   select
     rr.property_id, rr.month, rr.as_of_date,
-    count(l.*)                                                        as units,
-    count(l.*) filter (where l.occupancy_status ilike 'occupied')      as occupied,
-    count(l.*) filter (where l.occupancy_status not ilike 'occupied')  as vacant,
-    sum(l.market_rent)                                                as market_rent_total,
-    sum(l.rent)                                                       as rent_total,
-    sum(greatest(l.balance_due, 0))                                   as delinquency
+    count(l.*)                                                       as units,
+    count(l.*) filter (where l.occupancy_status ilike 'occupied')     as occupied,
+    count(l.*) filter (where l.occupancy_status not ilike 'occupied') as vacant,
+    sum(l.market_rent)                                               as market_rent_total,
+    sum(l.rent)                                                      as rent_total,
+    sum(greatest(l.balance_due, 0))                                  as delinquency
   from rr
   join public.rent_roll_line l on l.rent_roll_report_id = rr.rent_roll_report_id
   group by 1, 2, 3
 ),
--- property_financials is keyed by as_of_date, so it folds to a month
 pf as (
   select distinct on (f.property_id, date_trunc('month', f.as_of_date))
          f.property_id,
@@ -170,76 +270,74 @@ pf as (
     from public.property_financials f
    order by f.property_id, date_trunc('month', f.as_of_date), f.as_of_date desc
 ),
--- the loan-record fallback for debt service: only usable when EVERY loan on
--- the property states one, or the annual figure is a partial total pretending
--- to be whole.
+-- the fallback. Only usable when EVERY loan states one, or the annual figure
+-- is a partial total pretending to be whole.
 loan_ds as (
   select c.property_id,
-         sum(l.debt_service)                                      as annual_debt_service,
-         count(*)                                                 as loans,
-         count(*) filter (where l.debt_service is not null)       as loans_with_ds
+         sum(l.debt_service)                                as annual_debt_service,
+         count(*)                                           as loans,
+         count(*) filter (where l.debt_service is not null) as loans_with_ds
     from public.loan l
     join public.loan_collateral c on c.loan_id = l.id
    where c.property_id is not null
    group by 1
+),
+resolved as (
+  select
+    m.tenant_id, m.property_id, m.month, m.accounting_basis,
+    (a.first_active_month is null
+       or m.month >= date_trunc('month', a.first_active_month)::date) as has_data,
+
+    agg.total_operating_income,
+    agg.total_operating_expense,
+    (agg.total_operating_income - agg.total_operating_expense) as noi,
+
+    coalesce(agg.rent_total_line, agg.rent_depth1_line, agg.rent_tenant_line) as rent_income,
+    case when agg.capex_lines > 0 then agg.capex_raw end as capex,
+    agg.am_fee_booked,
+    agg.interest,
+    case when agg.principal_lines > 0 then agg.principal_raw end as principal,
+    agg.unsplit_payment,
+
+    case when dc.books_debt_service then 'income_statement' else 'loan_record' end as debt_service_source,
+
+    case
+      when dc.books_debt_service then
+        coalesce(agg.interest, 0) + coalesce(case when agg.principal_lines > 0 then agg.principal_raw end, 0)
+          + coalesce(agg.unsplit_payment, 0)
+      when ld.loans > 0 and ld.loans = ld.loans_with_ds then ld.annual_debt_service / 12.0
+    end as debt_service,
+
+    rr_agg.as_of_date as rent_roll_as_of,
+    rr_agg.units, rr_agg.occupied, rr_agg.vacant,
+    case when rr_agg.units > 0
+         then rr_agg.occupied::numeric / rr_agg.units::numeric end as physical_occupancy,
+    rr_agg.market_rent_total,
+    rr_agg.rent_total,
+    (rr_agg.market_rent_total - rr_agg.rent_total) as loss_to_lease,
+    rr_agg.delinquency,
+
+    pf.recurring_fee_income,
+    null::numeric as non_recurring_fee_income,   -- no such column; confirmed absent
+    pf.total_expected_income,
+    pf.economic_occupancy
+  from months m
+  left join active    a   on a.property_id = m.property_id and a.accounting_basis = m.accounting_basis
+  left join agg           on agg.property_id = m.property_id and agg.month = m.month
+                         and agg.accounting_basis = m.accounting_basis
+  left join ds_capable dc on dc.property_id = m.property_id and dc.accounting_basis = m.accounting_basis
+  left join rr_agg        on rr_agg.property_id = m.property_id and rr_agg.month = m.month
+  left join pf            on pf.property_id = m.property_id and pf.month = m.month
+  left join loan_ds ld    on ld.property_id = m.property_id
 )
+-- cash_flow reads debt_service from the CTE rather than restating the CASE.
+-- Written inline it was two copies of one rule, and an edit to either leaves
+-- a view whose debt service and cash flow disagree while both still run.
 select
-  m.tenant_id,
-  m.property_id,
-  m.month,
-  m.accounting_basis,
-  (a.first_active_month is null or m.month >= date_trunc('month', a.first_active_month)::date) as has_data,
-
-  agg.total_operating_income,
-  agg.total_operating_expense,
-  (agg.total_operating_income - agg.total_operating_expense) as noi,
-
-  agg.rent_income,
-  agg.capex,
-  agg.am_fee_booked,
-  agg.interest,
-
-  -- principal is not derivable at property grain (see header note 1)
-  null::numeric as principal,
-
-  case when agg.interest is not null and false then 'income_statement'
-       else 'loan_record' end as debt_service_source,
-
-  case
-    when ld.loans > 0 and ld.loans = ld.loans_with_ds then ld.annual_debt_service / 12.0
-    else null
-  end as debt_service,
-
-  (
-    (agg.total_operating_income - agg.total_operating_expense)
-    - coalesce(agg.am_fee_booked, 0)
-    - coalesce(case when ld.loans > 0 and ld.loans = ld.loans_with_ds
-                    then ld.annual_debt_service / 12.0 end, 0)
-    - coalesce(agg.capex, 0)
-  ) as cash_flow,
-
-  rr_agg.as_of_date        as rent_roll_as_of,
-  rr_agg.units,
-  rr_agg.occupied,
-  rr_agg.vacant,
-  case when rr_agg.units > 0
-       then rr_agg.occupied::numeric / rr_agg.units::numeric end as physical_occupancy,
-  rr_agg.market_rent_total,
-  rr_agg.rent_total,
-  (rr_agg.market_rent_total - rr_agg.rent_total) as loss_to_lease,
-  rr_agg.delinquency,
-
-  pf.recurring_fee_income,
-  null::numeric as non_recurring_fee_income,   -- no column on property_financials
-  pf.total_expected_income,
-  pf.economic_occupancy
-from months m
-left join active  a      on a.property_id = m.property_id and a.accounting_basis = m.accounting_basis
-left join agg            on agg.property_id = m.property_id and agg.month = m.month
-                        and agg.accounting_basis = m.accounting_basis
-left join rr_agg         on rr_agg.property_id = m.property_id and rr_agg.month = m.month
-left join pf             on pf.property_id = m.property_id and pf.month = m.month
-left join loan_ds ld     on ld.property_id = m.property_id;
+  r.*,
+  (r.noi - coalesce(r.am_fee_booked, 0) - coalesce(r.debt_service, 0) - coalesce(r.capex, 0)) as cash_flow,
+  case when r.debt_service > 0 then r.noi / r.debt_service end as dscr
+from resolved r;
 
 -- ===========================================================================
 -- 1.3  reporting.rent_roll_unit
@@ -260,7 +358,7 @@ select
   l.unit_id,
   l.beds,
   l.baths,
-  null::text                as tenant,          -- no name column on rent_roll_line
+  l.tenant_names            as tenant,
   l.occupancy_status        as status,
   l.occupancy_status,
   l.rent,
@@ -505,17 +603,36 @@ from resolved;
 grant select on all tables in schema reporting to authenticated;
 
 -- ===========================================================================
--- CONFIRM THE MATCHERS BEFORE APPLYING THIS.
--- Run as service role; it reads t12_monthly's vocabulary, which no probe can:
+-- CONFIRM THE MATCHERS. They were read off real rows by Jay on 2026-10-11,
+-- so this is a regression check rather than a discovery, but every one of
+-- them still fails SILENTLY to NULL if a spelling drifts.
 --
---   select section, depth, count(*), min(line_label), min(account_path)
---     from public.t12_monthly group by 1, 2 order by 1, 2;
+--   -- the five sections, and nothing else
+--   select section, count(*) from public.t12_monthly group by 1 order by 1;
 --
---   select distinct account_path from public.t12_monthly
---    where section = 'non_operating_expense' order by 1;
+--   -- every line the matchers claim, with what they matched
+--   select section, depth, is_total, line_label, count(*)
+--     from public.t12_monthly
+--    where line_label ~* '^(rent income|rents|rent - residential)$'
+--       or line_label ~* '^asset management fees?$'
+--       or line_label ~* '^(capital improvements|capital expenses|capital expenditures)$'
+--       or line_label ~* '^mortgage interest$'
+--       or line_label ~* '^(mortgage principal|principal payment)$'
+--       or line_label ~* '^mortgage payment( - seller carry)?$'
+--       or (section = 'other_cash_items' and line_label ~* '(loan|mortgage)')
+--    group by 1,2,3,4 order by 1,4;
 --
--- Expect to see: the three section values spelled exactly 'income',
--- 'operating_expense', 'non_operating_expense'; a rent group matching
--- RENTS or Rent Income; and capital expense / asset management / mortgage
--- interest paths. Every mismatch produces NULL, not an error.
+--   -- THE EXCLUSIONS. Every row here is money the principal matcher does
+--   -- NOT count. Read it: anything in this list that is really a mortgage
+--   -- payment is debt service going missing, and DSCR reads high.
+--   select distinct line_label from public.t12_monthly
+--    where section = 'other_cash_items' and line_label ~* '(loan|mortgage)'
+--      and (line_label ~* '^loan - other$'
+--           or line_label ~* '(security deposit|prepaid|clearing)')
+--    order by 1;
+--
+--   -- the sign rule: other_cash_items loan lines should be NEGATIVE
+--   select line_label, min(amount), max(amount) from public.t12_monthly
+--    where section = 'other_cash_items' and line_label ~* '(loan|mortgage)'
+--    group by 1 order by 1;
 -- ===========================================================================

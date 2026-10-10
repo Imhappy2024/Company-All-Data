@@ -9,6 +9,10 @@
 -- The mapping, including the four names that did not match cleanly, is in
 -- the PR description - read that before applying this.
 --
+-- Carter Place: confirmed 2026-10-11. 'Carter Place' is the real record
+-- (it holds the T12s, the rent rolls and 168 documents). 'Carter Place K'
+-- is a duplicate with no reports and is a DATA CLEANUP item, not a fee row.
+--
 -- Everything is ON CONFLICT DO NOTHING, so applying it twice is a no-op
 -- rather than a duplicate fee row.
 -- ===========================================================================
@@ -38,7 +42,7 @@ values
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'The Venice (4916 California)', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, '4916 California is the address / entity name', date '2026-01-01', 190),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', '9447 J Street', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, null, date '2026-01-01', 200),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Villa Blanca', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, null, date '2026-01-01', 210),
-  ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Carter Place (1003 Ave K)', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, 'two properties share this address - see note', date '2026-01-01', 220),
+  ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Carter Place (1003 Ave K)', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, 'Carter Place K is a duplicate record with no reports - cleanup item', date '2026-01-01', 220),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'The Beverly (Keystone)', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, null, date '2026-01-01', 230),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'The Todd', 'Point Guard NE', 'same_month', 'pct_gross', 2, null, null, date '2026-01-01', 240),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'College Heights', 'Point Guard NE', 'same_month', 'pct_gross', 3, null, null, date '2026-01-01', 250),
@@ -58,7 +62,7 @@ values
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Town Park', 'Point Guard SD', 'same_month', 'pct_gross', 4, null, null, date '2026-01-01', 390),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Heston Pointe', 'Point Guard OK', 'same_month', 'pct_gross', 2, null, null, date '2026-01-01', 400),
   ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Estrella', 'Point Guard TX', 'same_month', 'pct_gross', 0, null, null, date '2026-01-01', 410),
-  ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Sierra Gardens', 'Point Guard TX', 'same_month', 'pct_gross', 0, null, 'PM of record is Cushman & Wakefield, not Point Guard', date '2026-01-01', 420)
+  ('72381c81-af95-4e1d-ad0d-20a3a3421119', 'Sierra Gardens', 'Point Guard TX', 'same_month', 'pct_gross', 0, null, 'PM of record is Cushman & Wakefield; kept under Point Guard TX at 0% per Jay', date '2026-01-01', 420)
 on conflict (tenant_id, label) do nothing;
 
 -- property links (property ids verified against /api/portfolio on 2026-10-11)
