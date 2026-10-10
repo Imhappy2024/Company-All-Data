@@ -333,9 +333,15 @@
   function dscrM(r) {
     return isNum(r.trailing_dscr_mortgage) ? r.trailing_dscr_mortgage : r.trailing_dscr;
   }
+  /* B4: red below 1.00, orange to 1.24, green at or above the required
+     ratio (the what-if input, 1.25 by default). Between 1.25 and a higher
+     requirement a DSCR is simply uncoloured: adequate, not good. */
   function cls(v) {
-    return !isNum(v) ? '' : Number(v) < 1 ? 'rp-bad' : Number(v) < 1.25 ? 'rp-warn' : '';
+    if (!isNum(v)) return '';
+    var n = Number(v), req = isNum(S.whatif.requiredDscr) ? Number(S.whatif.requiredDscr) : 1.25;
+    return n < 1 ? 'rp-bad' : n < 1.25 ? 'rp-warn' : n >= req ? 'rp-good' : '';
   }
+  function noiCls(v) { return !isNum(v) ? '' : Number(v) < 0 ? 'rp-bad' : Number(v) > 0 ? 'rp-good' : ''; }
 
   /* Where a unit count came from, and whether the two sources disagree.
      A count from the rent roll is a snapshot of what was leasable on one
@@ -360,7 +366,7 @@
     /* red beats orange; the brief's thresholds, applied per cell by the
        caller rather than to the whole row. */
     return {
-      noi: isNum(row.t12_noi) && Number(row.t12_noi) < 0 ? 'rp-bad' : '',
+      noi: noiCls(row.t12_noi),
       net: isNum(row.t12_net_income) && Number(row.t12_net_income) < 0 ? 'rp-bad' : '',
       dscr: cls(dscrM(row)),
       occ: !isNum(row.latest_occupancy) ? ''
@@ -1403,7 +1409,7 @@
     ];
     return '<div class="rp-keys">' + items.map(function (i) {
       return '<div class="rp-key"><div class="k">' + escS(i[0]) + '</div>' +
-        '<div class="v' + (i[0].indexOf('DSCR') === 0 ? ' ' + cls(dscr) : '') + '">' + i[1] + '</div>' +
+        '<div class="v' + (i[0].indexOf('DSCR') === 0 ? ' ' + cls(dscr) : i[0] === 'NOI, trailing 12 mo' ? ' ' + noiCls(p.t12_noi) : '') + '">' + i[1] + '</div>' +
         '<div class="s">' + (i[2] ? escS(i[2]) : '&nbsp;') + '</div></div>';
     }).join('') + '</div>';
   }

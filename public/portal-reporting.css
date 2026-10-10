@@ -88,6 +88,7 @@
    mean "category three" two panels over. */
 .rp-bad  { color: var(--crit); }
 .rp-warn { color: var(--warn); }
+.rp-good { color: var(--good); }
 .rp-ok   { color: var(--good); }
 .rp-neg  { color: var(--crit); }
 .rp-pos  { color: var(--good); }
