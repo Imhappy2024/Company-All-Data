@@ -198,3 +198,13 @@
   border: 1px dashed var(--border); color: var(--ink-4);
 }
 .rp-dbx.on { border-style: solid; border-color: color-mix(in srgb, var(--good) 50%, transparent); color: var(--good); }
+
+/* Estimate tags. An estimate has to say so NEXT TO ITSELF - a caveat in a
+   paragraph above a table is read by nobody scanning a column. */
+.rp-tag {
+  display: inline-block; font-size: 9px; letter-spacing: .05em; text-transform: uppercase;
+  font-family: var(--font-mono, inherit); padding: 1px 6px; border-radius: 99px;
+  border: 1px solid var(--border); color: var(--ink-4); vertical-align: middle;
+  white-space: nowrap;
+}
+.rp-tag-warn { color: var(--warn); border-color: color-mix(in srgb, var(--warn) 45%, transparent); }

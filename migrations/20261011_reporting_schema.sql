@@ -384,6 +384,57 @@ pf as (
     from public.property_financials f
    order by f.property_id, date_trunc('month', f.as_of_date), f.as_of_date desc
 ),
+-- RECURRING OTHER INTEREST: other debt that is real enough to count.
+--
+-- Classified by RULE, never by property name:
+--   * the line appears with a POSITIVE amount in >= 6 of the last 12 months, and
+--   * the property has a loan on file that could explain it - either a loan
+--     whose purpose is a KNOWN non-primary kind, or two or more loans.
+--
+-- "Known" is the load-bearing word. `purpose <> 'primary_mortgage'` is TRUE
+-- for a NULL purpose, and NULL means nobody recorded what the loan is - which
+-- is not evidence of extra debt. The Beverly is exactly that case: one loan,
+-- purpose unrecorded, $7,500 a month of other interest its $171,700 balance
+-- cannot explain. It stays OUT and stays visible in other_interest as an open
+-- question. Cedar Haven qualifies on a seller_carry note, Heston Pointe on
+-- pac_due and pace_equity.
+--
+-- The positive-amount test also keeps the two CREDIT lines out: Franklin
+-- Court and Lions Gate book negative 'Other interest', and a negative can
+-- never be additional debt service.
+t12_bounds as (
+  select max(month) as last_month from public.t12_monthly
+),
+other_int_month as (
+  select g.property_id, g.accounting_basis, g.month, sum(g.amount) as amt
+    from reporting.t12_tagged g
+   where g.is_other_interest
+   group by 1, 2, 3
+),
+other_int_recent as (
+  select o.property_id, o.accounting_basis,
+         count(*) filter (where o.amt > 0
+                            and o.month > (select last_month from t12_bounds) - interval '12 months') as months_12
+    from other_int_month o
+   group by 1, 2
+),
+loans_on_file as (
+  select c.property_id,
+         count(*)                                                                    as loans,
+         count(*) filter (where l.purpose is not null
+                            and l.purpose <> 'primary_mortgage')                     as known_non_primary
+    from public.loan_collateral c
+    join public.loan l on l.id = c.loan_id
+   where c.property_id is not null
+   group by 1
+),
+oi_qualifies as (
+  select r.property_id, r.accounting_basis
+    from other_int_recent r
+    join loans_on_file f on f.property_id = r.property_id
+   where r.months_12 >= 6
+     and (f.known_non_primary > 0 or f.loans >= 2)
+),
 -- the fallback. Only usable when EVERY loan states one, or the annual figure
 -- is a partial total pretending to be whole.
 loan_ds as (
@@ -429,6 +480,10 @@ resolved as (
     end as debt_service,
 
     agg.other_interest,
+    -- the qualifying portion, and only ever the positive side of it
+    case when oq.property_id is not null and agg.other_interest > 0
+         then agg.other_interest end as recurring_other_interest,
+    (oq.property_id is not null) as other_interest_is_debt_service,
     agg.loan_proceeds,
     agg.loan_proceeds_note,
 
@@ -453,14 +508,23 @@ resolved as (
   left join rr_agg        on rr_agg.property_id = m.property_id and rr_agg.month = m.month
   left join pf            on pf.property_id = m.property_id and pf.month = m.month
   left join loan_ds ld    on ld.property_id = m.property_id
+  left join oi_qualifies oq on oq.property_id = m.property_id
+                           and oq.accounting_basis = m.accounting_basis
 )
 -- cash_flow reads debt_service from the CTE rather than restating the CASE.
 -- Written inline it was two copies of one rule, and an edit to either leaves
 -- a view whose debt service and cash flow disagree while both still run.
 select
   r.*,
-  (r.noi - coalesce(r.am_fee_booked, 0) - coalesce(r.debt_service, 0) - coalesce(r.capex, 0)) as cash_flow,
-  case when r.debt_service > 0 then r.noi / r.debt_service end as dscr
+  (r.noi - coalesce(r.am_fee_booked, 0) - coalesce(r.debt_service, 0)
+         - coalesce(r.recurring_other_interest, 0) - coalesce(r.capex, 0)) as cash_flow,
+  -- `dscr` keeps its existing meaning - mortgage only - because the saved
+  -- Coverage watchlist filters on it and a silent redefinition would change
+  -- what that view means without changing a word of its config.
+  case when r.debt_service > 0 then r.noi / r.debt_service end as dscr,
+  (coalesce(r.debt_service, 0) + coalesce(r.recurring_other_interest, 0)) as debt_service_all,
+  case when (coalesce(r.debt_service, 0) + coalesce(r.recurring_other_interest, 0)) > 0
+       then r.noi / (coalesce(r.debt_service, 0) + coalesce(r.recurring_other_interest, 0)) end as dscr_all_debt
 from resolved r;
 
 -- ===========================================================================
@@ -571,7 +635,10 @@ trailing_12 as (
          sum(pm.total_operating_income)  as t12_income,
          sum(pm.total_operating_expense) as t12_expense,
          sum(pm.noi)                     as t12_noi,
-         sum(pm.cash_flow)               as t12_net_income
+         sum(pm.cash_flow)               as t12_net_income,
+         sum(pm.debt_service)            as t12_debt_service,
+         sum(pm.recurring_other_interest) as t12_other_interest,
+         bool_or(pm.debt_service_source = 'interest_only_books') as any_interest_only
     from reporting.property_month pm
     join t12 on t12.property_id = pm.property_id and t12.accounting_basis = pm.accounting_basis
    where pm.has_data
@@ -651,11 +718,29 @@ select
   d.debt,
   -- only when EVERY loan states one (see property_month)
   case when d.loans > 0 and d.loans = d.loans_with_ds then d.annual_debt_service end as annual_debt_service,
+  -- `trailing_dscr` is MORTGAGE ONLY and keeps that meaning; the saved
+  -- Coverage watchlist filters on it.
   case when d.loans > 0 and d.loans = d.loans_with_ds and d.annual_debt_service > 0
        then tr12.t12_noi / d.annual_debt_service end as trailing_dscr,
+  -- the books' own twelve months, which is what the all-debt figure is built
+  -- on - the loan record knows nothing about a seller-carry note's interest
+  case when tr12.t12_debt_service > 0 then tr12.t12_noi / tr12.t12_debt_service end as trailing_dscr_mortgage,
+  case when (coalesce(tr12.t12_debt_service,0) + coalesce(tr12.t12_other_interest,0)) > 0
+       then tr12.t12_noi / (coalesce(tr12.t12_debt_service,0) + coalesce(tr12.t12_other_interest,0))
+       end as trailing_dscr_all_debt,
+  tr12.t12_debt_service,
+  tr12.t12_other_interest,
+  coalesce(tr12.any_interest_only, false) as debt_service_interest_only,
   p.current_market_value       as value_on_file,
   p.current_market_value_asof  as value_as_of,
+  -- Six months is the line the brief draws. A value with no date at all is
+  -- also stale: "we do not know when this was true" is not the same claim as
+  -- "this is current", and only one of them is safe to divide debt by.
+  (p.current_market_value is not null
+     and (p.current_market_value_asof is null
+          or p.current_market_value_asof < (current_date - interval '6 months'))) as value_is_stale,
   case when p.current_market_value > 0 then d.debt / p.current_market_value end as ltv,
+  case when p.current_market_value > 0 then 'on_file' end as ltv_basis,
   d.next_maturity,
 
   (t12d.document_id is not null)            as t12_in_dropbox,

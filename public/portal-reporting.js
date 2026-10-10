@@ -83,6 +83,28 @@
 
   function neg(v) { return isNum(v) && Number(v) < 0 ? ' rp-neg' : ''; }
 
+  /* A figure that is an estimate has to SAY SO next to itself. A DSCR built
+     from interest with no principal is not a coverage ratio, it is an upper
+     bound on one, and a reader who sees 1.64 with nothing beside it has no
+     way to know which they are looking at. */
+  function tag(label, title, kind) {
+    return '<span class="rp-tag' + (kind ? ' rp-tag-' + kind : '') + '"' +
+      (title ? ' title="' + escS(title) + '"' : '') + '>' + escS(label) + '</span>';
+  }
+  var TAG_INTEREST_ONLY = function () {
+    return tag('interest only', 'No principal in the books; coverage is likely overstated.', 'warn');
+  };
+  function monthsSince(iso) {
+    var m = /^(\d{4})-(\d{2})/.exec(String(iso || ''));
+    if (!m) return null;
+    var now = new Date();
+    return (now.getFullYear() - Number(m[1])) * 12 + (now.getMonth() + 1 - Number(m[2]));
+  }
+  /* A value with no date is stale too: "we do not know when this was true" is
+     a different claim from "this is current", and only one is safe to divide
+     debt by. */
+  function valueStale(asOf) { var n = monthsSince(asOf); return n === null || n > 6; }
+
   /* ---- data --------------------------------------------------------------- */
   function authHeaders() {
     return window.PortalSession.client()
@@ -198,15 +220,24 @@
   }
 
   /* ---- company / entity: the Properties tab -------------------------------- */
+  /* The mortgage DSCR on the list prefers the BOOKS' own twelve months and
+     falls back to the loan-record ratio, so a property whose debt service
+     comes from its books is not blank here just because its loan record has
+     no annual figure. */
+  function dscrM(r) {
+    return isNum(r.trailing_dscr_mortgage) ? r.trailing_dscr_mortgage : r.trailing_dscr;
+  }
+  function cls(v) {
+    return !isNum(v) ? '' : Number(v) < 1 ? 'rp-bad' : Number(v) < 1.25 ? 'rp-warn' : '';
+  }
+
   function colourClass(row) {
     /* red beats orange; the brief's thresholds, applied per cell by the
        caller rather than to the whole row. */
     return {
       noi: isNum(row.t12_noi) && Number(row.t12_noi) < 0 ? 'rp-bad' : '',
       net: isNum(row.t12_net_income) && Number(row.t12_net_income) < 0 ? 'rp-bad' : '',
-      dscr: !isNum(row.trailing_dscr) ? ''
-            : Number(row.trailing_dscr) < 1 ? 'rp-bad'
-            : Number(row.trailing_dscr) < 1.25 ? 'rp-warn' : '',
+      dscr: cls(dscrM(row)),
       occ: !isNum(row.latest_occupancy) ? ''
            : Number(row.latest_occupancy) < 0.85 ? 'rp-bad'
            : Number(row.latest_occupancy) <= 0.90 ? 'rp-warn' : '',
@@ -262,7 +293,8 @@
       '<th class="r">Total income</th><th class="r">Total expenses</th>' +
       '<th class="r">NOI, T12</th><th class="r">Optimized NOI</th>' +
       '<th class="r">Expense ratio</th><th class="r">Net income</th>' +
-      '<th class="r">DSCR</th><th>PM company</th><th>In Dropbox</th></tr></thead><tbody>');
+      '<th class="r">DSCR, mortgage</th><th class="r">DSCR, all debt</th>' +
+      '<th>PM company</th><th>In Dropbox</th></tr></thead><tbody>');
 
     rows.forEach(function (r) {
       var c = colourClass(r);
@@ -276,7 +308,9 @@
         '<td class="r">' + money$(r.optimized_noi, { whole: true }) + '</td>' +
         '<td class="r ' + c.exp + '">' + pct(r.expense_ratio) + '</td>' +
         '<td class="r ' + c.net + '">' + money$(r.t12_net_income, { whole: true }) + '</td>' +
-        '<td class="r ' + c.dscr + '">' + ratio(r.trailing_dscr) + '</td>' +
+        '<td class="r ' + c.dscr + '">' + ratio(dscrM(r)) +
+          (r.debt_service_interest_only ? ' ' + TAG_INTEREST_ONLY() : '') + '</td>' +
+        '<td class="r ' + cls(r.trailing_dscr_all_debt) + '">' + ratio(r.trailing_dscr_all_debt) + '</td>' +
         '<td>' + escS(r.pm_company || DASH) + '</td>' +
         '<td class="rp-dim">' + dropboxCell(r) + '</td></tr>');
     });
@@ -291,7 +325,8 @@
       '<td class="r">' + money$(t.optimized_noi, { whole: true }) + '</td>' +
       '<td class="r">' + pct(t.expense_ratio) + '</td>' +
       '<td class="r' + neg(t.t12_net_income) + '">' + money$(t.t12_net_income, { whole: true }) + '</td>' +
-      '<td class="r">' + ratio(t.dscr) + '</td><td></td><td></td></tr></tfoot></table></div></div>');
+      '<td class="r">' + ratio(t.dscr) + '</td><td class="r">' + DASH + '</td>' +
+      '<td></td><td></td></tr></tfoot></table></div></div>');
 
     return h.join('');
   }
@@ -410,9 +445,12 @@
     ['Asset Management Fee %', '_amfeepct', pct, 0],
     ['Physical Occupancy', 'physical_occupancy', pct, 1],
     ['Economic Occupancy', 'economic_occupancy', pct, 1],
-    ['Debt Service', 'debt_service', money, 0],
+    ['Debt Service, mortgage', 'debt_service', money, 0],
+    ['Other Interest (counted as debt)', 'recurring_other_interest', money, 0],
+    ['Debt Service, all debt', 'debt_service_all', money, 1],
     ['Loan Proceeds', 'loan_proceeds', money, 0],
-    ['Debt Service Coverage Ratio', 'dscr', ratio, 1],
+    ['DSCR, mortgage', 'dscr', ratio, 1],
+    ['DSCR, all debt', 'dscr_all_debt', ratio, 1],
     ['Loss to Lease', 'loss_to_lease', money, 0],
   ];
 
@@ -605,7 +643,14 @@
     var w = S.whatif, N = window.NoiAnalysis;
     var f = d.facts || {};
     var balance = isNum(w.loanBalance) ? Number(w.loanBalance) : f.balance;
-    var ads = isNum(w.annualDebtService) ? Number(w.annualDebtService) : f.annual_debt_service;
+    /* Prefer an explicit what-if, then the loan record, then the BOOKS. The
+       last step is what stops a property whose debt service is in its income
+       statement being told it has none on file. */
+    var ads = isNum(w.annualDebtService) ? Number(w.annualDebtService)
+            : isNum(f.annual_debt_service) ? Number(f.annual_debt_service)
+            : isNum(f.books_annual_debt_service) ? Number(f.books_annual_debt_service)
+            : null;
+    var adsFromBooks = !isNum(w.annualDebtService) && !isNum(f.annual_debt_service) && isNum(ads);
 
     var h = [];
     h.push('<div class="rp-bar rp-wrap">' +
@@ -617,6 +662,21 @@
       '<span class="rp-state">' + (S.whatifTouched ? 'Changed (not saved)' : 'Standard values') + '</span>' +
       '<button class="rp-btn" id="rpReset2">Reset</button></div>');
 
+    if (f.debt_service_source === 'interest_only_books') {
+      h.push('<p class="rp-note">' + TAG_INTEREST_ONLY() +
+        ' This property books interest but no principal and has no loan record, so every ratio below is an ' +
+        '<b>upper bound</b> on its real coverage, not a measurement of it.</p>');
+    }
+    if (d.other_interest_counted) {
+      h.push('<p class="rp-note">Other interest on this property recurs and is backed by a non-primary loan on file, ' +
+        'so it is counted as additional debt service in the all-debt column. Mortgage-only coverage is shown beside it ' +
+        'so the two can be compared rather than one replacing the other.</p>');
+    }
+    if (adsFromBooks) {
+      h.push('<p class="rp-note">Debt service here is this property’s own, from its income statement — ' +
+        '<b>' + money$(ads) + '</b> over ' + f.books_months + ' months. ' +
+        'Its loan record states no annual figure, which is a gap in the loan record rather than an absence of debt.</p>');
+    }
     if (f.balance === null || f.balance === undefined) {
       h.push('<p class="rp-note">Loan record: <b>Not on file.</b> ' +
         (isNum(d.series && d.series.length) ? 'Loan payments seen in the income statement are shown below.' : '') + '</p>');
@@ -631,13 +691,29 @@
       h.push('<div class="rp-empty">No debt service on file. Enter an annual debt service above to see coverage (not saved).</div>');
     } else {
       var monthly = Number(ads) / 12;
+      /* Per month, the books' own figure beats an annual average wherever it
+         exists: debt service is not flat across a year on a property that
+         refinanced mid-period. */
+      var perMonth = function (s) {
+        if (isNum(w.annualDebtService)) return Number(w.annualDebtService) / 12;
+        if (isNum(s.debt_service)) return Number(s.debt_service);
+        return monthly;
+      };
       h.push('<div class="rp-scroll"><table class="rp-tbl"><thead><tr><th>Month</th>' +
-        '<th class="r">NOI</th><th class="r">Debt service</th><th class="r">DSCR</th></tr></thead><tbody>');
+        '<th class="r">NOI</th><th class="r">Debt service</th>' +
+        '<th class="r">Other interest</th>' +
+        '<th class="r">DSCR, mortgage</th><th class="r">DSCR, all debt</th></tr></thead><tbody>');
       (d.series || []).forEach(function (s) {
-        var r = N ? N.dscr(s.noi, monthly) : null;
-        var cls = !isNum(r) ? '' : Number(r) < Number(w.requiredDscr) ? ' rp-bad' : ' rp-ok';
+        var oi = isNum(s.recurring_other_interest) ? Number(s.recurring_other_interest) : 0;
+        var ds = perMonth(s);
+        var r = N ? N.dscr(s.noi, ds) : null;
+        var rAll = N ? N.dscr(s.noi, ds + oi) : null;
+        var cl = function (x) { return !isNum(x) ? '' : Number(x) < Number(w.requiredDscr) ? ' rp-bad' : ' rp-ok'; };
         h.push('<tr><td>' + escS(s.month) + '</td><td class="r">' + money(s.noi) + '</td>' +
-          '<td class="r">' + money(monthly) + '</td><td class="r' + cls + '">' + ratio(r) + '</td></tr>');
+          '<td class="r">' + money(ds) + '</td>' +
+          '<td class="r">' + (oi ? money(oi) : DASH) + '</td>' +
+          '<td class="r' + cl(r) + '">' + ratio(r) + '</td>' +
+          '<td class="r' + cl(rAll) + '">' + ratio(rAll) + '</td></tr>');
       });
       h.push('</tbody></table></div>');
     }
@@ -646,13 +722,17 @@
     h.push('<table class="rp-tbl"><thead><tr><th></th><th class="r">Annual NOI</th><th class="r">DSCR</th>' +
       '<th class="r">Meets ' + Number(w.requiredDscr).toFixed(2) + '?</th>' +
       '<th class="r">Max loan</th><th class="r">vs. current loan</th></tr></thead><tbody>');
+    var annualOther = (d.series || []).reduce(function (a, s) {
+      return a + (isNum(s.recurring_other_interest) ? Number(s.recurring_other_interest) : 0); }, 0);
     [['Trailing 12 months', d.trailing_noi], ['Optimized NOI', d.optimized_noi]].forEach(function (s) {
       var annual = s[1];
       var r = isNum(annual) && isNum(ads) && Number(ads) > 0 ? Number(annual) / Number(ads) : null;
+      var rAll = isNum(annual) && (Number(ads || 0) + annualOther) > 0
+        ? Number(annual) / (Number(ads || 0) + annualOther) : null;
       var ml = N ? N.maxLoan(annual, w.requiredDscr, w.newRatePct, w.amortYears) : null;
       var dv = isNum(ml) && isNum(balance) ? ml - Number(balance) : null;
       h.push('<tr><td>' + escS(s[0]) + '</td><td class="r">' + money$(annual, { whole: true }) + '</td>' +
-        '<td class="r">' + ratio(r) + '</td>' +
+        '<td class="r">' + ratio(r) + (annualOther ? ' <span class="rp-dim">/ ' + ratio(rAll) + '</span>' : '') + '</td>' +
         '<td class="r">' + (!isNum(r) ? DASH : (Number(r) >= Number(w.requiredDscr) ? '<span class="rp-ok">Yes</span>' : '<span class="rp-bad">No</span>')) + '</td>' +
         '<td class="r">' + money$(ml, { whole: true }) + '</td>' +
         '<td class="r' + neg(dv) + '">' + money$(dv, { whole: true }) + '</td></tr>');
@@ -704,8 +784,13 @@
       ['Total income, T12', money$(prop.t12_income)], ['Total expenses, T12', money$(prop.t12_expense)],
       ['NOI, T12', money$(prop.t12_noi)], ['Optimized NOI', money$(prop.optimized_noi)],
       ['Expense ratio', pct(prop.expense_ratio)], ['Net income, T12', money$(prop.t12_net_income)],
-      ['Debt', money$(prop.debt)], ['Annual debt service', money$(prop.annual_debt_service)],
-      ['DSCR, trailing', ratio(prop.trailing_dscr)], ['Next maturity', dateOnly(prop.next_maturity)],
+      ['Debt', money$(prop.debt)],
+      ['Debt service, mortgage (T12)', money$(prop.t12_debt_service)],
+      ['Other interest counted (T12)', money$(prop.t12_other_interest)],
+      ['DSCR, mortgage', ratio(dscrM(prop)) +
+        (prop.debt_service_interest_only ? ' ' + TAG_INTEREST_ONLY() : '')],
+      ['DSCR, all debt', ratio(prop.trailing_dscr_all_debt)],
+      ['Next maturity', dateOnly(prop.next_maturity)],
     ];
     return '<table class="rp-tbl rp-kv"><tbody>' + rows.map(function (r) {
       return '<tr><td>' + escS(r[0]) + '</td><td class="r"><b>' + r[1] + '</b></td></tr>';
@@ -760,10 +845,37 @@
       ? Number(prop.value_on_file) / Number(prop.units) : null;
     var capAtT12 = isNum(prop.t12_noi) && isNum(prop.value_on_file) && Number(prop.value_on_file) > 0
       ? Number(prop.t12_noi) / Number(prop.value_on_file) : null;
+
+    var stale = valueStale(prop.value_as_of);
+    /* Every value carries its date, and one older than six months - or with
+       no date at all - says so. A number divided by debt to produce an LTV
+       has to be dated, or the LTV is undated too and nothing on screen
+       admits it. */
+    var dateBit = (prop.value_on_file === null || prop.value_on_file === undefined) ? ''
+      : ' <span class="rp-dim">as of ' + dateOnly(prop.value_as_of) + '</span>' +
+        (stale ? ' ' + tag('stale', prop.value_as_of
+              ? 'This value is more than six months old.'
+              : 'No as-of date is recorded for this value.', 'warn') : '');
+
+    /* The cap-rate value is derived from NOI, not observed. It is always
+       labelled, whatever the cap rate is set to. */
+    var capValue = window.NoiAnalysis
+      ? window.NoiAnalysis.valueAtCap(prop.t12_noi, S.whatif.capRatePct) : null;
+    var ltvEst = isNum(capValue) && Number(capValue) > 0 && isNum(prop.debt)
+      ? Number(prop.debt) / Number(capValue) : null;
+
     var rows = [
-      ['Value on file', money$(prop.value_on_file)], ['As of', dateOnly(prop.value_as_of)],
-      ['Value per unit', money$(vpu)], ['Cap rate at trailing NOI', pct(capAtT12)],
-      ['Debt', money$(prop.debt)], ['LTV', pct(prop.ltv)],
+      ['Value on file', money$(prop.value_on_file) + dateBit],
+      ['Value per unit', money$(vpu)],
+      ['Cap rate at trailing NOI', pct(capAtT12)],
+      ['Value at ' + Number(S.whatif.capRatePct).toFixed(1) + '% cap rate',
+        money$(capValue, { whole: true }) + ' ' + tag('estimate', 'Derived from trailing NOI at the cap rate above, not an observed value.')],
+      ['Debt', money$(prop.debt)],
+      ['LTV', pct(prop.ltv) + (prop.ltv_basis === 'on_file'
+        ? ' <span class="rp-dim">against the value on file, ' + dateOnly(prop.value_as_of) + '</span>' +
+          (stale ? ' ' + tag('stale', 'The value it is measured against is more than six months old.', 'warn') : '')
+        : ' <span class="rp-dim">no value on file</span>')],
+      ['LTV at cap-rate estimate', pct(ltvEst) + ' ' + tag('estimate', 'Measured against the cap-rate value above, not an observed value.')],
     ];
     return '<table class="rp-tbl rp-kv"><tbody>' + rows.map(function (r) {
       return '<tr><td>' + escS(r[0]) + '</td><td class="r"><b>' + r[1] + '</b></td></tr>';
@@ -972,13 +1084,13 @@
     if (ex) ex.onclick = function () {
       var d = S.cache.summary || { rows: [] };
       var head = ['Property', 'Source', 'Entity', 'Units', 'Occupancy', 'Total income', 'Total expenses',
-                  'NOI T12', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR', 'PM company', 'Ownership',
+                  'NOI T12', 'Optimized NOI', 'Expense ratio', 'Net income', 'DSCR mortgage', 'DSCR all debt', 'PM company', 'Ownership',
                   'T12 filed', 'T12 file', 'Rent roll filed', 'Rent roll file'];
       var body = (d.rows || []).filter(function (r) { return !S.status || r.ownership_status === S.status; })
         .map(function (r) {
           return [r.name, r.source_system, r.entity_name, r.units, r.latest_occupancy, r.t12_income,
                   r.t12_expense, r.t12_noi, r.optimized_noi, r.expense_ratio, r.t12_net_income,
-                  r.trailing_dscr, r.pm_company, r.ownership_status,
+                  dscrM(r), r.trailing_dscr_all_debt, r.pm_company, r.ownership_status,
                   r.t12_in_dropbox ? 'yes' : 'no', r.t12_file_name || '',
                   r.rent_roll_in_dropbox ? 'yes' : 'no', r.rent_roll_file_name || ''];
         });

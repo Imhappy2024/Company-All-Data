@@ -369,6 +369,52 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     assert.ok(filed > 0 && filed < allChips, 'filed=' + filed + ' of ' + allChips + ' - it should not be all or nothing');
   });
 
+  /* ---- two DSCRs, and the estimate tags ---- */
+  await go('#brand=leavenwealth&view=properties');
+  const hdr = (await text('.rp-tbl thead')).replace(/\s+/g, ' ');
+  check('the Properties table shows BOTH coverage figures', () => {
+    assert.ok(/DSCR, mortgage/.test(hdr), 'mortgage column missing: ' + hdr);
+    assert.ok(/DSCR, all debt/.test(hdr), 'all-debt column missing');
+  });
+
+  const chIdx = await pg.$$eval('.rp-row', function (els) {
+    return els.findIndex(function (e) { return /Cedar Haven/.test(e.textContent || ''); });
+  });
+  check('Cedar Haven is listed', () => assert.ok(chIdx >= 0));
+  const chRow = (await pg.locator('.rp-row').nth(chIdx).textContent()).replace(/\s+/g, ' ');
+  console.log('Cedar Haven row  :', chRow.slice(0, 160));
+  check('Cedar Haven shows 1.18 mortgage and 0.92 all debt', () => {
+    assert.ok(/1\.18/.test(chRow), 'mortgage DSCR missing: ' + chRow);
+    assert.ok(/0\.92/.test(chRow), 'all-debt DSCR missing: ' + chRow);
+  });
+
+  const tags = await pg.$$eval('.rp-tag', function (e) { return e.map(function (x) { return x.textContent.trim(); }); });
+  check('interest-only DSCRs are tagged on the list', () => {
+    assert.ok(tags.indexOf('interest only') >= 0, 'no interest-only tag: ' + tags.join(','));
+  });
+
+  /* the Valuation tab labels its estimates */
+  await pg.locator('.rp-row').nth(chIdx).scrollIntoViewIfNeeded();
+  await pg.locator('.rp-row').nth(chIdx).click();
+  await settle('#reportingNative');
+  await pg.locator('.rp-tab', { hasText: 'Valuation' }).first().click();
+  await pg.waitForTimeout(600);
+  const val = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-ch-valuation');
+  check('the cap-rate value is labelled an estimate and LTV says what it used', () => {
+    assert.ok(/estimate/i.test(val), 'nothing is labelled an estimate');
+    assert.ok(/value on file|no value on file/i.test(val), 'LTV does not say which value it used');
+  });
+
+  await pg.locator('.rp-tab', { hasText: 'DSCR' }).first().click();
+  await settle('#reportingNative');
+  const chDscr = (await text('#reportingNative')).replace(/\s+/g, ' ');
+  await shot('rp-ch-dscr');
+  check('the DSCR tab shows both measures and explains the other interest', () => {
+    assert.ok(/DSCR, mortgage/.test(chDscr) && /DSCR, all debt/.test(chDscr), 'both columns required');
+    assert.ok(/counted as additional debt service/i.test(chDscr), 'the all-debt column is unexplained');
+  });
+
   /* ---- the whole-release guarantees ---- */
   check('NO new screen issued a write request', () => {
     assert.deepStrictEqual(writes, [], 'writes seen: ' + writes.join(', '));

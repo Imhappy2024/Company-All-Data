@@ -1970,6 +1970,72 @@ Unchanged by the addition, and re-verified: Dakota Bend Jan 2026 is still
 13,539.14 on `income_statement` at 1.11, and Franklin Court is still
 `loan_record` at 774,391.92 / 12.
 
+### Other interest counts as debt service only when a loan explains it
+Classified by RULE, never by name. Both must hold:
+
+* the line appears with a POSITIVE amount in **>= 6 of the last 12 months**, and
+* the property has a loan on file that could explain it - a loan with a
+  **KNOWN** non-primary `purpose`, or two or more loans.
+
+"Known" is load-bearing. `purpose <> 'primary_mortgage'` is TRUE for a NULL
+purpose, and NULL means nobody recorded what the loan is - which is not
+evidence of extra debt. The positive-amount test is what keeps the two CREDIT
+lines (Franklin Court, Lions Gate) out; a negative can never be debt service.
+
+Qualifying today: **Cedar Haven Duplexes** (seller_carry) and **Heston
+Pointe** (pac_due, pace_equity). Both drop below 1.0 once it is counted:
+
+| | DSCR mortgage | DSCR all debt |
+|---|---|---|
+| Cedar Haven Duplexes | 1.18 | **0.92** |
+| Heston Pointe | 0.91 | **0.73** |
+
+**The Beverly is deliberately OUT and is an open question.** $97,500/yr of
+other interest, every month, against one loan of $171,700 with no recorded
+purpose - $7,500 a month cannot be serviced by that balance, so there is debt
+here the loan records do not describe. It stays visible in `other_interest`.
+Estrella and Sierra Gardens are one-off $25,000 rows in April 2026 and fail
+the six-month test.
+
+### Two DSCRs everywhere, and `dscr` keeps its old meaning
+`DSCR, mortgage` and `DSCR, all debt` appear together on Monthly financials,
+the DSCR tab, Totals and the Properties table.
+
+`property_month.dscr` and `property_summary.trailing_dscr` still mean
+**mortgage only**. The saved Coverage watchlist filters on `trailing_dscr`,
+and redefining it would change what that view means without changing a word
+of its config. The all-debt figures are additive columns.
+
+### An estimate has to say so NEXT TO ITSELF
+A caveat in a paragraph above a table is read by nobody scanning a column.
+
+- DSCR from `interest_only_books` carries an **interest only** tag, tooltip
+  "No principal in the books; coverage is likely overstated."
+- Every value shows its **as-of date**, and one older than six months - or
+  **with no date at all** - is tagged **stale**. "We do not know when this was
+  true" is a different claim from "this is current", and only one of them is
+  safe to divide debt by.
+- "Value at cap rate" is always tagged **estimate**, whatever the rate.
+- LTV states which value it used: on file with its date, or the cap-rate
+  estimate.
+
+### QuickBooks will replace the interest-only fallback - NOT YET BUILT
+See `docs/SYSTEM.md` for the detail. Once monthly QuickBooks balance sheets
+exist per property LLC:
+
+1. **loan balances should come from them**, not `loan_balance`, which is
+   sparse and ragged (54 of 75 loans have any row at all); and
+2. **principal paid = the month-over-month DECREASE in the loan balance**,
+   which is a measurement rather than an inference and retires
+   `interest_only_books` entirely.
+
+It also retires the sign test: a refinance RAISES a balance and can never be
+mistaken for a payment, where today a positive `other_cash_items` row has to
+be told from a negative one by rule.
+
+Do not build the import against assumptions - check what the balance sheets
+actually call the loan accounts and how they map to `loan.id` first.
+
 ### `loan_proceeds` is money ARRIVING, and is never netted against anything
 The positive side of `other_cash_items`. Four rows exist: Doral's
 **4,326,000.00 refinance in MAY 2026** and its **200,000.00 `Loan - Other` in

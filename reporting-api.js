@@ -211,7 +211,8 @@ async function noiAnalysis(req, res, who) {
 
   const rows = await q(
     `select pm.month, pm.total_operating_income, pm.total_operating_expense,
-            pm.noi, pm.debt_service, pm.debt_service_source
+            pm.noi, pm.debt_service, pm.debt_service_source,
+            pm.recurring_other_interest, pm.other_interest_is_debt_service
        from reporting.property_month pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid
         and lower(pm.accounting_basis) = 'cash' and pm.has_data
@@ -226,6 +227,8 @@ async function noiAnalysis(req, res, who) {
     income: num(r.total_operating_income),
     expense: num(r.total_operating_expense),
     noi: num(r.noi),
+    debt_service: num(r.debt_service),
+    recurring_other_interest: num(r.recurring_other_interest),
   }));
 
   const loans = await q(
@@ -254,6 +257,7 @@ async function noiAnalysis(req, res, who) {
     ok: true,
     series,
     loans,
+    other_interest_counted: rows.some(r => r.other_interest_is_debt_service),
     facts: {
       balance,
       annual_debt_service: annualDebtService,
@@ -261,6 +265,14 @@ async function noiAnalysis(req, res, who) {
       interest_rate_pct: loans.length ? num(loans[0].interest_rate_pct) : null,
       maturity_date: loans.length ? loans[0].maturity_date : null,
       debt_service_source: rows.length ? rows[rows.length - 1].debt_service_source : null,
+      /* What the BOOKS say, which is a different question from what the loan
+         record says. A property can have a full debt service in its income
+         statement and no annual figure on its loan - Cedar Haven is exactly
+         that - and a screen that only reads the loan record tells it there is
+         no debt service on file. */
+      books_annual_debt_service: series.reduce(
+        (a, x) => a + (x.debt_service === null ? 0 : x.debt_service), 0) || null,
+      books_months: series.filter(x => x.debt_service !== null).length,
     },
     windows: {
       best1: best1 ? { total: best1.total, from: best1.from, to: best1.to, annual: best1.total * 12 } : null,
