@@ -164,9 +164,17 @@
 .sv-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; border: 1px solid var(--border);
   border-radius: var(--r-sm); padding: 5px 9px; cursor: pointer; color: var(--ink-2); }
 .sv-chk.on { border-color: var(--accent); color: var(--ink-1); background: color-mix(in srgb, var(--accent) 10%, transparent); }
-.sv-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 12px; }
-.sv-tile { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; }
-.sv-tile .v { font-size: 22px; font-weight: 700; font-family: var(--font-display, inherit); font-variant-numeric: tabular-nums; }
+.sv-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 12px; }
+.sv-tile { border: 1px solid var(--border); border-radius: var(--r-md); padding: 14px; min-width: 0; }
+/* A portfolio debt figure is $147,471,737.71 - seventeen characters, which
+   overflowed a fixed 22px tile and clipped the cents off the right edge. The
+   value scales with the tile instead of the tile being sized for a short
+   number, and wraps rather than clipping if it still does not fit. */
+.sv-tile .v {
+  font-size: clamp(15px, 1.45vw, 22px); font-weight: 700;
+  font-family: var(--font-display, inherit); font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere; line-height: 1.15;
+}
 .sv-tile .k { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-4);
   font-family: var(--font-mono, inherit); margin-bottom: 6px; }
 .sv-list-row { border: 1px solid var(--border); border-radius: var(--r-md); padding: 12px; margin-bottom: 8px; }
