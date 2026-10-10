@@ -38,12 +38,27 @@ const express = require('express');
 const db = require('./supabase-db');
 const { guard, isAdmin } = require('./portal-identity');
 const R = require('./config/datasets');
+const Formula = require('./formula');
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const uuidOrNull = v => (typeof v === 'string' && UUID.test(v.trim()) ? v.trim() : null);
 
 const PER_PAGE_DEFAULT = 200;
 const PER_PAGE_MAX = 200;
+
+/* G2/G3 vocabularies. Each is the complete list the client may choose from. */
+const MAX_CALC = 12;
+const MAX_RULES = 20;
+const CALC_KEY = /^calc_[a-z0-9_]{1,40}$/;
+const CALC_FORMATS = ['number', 'currency', 'percent', 'ratio'];
+const FIELD_FORMATS = ['currency', 'currency0', 'number', 'number0', 'number2', 'percent', 'percent0', 'ratio', 'thousands', 'millions'];
+const ACCENTS = ['indigo', 'jade', 'amber', 'rust', 'sky', 'slate'];
+const RULE_OPS = ['gt', 'gte', 'lt', 'lte', 'eq', 'ne', 'is_empty', 'not_empty'];
+const RULE_TONES = ['good', 'warn', 'bad', 'muted', 'accent'];
+const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const pick = (v, list, dflt) => (list.indexOf(v) >= 0 ? v : dflt);
+const isCalcKey = (cfg, key) => typeof key === 'string' && CALC_KEY.test(key) &&
+  Array.isArray(cfg.calculated) && cfg.calculated.some(c => c && c.key === key);
 
 /* ---------------------------------------------------------------------------
    Config validation.
@@ -62,6 +77,12 @@ function validateConfig(datasetKey, raw) {
   keep.fields = [];
   for (const f of Array.isArray(cfg.fields) ? cfg.fields : []) {
     const key = f && typeof f === 'object' ? f.key : f;
+    if (isCalcKey(cfg, key)) {
+      /* placeholder: kept or dropped once the formula has been checked */
+      keep.fields.push({ key, label: (f && f.label) || null, format: null,
+        width: f && Number.isFinite(Number(f.width)) ? Number(f.width) : null, calc: true });
+      continue;
+    }
     const def = R.getField(datasetKey, key);
     if (!def) { problems.push('Field missing: ' + (key || '(unnamed)')); continue; }
     keep.fields.push({
@@ -84,7 +105,7 @@ function validateConfig(datasetKey, raw) {
 
   keep.sort = [];
   for (const s of Array.isArray(cfg.sort) ? cfg.sort : []) {
-    if (!s || !R.getField(datasetKey, s.field)) {
+    if (!s || !(R.getField(datasetKey, s.field) || isCalcKey(cfg, s.field))) {
       if (s) problems.push('Sort on a missing field: ' + (s.field || '(unnamed)'));
       continue;
     }
@@ -108,6 +129,38 @@ function validateConfig(datasetKey, raw) {
     keep.aggregates.push({ field: a.field, fn: String(a.fn).toLowerCase() });
   }
 
+
+  /* Calculated columns (G3). The formula is stored as typed and recompiled
+     on every load, so a field later removed from the registry turns into a
+     problem line instead of a broken query. A calculated column may refer to
+     an earlier one by key; later ones are not visible yet, which is what
+     rules out cycles without a graph walk. */
+  keep.calculated = [];
+  const grouped = !!(keep.aggregates && keep.aggregates.length);
+  const extra = {};
+  for (const c of Array.isArray(cfg.calculated) ? cfg.calculated.slice(0, MAX_CALC) : []) {
+    if (!c || typeof c !== 'object') continue;
+    const key = String(c.key || '');
+    if (!CALC_KEY.test(key)) { problems.push('Calculated column has a bad key: ' + key); continue; }
+    const label = String(c.label || '').trim().slice(0, 80) || key;
+    const formula = String(c.formula || '');
+    const r = Formula.check(formula, datasetKey, { grouped, extraFields: extra });
+    if (!r.ok) { problems.push('Calculated column "' + label + '": ' + r.error); continue; }
+    extra[key] = 'x';   // placeholder: only membership matters during validation
+    keep.calculated.push({
+      key, label, formula,
+      format: CALC_FORMATS.indexOf(c.format) >= 0 ? c.format : 'number',
+      decimals: Number.isInteger(c.decimals) && c.decimals >= 0 && c.decimals <= 4 ? c.decimals : null,
+      uses_aggregate: r.usesAggregate,
+    });
+  }
+  /* settle the placeholders the fields loop held */
+  const calcKeys = new Set(keep.calculated.map(c => c.key));
+  keep.fields = keep.fields.filter(f => !f.calc || calcKeys.has(f.key));
+  for (const f of keep.fields) {
+    if (f.calc && !f.label) f.label = keep.calculated.find(c => c.key === f.key).label;
+  }
+
   if (cfg.period && typeof cfg.period === 'object') {
     const t = cfg.period.type;
     if (['latest', 'year', 'range'].indexOf(t) >= 0) keep.period = cfg.period;
@@ -127,15 +180,62 @@ function validateConfig(datasetKey, raw) {
       if (!t || typeof t !== 'object') continue;
       if (t.type !== 'number' && t.type !== 'table') { problems.push('Unknown tile type: ' + t.type); continue; }
       const fields = t.fields || (t.field ? [t.field] : []);
-      const missing = fields.filter(k => !R.getField(datasetKey, k));
+      const missing = fields.filter(k => !R.getField(datasetKey, k) && !calcKeys.has(k));
       if (missing.length) { problems.push('Tile "' + (t.title || '') + '" uses missing fields: ' + missing.join(', ')); continue; }
       keep.layout.push({
         type: t.type, title: t.title || '', fields,
         aggregate: R.safeAggregate(t.aggregate) ? String(t.aggregate).toLowerCase() : null,
         w: Number(t.w) || 1, h: Number(t.h) || 1,
         filters: Array.isArray(t.filters) ? t.filters : [],
+        size: pick(t.size, ['S', 'M', 'L'], 'M'),
+        accent: pick(t.accent, ACCENTS, null),
       });
     }
+  }
+
+  /* Field presentation (G2): a header rename, a number format and a width.
+     None of these reach SQL. Format is an allowlist so a saved config cannot
+     name a formatter the client does not have. */
+  for (const f of keep.fields) {
+    if (f.format && FIELD_FORMATS.indexOf(f.format) < 0) f.format = null;
+    if (f.width !== null) f.width = Math.max(60, Math.min(600, Math.round(f.width)));
+    f.label = String(f.label || '').slice(0, 80);
+  }
+
+  /* Styling (G2). Every option is a choice from a fixed list: no free
+     colours, no fonts, nothing a viewer could use to make a figure look like
+     something it is not. */
+  const st = cfg.style && typeof cfg.style === 'object' ? cfg.style : {};
+  keep.style = {
+    density:   pick(st.density, ['compact', 'comfortable', 'spacious'], 'comfortable'),
+    text_size: pick(st.text_size, ['sm', 'md', 'lg'], 'md'),
+    theme:     pick(st.theme, ['auto', 'light', 'dark'], 'auto'),
+    accent:    pick(st.accent, ACCENTS, 'indigo'),
+    header: {
+      title:    String((st.header && st.header.title) || '').slice(0, 120),
+      subtitle: String((st.header && st.header.subtitle) || '').slice(0, 200),
+      show_date:    !(st.header && st.header.show_date === false),
+      show_filters: !(st.header && st.header.show_filters === false),
+      show_logo:    !(st.header && st.header.show_logo === false),
+      /* the period a printed report covers; a label, never a filter */
+      period_from: ISO_DAY.test(String((st.header && st.header.period_from) || '')) ? st.header.period_from : null,
+      period_to:   ISO_DAY.test(String((st.header && st.header.period_to) || '')) ? st.header.period_to : null,
+    },
+    rules: [],
+  };
+  for (const rule of Array.isArray(st.rules) ? st.rules.slice(0, MAX_RULES) : []) {
+    if (!rule || typeof rule !== 'object') continue;
+    if (!R.getField(datasetKey, rule.field) && !calcKeys.has(rule.field)) {
+      problems.push('Colour rule on a missing field: ' + (rule.field || '(unnamed)'));
+      continue;
+    }
+    const op = pick(rule.op, RULE_OPS, null);
+    const tone = pick(rule.tone, RULE_TONES, null);
+    if (!op || !tone) { problems.push('Colour rule with an unknown condition or colour'); continue; }
+    const needsValue = op !== 'is_empty' && op !== 'not_empty';
+    const value = needsValue ? Number(rule.value) : null;
+    if (needsValue && !Number.isFinite(value)) { problems.push('Colour rule needs a number to compare with'); continue; }
+    keep.style.rules.push({ field: rule.field, op, value, tone, target: rule.target === 'row' ? 'row' : 'cell' });
   }
 
   return { config: keep, problems };
@@ -214,8 +314,12 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
       groupBy = ' group by ' + config.group_by.map(k => R.safeColumn(datasetKey, k)).join(', ');
     }
   } else {
-    const cols = (config.fields && config.fields.length ? config.fields.map(f => f.key) : ds.fields.map(f => f.key))
-      .map(k => R.safeColumn(datasetKey, k)).filter(Boolean);
+    /* a report groups in the renderer, so the group field must come back
+       even when it is not one of the visible columns; without it every row
+       lands in a single group named after nothing */
+    const keys = (config.fields && config.fields.length ? config.fields.filter(f => !f.calc).map(f => f.key) : ds.fields.map(f => f.key))
+      .concat(config.group_by || []);
+    const cols = [...new Set(keys.map(k => R.safeColumn(datasetKey, k)).filter(Boolean))];
     selectList = cols.join(', ') || '*';
   }
 
@@ -234,7 +338,14 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
     aggAlias.set(a.field, `"${a.fn}_${a.field}"`);
   }
 
+  /* in a grouped view only a formula built from SUM/AVERAGE has a value per
+     group; validateConfig already refused the others for this shape */
+  const calcAlias = new Set((config.calculated || [])
+    .filter(c => !grouping || c.uses_aggregate).map(c => c.key));
   const sorts = (config.sort || []).map(s => {
+    /* a calculated column sorts by its output alias, which Postgres allows
+       in ORDER BY on its own */
+    if (calcAlias.has(s.field)) return '"' + s.field + '" ' + R.safeDir(s.dir) + ' nulls last';
     const col = R.safeColumn(datasetKey, s.field);
     if (!col) return null;
     let target = col;
@@ -259,6 +370,28 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
   );
   const total = countRow.rows[0] ? countRow.rows[0].n : 0;
 
+  /* Calculated columns are compiled AFTER the count query has run, so their
+     number parameters are never bound to a statement that does not use
+     them (Postgres refuses an untyped parameter it cannot place). Per-row
+     formulas run on detail rows, SUM/AVERAGE ones only on grouped rows; a
+     formula of the wrong kind for this view was already reported by
+     validateConfig and is simply not selected. */
+  const compiled = {};
+  const calcSelect = [];
+  for (const c of config.calculated || []) {
+    if (!calcAlias.has(c.key)) continue;
+    try {
+      const r = Formula.compile(c.formula, {
+        datasetKey, params, grouped: grouping, extraFields: compiled,
+      });
+      compiled[c.key] = r.sql;
+      calcSelect.push(r.sql + ' as "' + c.key + '"');
+    } catch (e) { /* validated on load; a failure here leaves the column empty */ }
+  }
+  if (calcSelect.length) {
+    selectList = (selectList === '1' ? [] : [selectList]).concat(calcSelect).join(', ');
+  }
+
   const lim = Math.min(Math.max(1, Number(perPage) || PER_PAGE_DEFAULT), PER_PAGE_MAX);
   const off = Math.max(0, ((Number(page) || 1) - 1) * lim);
   params.push(lim); const pl = params.length;
@@ -269,6 +402,19 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
     params
   );
   return { rows: rows.rows, total, page: Number(page) || 1, per_page: lim };
+}
+
+/* The parsed form of each calculated column, for the report's subtotal and
+   grand-total rows. A row's value comes from SQL; a subtotal is the same
+   formula over the group's totals (NOI per unit = total NOI / total units),
+   which no per-row value can give and which summing the rows gets wrong. The
+   tree is data, not code: the client walks it with a fixed evaluator. */
+function formulaTrees(config) {
+  const out = {};
+  for (const c of config.calculated || []) {
+    try { out[c.key] = Formula.parse(c.formula); } catch (e) { /* reported by validateConfig */ }
+  }
+  return out;
 }
 
 /* ---------------------------------------------------------------------------
@@ -373,7 +519,7 @@ async function getViewData(req, res, who) {
      privilege grant. */
   const out = await runDataset(v.dataset_key, config, who.tenantId,
     req.query.page, req.query.per_page);
-  res.json(Object.assign({ ok: true, dataset: v.dataset_key, problems }, out));
+  res.json(Object.assign({ ok: true, dataset: v.dataset_key, problems, formulas: formulaTrees(config) }, out));
 }
 
 /* The builder's live preview (step 6). It runs a DRAFT config that has not
@@ -392,7 +538,43 @@ async function previewData(req, res, who) {
 
   const { config, problems } = validateConfig(datasetKey, raw);
   const out = await runDataset(datasetKey, config, who.tenantId, 1, req.query.per_page || 50);
-  res.json(Object.assign({ ok: true, dataset: datasetKey, problems }, out));
+  res.json(Object.assign({ ok: true, dataset: datasetKey, problems, formulas: formulaTrees(config) }, out));
+}
+
+/* The formula box (G3). Checks a formula as it is typed and, when it is
+   valid, runs it on five real rows so the person sees numbers rather than a
+   green tick. The earlier calculated columns of the draft come along, so a
+   formula may refer to them exactly as it will once saved. Nothing is
+   written, and the rows are the caller's own tenant scope, same as preview. */
+async function checkFormula(req, res, who) {
+  const b = req.body || {};
+  const datasetKey = String(b.dataset || '');
+  const ds = R.getDataset(datasetKey);
+  if (!ds) return res.status(400).json({ error: 'Unknown dataset.' });
+  const grouped = !!b.grouped;
+  const earlier = Array.isArray(b.calculated) ? b.calculated.slice(0, MAX_CALC - 1) : [];
+  const extra = {};
+  for (const c of earlier) if (c && CALC_KEY.test(String(c.key || ''))) extra[c.key] = 'x';
+
+  const r = Formula.check(String(b.formula || ''), datasetKey, { grouped, extraFields: extra });
+  if (!r.ok) return res.json({ ok: false, error: r.error, position: r.position });
+  if (grouped) return res.json({ ok: true, fields: r.fields, sample: [] });
+
+  const nameField = ds.fields.find(f => f.type === 'text' && !f.hidden);
+  const raw = {
+    fields: (nameField ? [{ key: nameField.key }] : []).concat([{ key: 'calc_preview' }]),
+    calculated: earlier.concat([{ key: 'calc_preview', label: 'Preview', formula: String(b.formula) }]),
+    /* rows that carry every field the formula reads, so the sample shows
+       what the formula does rather than five dashes */
+    filters: r.fields.map(k => ({ field: k, op: 'not_empty' })),
+    sort: ds.defaultSort || [],
+  };
+  const { config } = validateConfig(datasetKey, raw);
+  const out = await runDataset(datasetKey, config, who.tenantId, 1, 5);
+  res.json({
+    ok: true, fields: r.fields,
+    sample: out.rows.map(row => ({ label: nameField ? row[nameField.key] : null, value: row.calc_preview })),
+  });
 }
 
 async function createView(req, res, who) {
@@ -559,6 +741,7 @@ function viewRoutes() {
   r.post('/', guard(createView));
   /* before /:id, or 'preview' is read as a view id and 400s as a bad uuid */
   r.get('/preview', rateLimitData, guard(previewData));
+  r.post('/formula', rateLimitData, guard(checkFormula));
   r.get('/:id', guard(getView));
   r.put('/:id', guard(updateView));
   r.delete('/:id', guard(deleteView));
@@ -570,5 +753,5 @@ function viewRoutes() {
 
 module.exports = {
   datasetRoutes, viewRoutes,
-  _internal: { validateConfig, buildWhere, runDataset, permissionFor },
+  _internal: { validateConfig, buildWhere, runDataset, permissionFor, checkFormula },
 };

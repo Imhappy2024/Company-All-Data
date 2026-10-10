@@ -2133,6 +2133,10 @@ const viewsApi = require('./views-api');
 app.use('/api/datasets', viewsApi.datasetRoutes());
 app.use('/api/views', viewsApi.viewRoutes());
 
+/* Section H: admins adding entities, properties and buildings. Insert-only;
+   nothing existing becomes editable. See portfolio-setup-api.js. */
+app.use('/api/portfolio-setup', require('./portfolio-setup-api').setupRoutes());
+
 /* Phase 2 ships READ-ONLY: the new Properties screens call no write
    endpoint. The existing write endpoints are untouched and still mounted;
    this flag is what the browser reads to know not to offer an edit. */

@@ -525,14 +525,27 @@ async function rentRoll(req, res, who) {
   const id = uuidOrNull(req.params.id);
   if (!id) return res.status(400).json({ error: 'A property id is required.' });
 
+  /* A4: every rent roll on file can be read, newest by default. Dates go
+     out as text so no timezone can move them a day. */
+  const dates = (await q(
+    `select distinct to_char(u.as_of_date, 'YYYY-MM-DD') as d
+       from reporting.rent_roll_unit u
+      where u.tenant_id = $1 and u.property_id = $2::uuid
+      order by 1 desc`,
+    [who.tenantId, id]
+  )).map(r => r.d);
+  const asked = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.as_of || '')) ? String(req.query.as_of) : null;
+  const asOf = asked && dates.indexOf(asked) >= 0 ? asked : null;
+
   const units = await q(
     `select u.unit, u.beds, u.baths, u.tenant, u.status, u.rent, u.market_rent,
             u.balance_due, u.lease_start, u.lease_end, u.square_feet, u.as_of_date
        from reporting.rent_roll_unit u
-      where u.tenant_id = $1 and u.property_id = $2::uuid and u.is_latest
+      where u.tenant_id = $1 and u.property_id = $2::uuid
+        and (case when $3::date is null then u.is_latest else u.as_of_date = $3::date end)
         and u.is_current
       order by u.sort_order nulls last, u.unit`,
-    [who.tenantId, id]
+    [who.tenantId, id, asOf]
   );
 
   /* the summary comes from property_month so the figures on this tab cannot
@@ -543,11 +556,12 @@ async function rentRoll(req, res, who) {
        from reporting.property_month_mv pm
       where pm.tenant_id = $1 and pm.property_id = $2::uuid
         and pm.rent_roll_as_of is not null
+        and ($3::date is null or pm.rent_roll_as_of = $3::date)
       order by pm.month desc limit 1`,
-    [who.tenantId, id]
+    [who.tenantId, id, asOf]
   ))[0] || null;
 
-  res.json({ ok: true, units, rentSummary: s });
+  res.json({ ok: true, units, rentSummary: s, asOfDates: dates, asOf: asOf || dates[0] || null });
 }
 
 /* ---------------------------------------------------------------------------

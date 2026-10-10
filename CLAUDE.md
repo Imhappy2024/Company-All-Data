@@ -2377,6 +2377,120 @@ or an aggregate. The default sort comes from the dataset and knows nothing
 about the config, so it turned three of the four starter views into 42803.
 Unusable sorts are dropped, not refused.
 
+### Calculated columns: `formula.js` is a security boundary (spec G3)
+A formula is typed by a user and then run as the postgres superuser, so it
+is never concatenated into SQL. It is tokenised, parsed into a tree and
+compiled; every leaf is a registry FIELD (looked up, or the compile fails), a
+NUMBER (bound as `$n`, never inlined) or one of seven FUNCTIONS emitted from a
+fixed template. A quote, a semicolon, a dot outside a number or an unknown
+word is refused by the tokenizer, so `1; drop table x` never parses.
+
+- Division compiles to `a / nullif(b, 0)`: divide by zero is NULL, shown "–".
+- `SUM` / `AVERAGE` total a COLUMN, the way a spreadsheet does. In a per-row
+  column they are a window (`sum(x) over ()`), so `t12_noi / SUM(t12_noi)` is
+  each row's share and the result keeps one row per record. In a grouped
+  view they are plain aggregates, and a bare field outside one is refused.
+  They do not nest.
+- A calculated column may refer to EARLIER ones by key; later ones are not
+  visible yet, which rules out cycles without a graph walk.
+- Number parameters are bound only AFTER the count query has run. Postgres
+  refuses an untyped parameter a statement does not use, so binding them
+  first breaks the count.
+- Sorting by a calculated column orders by its output alias.
+
+**A report subtotal is the formula over the TOTALS, never the sum of the
+rows.** NOI per unit for a group is total NOI / total units: 5,225.73 across
+the portfolio, where adding the rows gives 366,475. The server returns each
+formula's parsed tree (`formulas` on `/data` and `/preview`) and the client
+walks it with a fixed evaluator that mirrors the SQL (NULL propagates, LEAST
+and GREATEST skip NULLs, an IF on NULL takes the else branch).
+
+`POST /api/views/formula` checks a formula as it is typed and runs it on five
+real rows that carry every field it reads. It writes nothing.
+
+**Not built: an admin "promote" of a formula into the dataset registry.**
+The registry is code (`config/datasets.js`); promoting at runtime needs a
+table to hold promoted formulas, which is a schema change for Jay to approve.
+
+### View styling (spec G2): every option is from a fixed list
+Density, text size, theme preset (follow the portal / light / dark), accent
+(six hues from tokens.css), colour rules (field, comparison, value, one of
+good / warn / bad / muted / accent, cell or whole row, first match wins),
+column order, header renames, number formats, widths, dashboard tiles with
+S / M / L size and accent, and a printed header with title, subtitle, logo,
+period, run date and filters. No free colours, no fonts. The server
+allowlists each one in `validateConfig`, so a saved config cannot name a
+formatter or a colour the client does not have.
+
+**A nested `data-theme` does not re-theme by itself.** tokens.css resolves
+its alias layer (`--bg`, `--panel`, ...) once on `:root`, so a wrapper with
+`data-theme="light"` changed the raw tokens and none of the aliases built
+from them. `.sv-themed` re-declares the aliases it uses.
+
+**`--ink-1` does not exist.** The token is `--ink`. Eighteen rules in
+portal-reporting.css used `--ink-1` and silently fell back; they now say
+`--ink`. An undefined custom property never errors.
+
+**A report grouped by a field that is not a visible column put every row in
+one group.** The group field was not selected, so every row's group key was
+undefined. `runDataset` now always selects `group_by` fields. And the
+Subtotal / Grand total label sits in the first column with no total of its
+own: with a numeric column first, the label had been covering its total.
+
+## Adding records (spec H): admins only, insert only, audited
+
+`portfolio-setup-api.js` at `/api/portfolio-setup` + `public/portal-setup.js`.
++ Entity, + Property (guided form) and + Building, plus the H3 setup
+checklist on every property's Overview.
+
+- **Insert only.** No UPDATE or DELETE statement exists in the file, and a
+  test reads the source to keep it that way. Nothing already on file becomes
+  editable.
+- **Admins only**, decided server-side per request from the verified
+  identity (`isAdmin`), mutation-tested: removing the gate fails the suite.
+- **Audited twice.** The `zz_audit_row_log` triggers record every insert but
+  run as the superuser and cannot know who asked, so each record also gets a
+  `sov_edit_log` row (`column_name = '(record created)'`) naming the person.
+- **One transaction per form.** A property whose alias, fee or loan failed is
+  the half-set-up record H3 exists to prevent; any failure writes nothing.
+- No migration was needed: `property_source_alias`, `am_fee_schedule(+_property)`,
+  `loan` and `loan_collateral` already existed.
+
++ Property writes: the property (held; units as `unit_count_verified` in the
+person's name, never `unit_count_reported`), its owner LLC (picked, or
+created in the same transaction under a managing entity), the report-source
+alias the sync matches T12s and rent rolls on (a name already matched to
+another property is a 409 that names it), the Dropbox folder link into
+`property.dropbox_url`, an `am_fee_schedule` covering it, and an optional
+loan (`interest_rate_pct` stored as a FRACTION: 6.5 typed is 0.065) secured
+on it. Then it refreshes the reporting views (~0.5s) so the property shows.
+
+**Not built: adding the Dropbox entity/property folders to the sync's folder
+mapping.** There is no mapping table; the n8n document sync matches folders
+by documents already filed under a property. A real mapping needs a table
+(schema change) and an n8n change. The form stores the folder's share link.
+
+The checklist's four items are the spec's: Sync name matched, Dropbox folder
+set (a link on file or documents filed), Fee set, Loan on file (property or
+building collateral). A fully set-up property shows one line instead of
+four cards.
+
+**The tests never write to the shared database.** `test-portfolio-setup.js`
+swaps `db.tx` for one that runs its assertions INSIDE the transaction and
+then rolls back, and its last check proves nothing was left behind.
+`test-setup-ui.js` answers every POST in the browser.
+
+### Rent roll As-of (spec A4)
+`/:id/rent-roll?as_of=YYYY-MM-DD` reads any rent roll on file; the response
+lists every date (`asOfDates`, as text so no timezone moves them) and the
+tab offers them newest first.
+
+### The breadcrumb names the property's own manager
+Opened by a link, a reload or a new-property save, a property has no
+drill-down behind it, and the crumb read "No managing entity" above a
+property whose manager was on file two lines below. The overview load now
+sets the crumb from the property's own `managing_entity_id`.
+
 ## A rent_roll_line is a LEASE, not a unit
 
 This is the correction most likely to be made again. Copperleaf has **494
@@ -2429,8 +2543,11 @@ Rent roll tab filters on it rather than listing every expired lease.
     node test/test-am-fees.js           # 17, the fee arithmetic
     node test/test-datasets.js          # 10, the allowlist boundary
     node test/test-acceptance-math.js   # 16, section 2.10's arithmetic
-    node test/test-reporting-ui.js      # 25, the screens against LIVE data
+    node test/test-reporting-ui.js      # 44, the screens against LIVE data
                                         #     --shots writes the screenshots
+    node test/test-views-ui.js          # 24, G2 styling + G3 formulas, live, nothing saved
+    node test/test-portfolio-setup.js   # 26, section H server, every write rolled back
+    node test/test-setup-ui.js          # 18, section H screens + rent roll As-of
 
 `test-reporting-ui.js` is the opposite of the usual fake: the SQL, the views
 and every figure are the live database, and only the doorman is stubbed.

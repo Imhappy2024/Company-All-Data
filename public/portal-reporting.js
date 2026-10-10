@@ -181,6 +181,8 @@
     fromMonth: 1,
     toMonth: 12,
     rentAsOf: null,
+    notice: null,              /* one line after adding a record (H) */
+    forceTree: false,          /* bypass /api/portfolio's cache once, after + Building */
 
     search: '',
     status: 'held',
@@ -272,11 +274,13 @@
 
   /* ---- navigation --------------------------------------------------------- */
   function goPortfolio(tab) {
+    S.notice = null;
     S.level = 'portfolio'; S.entityId = null; S.entityName = null; S.propertyId = null;
     if (tab) S.tab = tab;
     pushUrl(); load();
   }
   function goEntity(id, name, tab) {
+    S.notice = null;
     S.level = 'entity'; S.entityId = id === undefined ? null : id; S.entityName = name || null;
     S.propertyId = null; S.tab = tab || 'properties';
     pushUrl(); load();
@@ -1001,10 +1005,19 @@
     var u = d.units || [];
     if (!u.length) return '<div class="rp-empty">No rent roll on file for this property.</div>';
     var s = d.rentSummary || {};
-    var h = ['<p class="rp-note">As of <b>' + dateOnly(s.as_of_date) + '</b> · ' +
+    var dates = d.asOfDates || [];
+    var h = [];
+    if (dates.length > 1) {
+      h.push('<div class="rp-bar"><span class="rp-lbl">Rent roll as of</span><select class="rp-inp" id="rpAsOf" aria-label="Rent roll date">' +
+        dates.map(function (x) {
+          return '<option value="' + escS(x) + '"' + (x === d.asOf ? ' selected' : '') + '>' + dateOnly(x) + '</option>';
+        }).join('') + '</select>' +
+        (dates[0] !== d.asOf ? '<span class="rp-dim">an earlier rent roll; the newest is ' + dateOnly(dates[0]) + '</span>' : '') + '</div>');
+    }
+    h.push('<p class="rp-note">As of <b>' + dateOnly(d.asOf || s.as_of_date) + '</b> · ' +
       intf(s.units) + ' units · ' + intf(s.occupied) + ' occupied · ' + intf(s.vacant) + ' vacant · ' +
       'rent ' + money$(s.rent_total) + ' against market ' + money$(s.market_rent_total) +
-      ' · loss to lease ' + money$(s.loss_to_lease) + '</p>'];
+      ' · loss to lease ' + money$(s.loss_to_lease) + '</p>');
     h.push('<div class="rp-scroll"><table class="rp-tbl"><thead><tr><th>Unit</th><th>Tenant</th><th>Status</th>' +
       '<th class="r">Beds</th><th class="r">Baths</th><th class="r">Rent</th><th class="r">Market</th>' +
       '<th class="r">Balance</th><th>Lease start</th><th>Lease end</th></tr></thead><tbody>');
@@ -1102,16 +1115,20 @@
     return h.join('');
   }
 
+  function addBuildingBar() {
+    return window.PortalSetup && PortalSetup.isAdmin()
+      ? '<div class="rp-bar"><span class="rp-spacer"></span><button class="rp-btn" id="rpAddBuilding">' + icon('plus') + 'Building</button></div>' : '';
+  }
   function bldgTab(raw) {
     var b = (raw && raw.buildings) || [];
-    if (!b.length) return '<div class="rp-empty">No building records for this property.</div>';
+    if (!b.length) return addBuildingBar() + '<div class="rp-empty">No building records for this property.</div>';
     /* residential first, then a NATURAL comparator: plain string order puts
        "Building 10" before "Building 2". */
     var sorted = b.slice().sort(function (x, y) {
       return String(x.name || x.unit_identifier || '').localeCompare(
         String(y.name || y.unit_identifier || ''), undefined, { numeric: true, sensitivity: 'base' });
     });
-    return '<div class="rp-scroll"><table class="rp-tbl"><thead><tr><th>Building</th>' +
+    return addBuildingBar() + '<div class="rp-scroll"><table class="rp-tbl"><thead><tr><th>Building</th>' +
       '<th class="r">Apartments</th><th>Address</th></tr></thead><tbody>' +
       sorted.map(function (x) {
         return '<tr><td>' + escS(x.name || x.unit_identifier || DASH) + '</td>' +
@@ -1233,9 +1250,10 @@
   }
 
   /* ---- D1 Overview --------------------------------------------------------- */
-  function overviewTab(d) {
+  function overviewTab(d, check) {
     var p = d.property || {};
     var h = [];
+    if (check && window.PortalSetup) h.push(PortalSetup.checklistHtml(check));
 
     h.push('<h4 class="rp-h4">Needs attention</h4>');
     if (!d.flags || !d.flags.length) {
@@ -1336,7 +1354,11 @@
     /* No sidebar. The entity tree listed 106 legal entities as navigation,
        which is a directory rather than a route, and it took a third of the
        width from the tables that are the actual content. */
-    return '<div class="rp-full rp-' + S.density + '">' + crumbHtml() + (head || '') +
+    var note = S.notice
+      ? '<div class="rp-notice" role="status"><span>' + escS(S.notice) + '</span><button class="rp-btn rp-x" id="rpNoticeX" aria-label="Dismiss">' +
+        '<svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="m4.5 4.5 7 7m0-7-7 7"/></svg></button></div>'
+      : '';
+    return '<div class="rp-full rp-' + S.density + '">' + crumbHtml() + note + (head || '') +
       '<div class="rp-body">' + body + '</div></div>';
   }
 
@@ -1422,7 +1444,7 @@
       head = propertyHead(p) +
         tabsHtml(PTABS, S.ptab, 'ptab', needsPeriod ? periodBar(d.years) : '');
       switch (S.ptab) {
-        case 'overview': body = d.overview ? overviewTab(d.overview) : skeleton(6, 3); break;
+        case 'overview': body = d.overview ? overviewTab(d.overview, d.check) : skeleton(6, 3); break;
         case 'monthly':  body = d.monthly ? monthlyTab(d.monthly) : skeleton(12, 8); break;
         case 'is':       body = d.is ? isTab(d.is) : skeleton(12, 8); break;
         case 'noi':      body = d.noi ? noiTab(d.noi) : skeleton(10, 4); break;
@@ -1436,7 +1458,10 @@
       }
     } else {
       var tabs = S.level === 'portfolio' ? PORTFOLIO_TABS : ENTITY_TABS;
-      head = tabsHtml(tabs, S.tab, 'tab');
+      var adds = window.PortalSetup && PortalSetup.isAdmin() && S.tab !== 'views'
+        ? '<span class="rp-adds"><button class="rp-btn" id="rpAddEntity">' + icon('plus') + 'Entity</button>' +
+          '<button class="rp-btn" id="rpAddProperty">' + icon('plus') + 'Property</button></span>' : '';
+      head = tabsHtml(tabs, S.tab, 'tab', adds);
       if (S.tab === 'views') {
         body = '<div id="rpViewsHost"></div>';
       } else if (S.tab === 'fees') {
@@ -1508,7 +1533,11 @@
     var tm = root.querySelector('#rpTo');
     if (tm) tm.onchange = function () { S.toMonth = Number(tm.value); pushUrl(); paint(); };
     var ra = root.querySelector('#rpAsOf');
-    if (ra) ra.onchange = function () { S.rentAsOf = ra.value; paint(); };
+    if (ra) ra.onchange = function () {
+      S.rentAsOf = ra.value;
+      if (S.cache.prop) S.cache.prop.units = null;
+      load();
+    };
 
     /* list filters, which repaint only the table so the input keeps focus */
     function repaintTable() {
@@ -1565,10 +1594,43 @@
       if (e) e.onclick = function () { reset(); repaintSoon(); };
     });
 
+    /* section H: adding records. The forms live in portal-setup.js. */
+    var nx = root.querySelector('#rpNoticeX');
+    if (nx) nx.onclick = function () { S.notice = null; paint(); };
+    var ae = root.querySelector('#rpAddEntity');
+    if (ae) ae.onclick = function () { PortalSetup.open('entity', {}, added); };
+    var ap = root.querySelector('#rpAddProperty');
+    if (ap) ap.onclick = function () { PortalSetup.open('property', {}, added); };
+    var ab = root.querySelector('#rpAddBuilding');
+    if (ab) ab.onclick = function () {
+      var p = (S.cache.prop && (S.cache.prop.summary || {})) || {};
+      PortalSetup.open('building', { propertyId: S.propertyId, propertyName: p.name }, added);
+    };
+
     var ex = root.querySelector('#rpExport');
     if (ex) ex.onclick = exportProperties;
     var fx = root.querySelector('#rpFeeExport');
     if (fx) fx.onclick = exportFees;
+  }
+
+  /* After a record is added: drop what it changes, then land where it can be
+     seen. A new property opens on its Overview, where the setup checklist
+     says what is still missing. */
+  function added(kind, b) {
+    if (kind === 'property') {
+      S.cache = {}; S.tree = null;
+      S.notice = b.property.name + ' added.' + (b.property.owner ? ' New owner LLC: ' + b.property.owner.name + '.' : '');
+      goProperty(b.property.id);
+    } else if (kind === 'building') {
+      if (S.cache.prop) { S.cache.prop.raw = null; S.cache.prop.overview = null; S.cache.prop.check = null; }
+      S.cache.summary = null; S.forceTree = true;
+      S.notice = 'Building ' + b.building.unit_identifier + ' added.';
+      load();
+    } else {
+      S.cache.entities = null; S.cache.summary = null;
+      S.notice = b.entity.name + ' added. It appears under Entities once a property names it as manager, and in the owner pickers now.';
+      load();
+    }
   }
 
   function dropPeriodCaches() {
@@ -1609,15 +1671,26 @@
         if (d[k]) return;
         jobs.push(api(url).then(function (b) { if (fresh() && S.propertyId === pid) assign(b); }));
       };
-      need('overview', '/api/portfolio/' + pid + '/overview', function (b) { d.overview = b; d.summary = b.property; });
+      need('overview', '/api/portfolio/' + pid + '/overview', function (b) {
+        d.overview = b; d.summary = b.property;
+        /* The breadcrumb names the property's OWN managing entity. Reached by
+           a link, a reload or a new-property save there is no drill-down
+           behind it, and it read "No managing entity" over a property whose
+           manager is on file two lines below. */
+        if (b.property) { S.entityId = b.property.managing_entity_id || null; S.entityName = b.property.managing_entity_name || null; }
+      });
       if (S.ptab === 'monthly') need('monthly', '/api/portfolio/' + pid + '/monthly?year=' + S.year, function (b) { d.monthly = b; d.years = b.years; });
       if (S.ptab === 'is' || S.ptab === 'capex') need('is', '/api/portfolio/' + pid + '/income-statement', function (b) { d.is = b; });
       if (S.ptab === 'noi' || S.ptab === 'dscr') need('noi', '/api/portfolio/' + pid + '/noi-analysis', function (b) { d.noi = b; });
       if (S.ptab === 'fee') need('fees', '/api/am-fees?year=' + S.year, function (b) { d.fees = b; });
-      if (S.ptab === 'rent') need('units', '/api/portfolio/' + pid + '/rent-roll', function (b) { d.units = b.units; d.rentSummary = b.rentSummary; });
+      if (S.ptab === 'rent') need('units', '/api/portfolio/' + pid + '/rent-roll' + (S.rentAsOf ? '?as_of=' + encodeURIComponent(S.rentAsOf) : ''),
+        function (b) { d.units = b.units; d.rentSummary = b.rentSummary; d.asOfDates = b.asOfDates; d.asOf = b.asOf; });
+      if (S.ptab === 'overview') need('check', '/api/portfolio-setup/property/' + pid + '/checklist', function (b) { d.check = b.items; });
       if (S.ptab === 'docs') need('docs', '/api/portfolio/' + pid + '/documents', function (b) { d.docs = b; });
       if ((S.ptab === 'bldg') && !d.raw) {
-        jobs.push(fetch('/api/portfolio', { cache: 'no-store' }).then(function (r) { return r.json(); })
+        var treeUrl = '/api/portfolio' + (S.forceTree ? '?force=1' : '');
+        S.forceTree = false;
+        jobs.push(fetch(treeUrl, { cache: 'no-store' }).then(function (r) { return r.json(); })
           .then(function (b) {
             if (!fresh() || S.propertyId !== pid) return;
             d.raw = (b.properties || []).filter(function (x) { return x.id === pid; })[0] || {};
@@ -1700,6 +1773,7 @@
     }
     paint();
     load();
+    if (window.PortalSetup) PortalSetup.load().then(function () { if (PortalSetup.isAdmin() && S.host) paint(); });
   }
 
   function invalidate() {
