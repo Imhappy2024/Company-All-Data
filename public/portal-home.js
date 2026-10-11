@@ -130,7 +130,7 @@
   }
   function row(t, td) {
     var overdue = t.due !== null && t.due !== undefined && dayOf(t.due) < td;
-    return '<tr><td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener">' + esc(t.name) + '</a></td>' +
+    return '<tr class="hm-row' + (P.id === t.id ? ' hm-sel' : '') + '" data-hm-open="' + esc(t.id) + '"><td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener" data-hm-open="' + esc(t.id) + '">' + esc(t.name) + '</a></td>' +
       '<td class="hm-muted">' + esc(t.list) + '</td><td>' + statusPill(t.status) + '</td><td>' + priorityCell(t.priority) + '</td>' +
       '<td class="' + (overdue ? 'hm-overdue' : '') + '">' + esc(fmtDue(t.due, td)) + '</td>' +
       '<td><span class="hm-people">' + (t.assignees || []).map(function (a) { return '<span class="hm-av" title="' + esc(a.name) + '">' + esc(a.initials) + '</span>'; }).join('') + '</span></td></tr>';
@@ -167,23 +167,339 @@
       html = '<div class="hm"><div class="hm-top"><h1 class="hm-h1">' + title + '</h1><span class="hm-sub">' + esc(sub) + '</span></div>' +
         '<div class="hm-frame"><table class="hm-tbl"><thead><tr><th class="hm-tcol">Task</th><th>List</th><th>Status</th><th>Priority</th><th>Due</th><th>Assigned to</th></tr></thead><tbody>' +
         body + '</tbody></table></div>' +
-        '<p class="hm-note">From ClickUp, using your own ClickUp sign-in, so you only see spaces and lists you can access. Click a task to open it in ClickUp.' +
+        '<p class="hm-note">From ClickUp, using your own ClickUp sign-in, so you only see spaces and lists you can access. Click a task to open it here.' +
         (S.data.stale || S.loading ? ' Refreshing…' : '') + '</p></div>';
     }
     if (window.PortalMorph) window.PortalMorph.morph(S.host, html); else S.host.innerHTML = html;
+  }
+
+
+  /* ===========================================================================
+     The task panel. Ported from the /ops dashboard's task detail
+     (openTaskDetail, openStatusEditor, openDuePicker, openAssigneePicker,
+     saveAssignees, renderComments, submitComment in public/index.html), which
+     came from the click-up-dashboard repo. Same behaviour; the look is the
+     shell's. Every read and write goes through /api/home with the person's
+     own ClickUp sign-in, so ClickUp's permissions apply, and a refusal is shown
+     in the panel in ClickUp's own words.
+     =========================================================================== */
+  var P = { id: null };
+  var PRIORITY = { urgent: 'Urgent', high: 'High', normal: 'Normal', low: 'Low' };
+
+  function api(method, path, body) {
+    var cu = null; try { cu = localStorage.getItem('du_auth_token'); } catch (e) { /* storage blocked */ }
+    var base = window.PortalSession && window.PortalSession.authHeaders
+      ? window.PortalSession.authHeaders({ Accept: 'application/json' }) : Promise.resolve({ Accept: 'application/json' });
+    return base.then(function (h) {
+      if (cu) h['X-ClickUp-Token'] = cu;
+      if (body) h['Content-Type'] = 'application/json';
+      return fetch('/api/home' + path, { method: method, headers: h, credentials: 'include', body: body ? JSON.stringify(body) : undefined });
+    }).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (j) {
+        if (!r.ok) { var e = new Error(j.error || ('HTTP ' + r.status)); e.connect = !!j.connect; throw e; }
+        return j;
+      });
+    });
+  }
+  function taskById(id) { return S.data && S.data.tasks.find(function (t) { return t.id === id; }); }
+  function fmtStamp(msv) {
+    if (msv === null || msv === undefined) return '–';
+    return new Date(msv).toLocaleString('en-US', { timeZone: TZ, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+  }
+  function isoDay(msv) { return msv === null || msv === undefined ? '' : dayOf(msv); }
+
+  function panelHost() {
+    var el = document.getElementById('hmPanel');
+    if (el) return el;
+    el = document.createElement('div');
+    el.id = 'hmPanel';
+    document.body.appendChild(el);
+    el.onclick = onPanelClick;
+    el.onchange = onPanelChange;
+    el.oninput = onPanelInput;
+    el.onkeydown = onPanelKey;
+    return el;
+  }
+  var keysBound = false;
+  function bindKeys() {
+    if (keysBound) return; keysBound = true;
+    document.addEventListener('keydown', function (ev) {
+      if (ev.key !== 'Escape' || !P.id) return;
+      if (P.assign) { P.assign = null; paintPanel(); return; }
+      if (P.statusOpen) { P.statusOpen = false; paintPanel(); return; }
+      closePanel();
+    });
+  }
+
+  function openPanel(id) {
+    var t = taskById(id);
+    if (!t) return;
+    var back = document.activeElement;
+    P = { id: id, statuses: null, statusOpen: false, comments: null, commentsErr: '', msg: '', assign: null, posting: false, back: back };
+    bindKeys();
+    paintPanel();
+    paint();
+    var c = document.querySelector('#hmPanel .hm-p-x'); if (c) c.focus();
+    loadComments();
+  }
+  function closePanel() {
+    if (!P.id) return;
+    var back = P.back;
+    P = { id: null };
+    paintPanel();
+    paint();
+    if (back && back.focus && document.body.contains(back)) back.focus();
+  }
+
+  function loadComments() {
+    var id = P.id;
+    P.comments = null; P.commentsErr = '';
+    paintPanel();
+    var t0 = window.PortalLoader ? window.PortalLoader.now() : 0;
+    api('GET', '/task/' + encodeURIComponent(id) + '/comments').then(function (d) {
+      var done = function () { if (P.id !== id) return; P.comments = d.comments || []; paintPanel(); };
+      if (window.PortalLoader) window.PortalLoader.settle(t0, done); else done();
+    }, function (e) { if (P.id !== id) return; P.commentsErr = e.message; P.comments = []; paintPanel(); });
+  }
+
+  /* One write: change the row now, send it, keep ClickUp's answer, or put the
+     row back and say why. */
+  function update(body, optimistic) {
+    var t = taskById(P.id);
+    if (!t) return;
+    var before = JSON.parse(JSON.stringify(t));
+    optimistic(t);
+    P.msg = ''; P.saving = true;
+    afterChange();
+    api('PUT', '/task/' + encodeURIComponent(t.id), body).then(function (d) {
+      var fresh = d.task || {};
+      ['status', 'statusType', 'statusColor', 'due', 'assignees', 'priority', 'tags', 'updated', 'name'].forEach(function (k) { if (k in fresh) t[k] = fresh[k]; });
+      P.saving = false;
+      afterChange();
+    }, function (e) {
+      Object.keys(before).forEach(function (k) { t[k] = before[k]; });
+      P.saving = false;
+      P.msg = 'ClickUp did not save this: ' + e.message;
+      afterChange();
+    });
+  }
+  function afterChange() { writeCache(S.data); counts(); paint(); paintPanel(); }
+
+  function openStatus() {
+    P.statusOpen = !P.statusOpen;
+    paintPanel();
+    var t = taskById(P.id);
+    if (!P.statusOpen || P.statuses || !t || !t.listId) return;
+    var id = P.id;
+    api('GET', '/list/' + encodeURIComponent(t.listId) + '/statuses').then(function (d) {
+      if (P.id !== id) return;
+      P.statuses = (d.statuses || []).slice().sort(function (a, b) { return (a.orderindex || 0) - (b.orderindex || 0); });
+      paintPanel();
+    }, function (e) { if (P.id !== id) return; P.statuses = []; P.msg = 'Could not load this list’s statuses: ' + e.message; paintPanel(); });
+  }
+  function setStatus(name) {
+    var st = (P.statuses || []).find(function (x) { return x.status === name; });
+    P.statusOpen = false;
+    update({ status: name }, function (t) { t.status = name; if (st) { t.statusColor = st.color; t.statusType = st.type; } });
+  }
+  function setDue(iso) {
+    /* 5 pm, as the dashboard always set it, so the day never slips across a timezone */
+    var t = taskById(P.id);
+    if (!t || (iso || '') === isoDay(t.due)) return;   /* the same day again is not a change */
+    var msv = iso ? new Date(iso + 'T17:00:00').getTime() : null;
+    update({ due_date: msv }, function (t) { t.due = msv; });
+  }
+
+  function openAssign() {
+    var t = taskById(P.id);
+    if (!t) return;
+    P.assign = { members: null, q: '', sel: {}, err: '' };
+    (t.assignees || []).forEach(function (a) { P.assign.sel[String(a.id)] = true; });
+    paintPanel();
+    var id = P.id;
+    api('GET', '/list/' + encodeURIComponent(t.listId) + '/members').then(function (d) {
+      if (P.id !== id || !P.assign) return;
+      var byId = {};
+      (d.members || []).forEach(function (m) { byId[m.id] = m; });
+      /* anyone already assigned stays visible, so they can be removed even if they left the list */
+      (t.assignees || []).forEach(function (a) { if (!byId[String(a.id)]) byId[String(a.id)] = { id: String(a.id), name: a.name, initials: a.initials }; });
+      P.assign.members = Object.keys(byId).map(function (k) { return byId[k]; })
+        .sort(function (a, b) { return String(a.name).localeCompare(String(b.name)); });
+      paintPanel();
+      var q = document.querySelector('#hmPanel .hm-dlg-q'); if (q) q.focus();
+    }, function (e) { if (P.assign) { P.assign.err = e.message; P.assign.members = []; paintPanel(); } });
+  }
+  function saveAssign() {
+    var t = taskById(P.id), a = P.assign;
+    if (!t || !a || !a.members) return;
+    var cur = {}; (t.assignees || []).forEach(function (x) { cur[String(x.id)] = true; });
+    var add = Object.keys(a.sel).filter(function (k) { return a.sel[k] && !cur[k]; });
+    var rem = Object.keys(cur).filter(function (k) { return !a.sel[k]; });
+    var chosen = a.members.filter(function (m) { return a.sel[m.id]; })
+      .map(function (m) { return { id: m.id, name: m.name, initials: m.initials }; });
+    P.assign = null;
+    if (!add.length && !rem.length) { paintPanel(); return; }
+    update({ assignees: { add: add, rem: rem } }, function (x) { x.assignees = chosen; });
+  }
+
+  function postComment() {
+    var box = document.querySelector('#hmPanel .hm-c-in');
+    var text = box ? box.value.trim() : '';
+    if (!text || P.posting) return;
+    var id = P.id;
+    P.posting = true; P.msg = ''; P.draft = box.value;
+    paintPanel();
+    api('POST', '/task/' + encodeURIComponent(id) + '/comment', { comment_text: text }).then(function () {
+      if (P.id !== id) return;
+      P.posting = false; P.draft = '';
+      loadComments();
+    }, function (e) {
+      if (P.id !== id) return;
+      P.posting = false; P.msg = 'ClickUp did not post this comment: ' + e.message;
+      paintPanel();
+    });
+  }
+
+  function onPanelClick(ev) {
+    var el = ev.target.closest('[data-p]');
+    if (ev.target.classList && ev.target.classList.contains('hm-scrim')) { closePanel(); return; }
+    if (!el) return;
+    var act = el.getAttribute('data-p');
+    if (act === 'close') closePanel();
+    else if (act === 'status') openStatus();
+    else if (act === 'pick') setStatus(el.getAttribute('data-v'));
+    else if (act === 'clear-due') setDue('');
+    else if (act === 'assign') openAssign();
+    else if (act === 'assign-cancel') { P.assign = null; paintPanel(); }
+    else if (act === 'assign-save') saveAssign();
+    else if (act === 'post') postComment();
+    else if (act === 'dismiss') { P.msg = ''; paintPanel(); }
+  }
+  function onPanelChange(ev) {
+    var el = ev.target;
+    if (el.classList.contains('hm-due-in')) setDue(el.value);
+    else if (el.classList.contains('hm-dlg-cb') && P.assign) P.assign.sel[el.value] = el.checked;
+  }
+  function onPanelInput(ev) {
+    var el = ev.target;
+    if (el.classList.contains('hm-dlg-q') && P.assign) {
+      /* filter in place: repainting the dialog would steal the caret */
+      P.assign.q = el.value.toLowerCase();
+      document.querySelectorAll('#hmPanel .hm-dlg-m').forEach(function (row) {
+        row.hidden = P.assign.q && row.getAttribute('data-n').indexOf(P.assign.q) < 0;
+      });
+    } else if (el.classList.contains('hm-c-in')) P.draft = el.value;
+  }
+  function onPanelKey(ev) {
+    if (ev.target.classList.contains('hm-c-in') && ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) { ev.preventDefault(); postComment(); }
+  }
+
+  function commentHtml(c) {
+    var body = c.parts.map(function (p) {
+      if (p.link) return '<a href="' + esc(p.link) + '" target="_blank" rel="noopener">' + esc(p.text) + '</a>';
+      return esc(p.text);
+    }).join('');
+    return '<div class="hm-c"><div class="hm-c-meta"><b>' + esc(c.author) + '</b><span>' + esc(fmtStamp(c.at)) + '</span></div><div class="hm-c-t">' + body + '</div></div>';
+  }
+
+  function paintPanel() {
+    var host = panelHost();
+    var t = P.id && taskById(P.id);
+    if (!t) { host.innerHTML = ''; return; }
+    /* the frame is built once per opening, so its slide-in plays once; every
+       later repaint morphs the inside, which also leaves a focused field alone */
+    var aside = host.querySelector('.hm-panel');
+    if (!aside) {
+      host.innerHTML = '<div class="hm-scrim"></div><aside class="hm-panel" role="dialog" aria-modal="true" aria-labelledby="hmPTitle"></aside>';
+      aside = host.querySelector('.hm-panel');
+    }
+    var td = today();
+    var overdue = t.due !== null && t.due !== undefined && dayOf(t.due) < td;
+    var where = [t.spaceName, t.folder, t.list].filter(Boolean).map(esc).join(' <span class="hm-sep">/</span> ');
+    var dot = function (c) { return '<i class="hm-dot" style="background:' + esc(c || 'var(--ink-3)') + '"></i>'; };
+    var statusMenu = '';
+    if (P.statusOpen) {
+      statusMenu = '<div class="hm-menu" role="listbox">' + (P.statuses === null
+        ? '<div class="hm-menu-i hm-muted">' + (window.PortalLoader ? window.PortalLoader.small('statuses') : '') + '</div>'
+        : (P.statuses.length ? P.statuses.map(function (x) {
+            var on = String(x.status).toLowerCase() === String(t.status).toLowerCase();
+            return '<button class="hm-menu-i" role="option" aria-selected="' + on + '" data-p="pick" data-v="' + esc(x.status) + '">' + dot(x.color) + '<span>' + esc(x.status) + '</span>' + (on ? '<span class="hm-on">Current</span>' : '') + '</button>';
+          }).join('') : '<div class="hm-menu-i hm-muted">No statuses for this list</div>')) + '</div>';
+    }
+    var people = (t.assignees || []).length
+      ? (t.assignees || []).map(function (a) { return esc(a.name); }).join(', ')
+      : '<span class="hm-muted">Unassigned</span>';
+    var tags = (t.tags || []).length ? (t.tags || []).map(function (x) { return '<span class="hm-tag">' + esc(x) + '</span>'; }).join(' ') : '<span class="hm-muted">–</span>';
+    var pr = PRIORITY[t.priority];
+    var comments;
+    if (P.comments === null) comments = window.PortalLoader ? window.PortalLoader.full('comments') : '';
+    else if (P.commentsErr) comments = '<div class="hm-p-err">Could not load comments: ' + esc(P.commentsErr) + '</div>';
+    else if (!P.comments.length) comments = '<div class="hm-muted hm-c-none">No comments yet.</div>';
+    else comments = P.comments.map(commentHtml).join('');
+
+    var dlg = '';
+    if (P.assign) {
+      var a = P.assign;
+      var list = a.members === null
+        ? (window.PortalLoader ? window.PortalLoader.full('members') : '')
+        : (a.err ? '<div class="hm-p-err">Could not load the list’s members: ' + esc(a.err) + '</div>'
+          : (a.members.length ? a.members.map(function (m) {
+              return '<label class="hm-dlg-m" data-n="' + esc(String(m.name).toLowerCase()) + '"' + (a.q && String(m.name).toLowerCase().indexOf(a.q) < 0 ? ' hidden' : '') + '><input type="checkbox" class="hm-dlg-cb" value="' + esc(m.id) + '"' + (a.sel[m.id] ? ' checked' : '') + '><span class="hm-av">' + esc(m.initials || '') + '</span><span>' + esc(m.name) + '</span></label>';
+            }).join('') : '<div class="hm-muted">No one can be assigned in this list.</div>'));
+      dlg = '<div class="hm-dlg-back"><div class="hm-dlg" role="dialog" aria-modal="true" aria-labelledby="hmDlgT">' +
+        '<div class="hm-dlg-h" id="hmDlgT">Assign</div>' +
+        '<div class="hm-dlg-s">Members who can be assigned in ' + esc(t.list || 'this list') + '. Check to add, uncheck to remove.</div>' +
+        '<input class="hm-dlg-q" type="search" placeholder="Search members" aria-label="Search members" value="' + esc(a.q) + '">' +
+        '<div class="hm-dlg-list">' + list + '</div>' +
+        '<div class="hm-dlg-f"><button class="btn" data-p="assign-cancel">Cancel</button><button class="btn primary" data-p="assign-save"' + (a.members ? '' : ' disabled') + '>Save</button></div>' +
+        '</div></div>';
+    }
+
+    var inner = '<header class="hm-p-h"><div class="hm-p-ht"><h2 id="hmPTitle">' + esc(t.name) + '</h2>' +
+      (where ? '<div class="hm-p-where">' + where + '</div>' : '') + '</div>' +
+      '<button class="hm-p-x press" data-p="close" aria-label="Close (Esc)">×</button></header>' +
+      (P.msg ? '<div class="hm-p-err" role="alert">' + esc(P.msg) + ' <button class="link" data-p="dismiss">Dismiss</button></div>' : '') +
+      '<div class="hm-p-b">' +
+      '<dl class="hm-kv">' +
+      '<dt>Status</dt><dd class="hm-rel"><button class="hm-st press" data-p="status" aria-haspopup="listbox" aria-expanded="' + !!P.statusOpen + '">' + dot(t.statusColor) + '<span>' + esc(t.status || '–') + '</span><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>' + statusMenu + '</dd>' +
+      '<dt>Due</dt><dd><input type="date" class="hm-due-in' + (overdue ? ' hm-overdue' : '') + '" value="' + esc(isoDay(t.due)) + '" aria-label="Due date">' +
+        (t.due !== null && t.due !== undefined ? ' <button class="link" data-p="clear-due">Clear</button>' : '') + (overdue ? ' <span class="hm-overdue">Overdue</span>' : '') + '</dd>' +
+      '<dt>Assignees</dt><dd>' + people + ' <button class="link" data-p="assign">Edit</button></dd>' +
+      '<dt>Priority</dt><dd>' + (pr ? '<span class="hm-pr hm-pr-' + esc(t.priority) + '"><i></i>' + pr + '</span>' : '<span class="hm-muted">–</span>') + '</dd>' +
+      '<dt>Tags</dt><dd>' + tags + '</dd>' +
+      '<dt>Created</dt><dd>' + esc(fmtStamp(t.created)) + '</dd>' +
+      '<dt>Updated</dt><dd>' + esc(fmtStamp(t.updated)) + '</dd>' +
+      '</dl>' +
+      '<a class="hm-p-cu" href="' + esc(t.url) + '" target="_blank" rel="noopener">View in ClickUp</a>' +
+      (P.saving ? '<div class="hm-saving">' + (window.PortalLoader ? window.PortalLoader.small('saving') : 'Saving') + '</div>' : '') +
+      '<section class="hm-cs"><h3>Comments</h3>' +
+      '<div class="hm-c-form"><textarea class="hm-c-in" rows="3" placeholder="Add a comment" aria-label="Add a comment"' + (P.posting ? ' disabled' : '') + '>' + esc(P.draft || '') + '</textarea>' +
+      '<div class="hm-c-f"><span class="hm-muted">Ctrl+Enter posts</span><button class="btn primary" data-p="post"' + (P.posting ? ' disabled' : '') + '>' + (P.posting ? 'Posting' : 'Post') + '</button></div></div>' +
+      '<div class="hm-c-list">' + comments + '</div></section>' +
+      '</div>' + dlg;
+    if (window.PortalMorph) window.PortalMorph.morph(aside, inner); else aside.innerHTML = inner;
   }
 
   function mount(host, opts) {
     if (!host) return;
     S.host = host; S.view = (opts && opts.view) === 'all' ? 'all' : 'mine';
     S.onCounts = (opts && opts.onCounts) || S.onCounts;
-    host.onclick = function (ev) { var el = ev.target.closest && ev.target.closest('[data-hm]'); if (el && el.getAttribute('data-hm') === 'retry') { S.error = ''; load(true); } };
+    host.onclick = function (ev) {
+      var el = ev.target.closest && ev.target.closest('[data-hm]');
+      if (el && el.getAttribute('data-hm') === 'retry') { S.error = ''; load(true); return; }
+      var row = ev.target.closest && ev.target.closest('[data-hm-open]');
+      if (!row) return;
+      /* ctrl / cmd / shift / middle click on the name keeps its link: ClickUp in a new tab */
+      if (ev.target.closest('a') && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button !== 0)) return;
+      ev.preventDefault();
+      openPanel(row.getAttribute('data-hm-open'));
+    };
     if (!S.data) { var c = readCache(); if (c) { S.data = c; counts(); } }
     paint();
     load(false);   /* background refresh; the cached copy is already on screen */
   }
   function current() { return S.data ? { mine: groupMine(S.data.tasks, S.data.me.id, today()).count, all: groupAll(S.data.tasks).count } : null; }
-  function reset() { S.data = null; S.connect = false; try { sessionStorage.removeItem(CACHE_KEY); } catch (e) { /* */ } }
+  function reset() { S.data = null; S.connect = false; if (P.id) closePanel(); try { sessionStorage.removeItem(CACHE_KEY); } catch (e) { /* */ } }
 
-  return { mount: mount, counts: current, reset: reset, _internal: { groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
+  return { mount: mount, counts: current, reset: reset, open: openPanel, close: closePanel, _internal: { groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
 });

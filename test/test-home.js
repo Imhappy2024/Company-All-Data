@@ -109,9 +109,38 @@ check('or the du_token cookie', () => assert.strictEqual(S.personToken({ headers
   const j = await r.json();
   check('no personal sign-in is a 401 asking to connect, with the shared token set', () =>
     assert.deepStrictEqual([r.status, j.connect], [401, true]));
-  srv.close();
+  await new Promise(r => srv.close(r));
+
+  console.log('\nThe task panel routes');
+  check('only status, due date and assignees can be changed', () => assert.deepStrictEqual(
+    S.cleanUpdate({ status: 'in progress', due_date: '1793000000000', assignees: { add: ['5'], rem: [7] }, name: 'renamed', archived: true }),
+    { status: 'in progress', due_date: 1793000000000, due_date_time: false, assignees: { add: [5], rem: [7] } }));
+  check('a cleared due date is sent as null', () => assert.deepStrictEqual(S.cleanUpdate({ due_date: null }), { due_date: null }));
+  const refuse = async () => ({ ok: false, status: 401, text: async () => JSON.stringify({ err: 'You do not have permission to edit this task', ECODE: 'ACCESS_083' }) });
+  let err = null; try { await S.act('tok', 'PUT', '/task/x', {}, refuse); } catch (e) { err = e; }
+  check('ClickUp\'s own message comes back, as a 403 so the person stays signed in', () =>
+    assert.deepStrictEqual([err.message, err.status], ['You do not have permission to edit this task', 403]));
+  check('comments: attachments become links, text stays text', () => assert.deepStrictEqual(
+    S.shapeComment({ id: 1, date: '1792000000000', user: { username: 'Brian Nelson' }, comment: [{ text: 'See ' }, { type: 'attachment', attachment: { title: 'report.pdf', url: 'https://f/r.pdf' } }] }),
+    { id: '1', author: 'Brian Nelson', at: 1792000000000, parts: [{ text: 'See ' }, { link: 'https://f/r.pdf', text: 'report.pdf', file: true }] }));
+  const app2 = express(); app2.use('/api/home', require(path.join(ROOT, 'home-tasks.js')).homeRoutes());
+  const srv2 = app2.listen(0); const port2 = srv2.address().port;
+  const calls2 = [];
+  const realFetch = global.fetch;
+  global.fetch = async (u, init) => {
+    if (String(u).startsWith('https://api.clickup.com')) { calls2.push([String(u), init.headers.Authorization]); return { ok: true, status: 200, text: async () => JSON.stringify({ id: 'T1', name: 'x', status: { status: 'in progress' } }) }; }
+    return realFetch(u, init);
+  };
+  const noTok = await realFetch('http://127.0.0.1:' + port2 + '/api/home/task/T1', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: '{"status":"done"}' });
+  check('a panel write with no personal sign-in is refused, ClickUp is not called', () => assert.deepStrictEqual([noTok.status, calls2.length], [401, 0]));
+  const ok = await realFetch('http://127.0.0.1:' + port2 + '/api/home/task/T1', { method: 'PUT', headers: { 'Content-Type': 'application/json', 'X-ClickUp-Token': 'mine' }, body: '{"status":"in progress"}' });
+  check('a write goes to ClickUp with the person\'s token and returns the task', () => assert.ok(ok.status === 200 && calls2[0][1] === 'mine' && /\/task\/T1$/.test(calls2[0][0])));
+  const bad = await realFetch('http://127.0.0.1:' + port2 + '/api/home/task/..%2Fteam/comments', { headers: { 'X-ClickUp-Token': 'mine' } });
+  check('an id that is not an id never reaches ClickUp', () => assert.ok(bad.status === 400 || bad.status === 404));
+  global.fetch = realFetch;
+  await new Promise(r => srv2.close(r));
 
   console.log(`\nhome: ${pass} passed, ${fails.length} failed`);
   fails.forEach(f => console.log('  FAIL  ' + f));
-  process.exit(fails.length ? 1 : 0);
+  process.exitCode = fails.length ? 1 : 0;   /* not process.exit: on Windows it aborts while fetch sockets close */
 })();

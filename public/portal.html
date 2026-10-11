@@ -531,6 +531,7 @@ function render(){
     if(window.PortalHome) PortalHome.mount(document.getElementById('homeNative'),{view,onCounts:()=>{document.getElementById('nav').innerHTML=navHtml();}});
     return;
   }
+  if(window.PortalHome&&PortalHome.close) PortalHome.close();   /* the task panel belongs to Home */
   content.innerHTML=V[view]?V[view]():'';
   if(view==='properties'&&window.PortalProps) PortalProps.mount(document.getElementById('reportingNative'));
   if(brand==='folio'&&view==='financials'&&window.PortalFolioFin) PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
