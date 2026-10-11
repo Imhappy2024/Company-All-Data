@@ -52,17 +52,30 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
 - **Menus** (`MENUS`): LeavenWealth Properties, Team, Departments, Tools & apps,
   Documents. Folio Overview, Financials, Plans, Reports, Team, Departments, Tools &
   apps, Documents. Leadli and Liquid Overview, Financials, Team, Departments, Tools
-  & apps, Documents. Executive board below a divider for owners/admins, with tabs
-  Overview, Financials (LeavenWealth cash and debt, `PortalFinancials`), Org &
-  departments, Data tracker, Users & roles. Leads, Loans, Tasks and the old Users &
-  Roles menu item are gone (GHL is a link on Tools & apps).
+  & apps, Documents. Executive board below a divider for owners/admins, with two
+  tabs: **L10 agenda** and **Users & roles** (the only Users & roles entry). Leads,
+  Loans, Tasks are gone (GHL is a link on Tools & apps). The old Exec tabs
+  (sample Overview, LeavenWealth cash/debt Financials, Org & departments, Data
+  tracker) were removed by instruction on 2026-10-11; `portal-financials.js`,
+  `financials-api.js` and `/api/tracker` are still deployed but nothing in the
+  portal routes to them. Org and department charts remain under Departments.
+- **L10 agenda** (`mountL10` in portal-home.js, `GET /api/home/l10` in
+  home-tasks.js, admins only, the admin's own ClickUp token): ClickUp list
+  901403327501 (MASTER LIST, Company space), split by the "Appears In" labels field
+  `21ad3d3b-...` into Rocks / Sprint / IDS (label ids in `L10.sections`). An item can
+  appear in several. Columns Item, Status, Owner, Due, Priority, Updated; section in
+  the URL as `sec=`. Rows open the task pop-up.
 - **Gates**: an item shows only when `dash_my_access()` holds its catalog id.
   The third element of a `MENUS` entry names the id when it differs from the page:
   Folio Financials rides on `reports` (no `financials` row) and Liquid Departments
   rides on `team` (no `departments` row). No migration was needed. A page the person
   cannot open is never listed, so nothing renders "no access".
 - **Memory**: `localStorage['lwShell:<staff id>']` = last business and last page per
-  business. A URL fragment wins over it. Theme: `localStorage.lwTheme`.
+  business. A URL fragment wins over it.
+- **Light/dark**: a labelled switch at the top right of the header (it names what it
+  will do). Kept per person in `localStorage['lwTheme:<staff id>']`; with none saved
+  the device setting (`prefers-color-scheme`) decides. Before the person is known
+  the pre-paint script uses `lwThemeLast`, then `personTheme()` corrects it.
 - **URL**: `#brand=<home|leavenwealth|folio|leadli|liquid>&view=<page>&sub=<tab>`
   plus Properties' own params and `who=` for the Team filter.
 - **Home = ClickUp tasks** (`home-tasks.js` at `/api/home/tasks`,
@@ -71,11 +84,16 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   Connect ClickUp button. Every page of every workspace is read, tasks are
   de-duplicated by id, cached per token (fresh 60s, then served stale while it
   refreshes) and per browser session (`sessionStorage.lwHomeTasks`).
-  **Completed tasks are never shown**: ClickUp's done/closed status types, or any
-  status `data/status-mappings.json` maps to Completed (the /ops definition). The
-  server drops them and flags `done`; the browser applies the same rule, so a task
-  marked complete in the panel leaves the list at once and the panel stays open.
-- **The task panel** (portal-home.js `openPanel`): a row click opens it in the
+  **Completed tasks are never shown** on Home or the L10 agenda: ClickUp status type
+  `closed`, or a status named complete / completed / done (by instruction; NOT the
+  wider /ops mapping). The server drops them and flags `done`; the browser applies
+  the same rule, so a task marked complete leaves the list at once and the pop-up
+  stays open.
+- **The task pop-up** (portal-home.js `openTask(task, {onChange})`, `openPanel(id)`
+  for Home): a centered modal with a dimmed backdrop; X, Esc or a click outside
+  closes it, Tab is trapped inside, the page behind does not scroll
+  (`html.hm-locked`). Home and the L10 agenda both open it; an edit in one copy of a
+  task is mirrored into Home's. A row click opens it in the
   dashboard (ctrl/cmd/middle click on the name still opens ClickUp). Ported from
   the /ops task detail (`openTaskDetail`, `openStatusEditor`, `openDuePicker`,
   `openAssigneePicker`/`saveAssignees`, `renderComments`/`submitComment` in

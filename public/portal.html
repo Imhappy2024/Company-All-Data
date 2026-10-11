@@ -8,7 +8,9 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- Theme before first paint: Graphite (dark) unless this browser chose Light stone. -->
-<script>(function(){var t='dark';try{t=localStorage.getItem('lwTheme')||'dark';}catch(e){}document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');})();</script>
+<!-- Theme before first paint: the last choice made on this device, else the device setting.
+     Once the person is known, their own saved choice wins (see personTheme()). -->
+<script>(function(){var t=null;try{t=localStorage.getItem('lwThemeLast');}catch(e){}if(t!=='light'&&t!=='dark'){t=(window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}document.documentElement.setAttribute('data-theme',t);})();</script>
 <!-- AUTH GATE, part 1 of 2: hidden until portal-session.js confirms a session. -->
 <style id="authGate">body{visibility:hidden}</style>
 <link rel="stylesheet" href="/tokens.css">
@@ -30,12 +32,11 @@
         <span class="avatar mono" id="idAvatar">&nbsp;</span>
         <span class="idchip-t"><span class="idchip-n" id="idName">&nbsp;</span><span class="idchip-r" id="idRole">&nbsp;</span></span>
       </button>
-      <button class="sh-theme press" id="themeBtn" onclick="toggleTheme()" aria-label="Switch light or dark"></button>
       <div class="idmenu" id="idMenu" role="menu" hidden></div>
     </div>
   </aside>
   <main class="sh-main">
-    <header class="sh-head"><div class="sh-crumb" id="crumb"></div></header>
+    <header class="sh-head"><div class="sh-crumb" id="crumb"></div><button class="sh-mode press" id="themeBtn" onclick="toggleTheme()"></button></header>
     <div class="sh-scroll" id="scroll"><div class="content" id="content"></div></div>
   </main>
 </div>
@@ -54,7 +55,6 @@
 <script src="/portal-auth.js"></script>
 <script src="/portal-home.js"></script>
 <script src="/portal-props.js"></script>
-<script src="/portal-financials.js"></script>
 <script src="/portal-folio-fin.js"></script>
 <script src="/portal-leadli-fin.js"></script>
 <script src="/portal-realtime.js"></script>
@@ -126,9 +126,10 @@ const MENUS={
   leadli:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments'],['tools','Tools & apps'],['documents','Documents']],
   liquid:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments','team'],['tools','Tools & apps'],['documents','Documents']],
 };
-/* Executive board tabs, all in the exec scope. Users & roles and the Data tracker
-   are role-gated (owner/admin), the rest by their exec catalog rows. */
-const EXEC_TABS=[['overview','Overview','exec'],['financials','Financials','financials'],['org','Org & departments','orgdept'],['tracker','Data tracker',null],['access','Users & roles',null]];
+/* Executive board: two tabs, both for owners and admins only. The L10 agenda
+   reads ClickUp with the admin's own sign-in; Users & roles is the one place
+   access is set (mcp.access_grant). */
+const EXEC_TABS=[['l10','L10 agenda',null],['access','Users & roles',null]];
 const HOME_VIEWS=[['mine','My tasks'],['all','All tasks']];
 
 /* ---- access (dash_my_access payload, one call at boot) ------------------ */
@@ -153,7 +154,7 @@ function firstAllowedView(b){ const it=visibleMenu(b)[0]; return it?it[0]:null; 
 
 /* ---- state ---- */
 let brand='home', view='mine', theme=document.documentElement.getAttribute('data-theme')||'dark';
-let execTab='overview', deptTab='list', teamFilter='all';
+let execTab='l10', deptTab='list', teamFilter='all';
 const pagesByBrand={};      /* last page per business, for this person */
 
 /* ---- helpers ---- */
@@ -357,49 +358,10 @@ V.exec=function(){
   const list=execTabs();
   if(!list.some(t=>t[0]===execTab)) execTab=list[0][0];
   const head=pageHead('Executive board')+tabs(execTab,list.map(t=>[t[0],t[1]]),'setExecTab');
-  if(execTab==='financials') return head+'<div id="financialsNative"></div>';
   if(execTab==='access') return head+'<div id="usersNative"></div>';
-  if(execTab==='org') return head+tabs(deptTab==='list'?'org':deptTab,[['org','Org chart'],['dept','Department chart']],'setDeptTab')+(deptTab==='dept'?deptChartHtml():orgChartHtml());
-  if(execTab==='tracker') return head+trackerHtml();
-  return head+`<div class="kpis">${kpi('','Group revenue',moneyk(41950),'sample figure')}${kpi('','Properties','66','sample figure')}${kpi('','Open leads','37','sample figure')}${kpi('','Headcount','8','sample figure')}</div>`+
-    `<p class="note">These four figures are placeholders until the group view reads live data. Live figures: LeavenWealth cash and debt under Financials, properties under LeavenWealth.</p>`;
+  return head+'<div id="l10Native" class="l10-wrap"></div>';
 };
-
-/* ---- Data tracker (Executive board) ---- */
-let trkWho='megan';
-const TRK_MEGAN_STATUS=['open','in_progress','resolved','wont_fix'];
-const TRK_MITCH_STATUS=['open','in_progress','blocked','waiting_on_doc','done'];
-const TRK_STATUS_PILL={open:'gray',in_progress:'blue',blocked:'rose',waiting_on_doc:'amber',resolved:'green',done:'green',wont_fix:'gray'};
 const trkWords=x=>{const s=String(x||'').replace(/_/g,' ');return s.charAt(0).toUpperCase()+s.slice(1);};
-const trkDate=d=>d?String(d).slice(0,10):'';
-function setTrkWho(w){trkWho=w;render();}
-function trkSetStatus(id,kind,status){
-  PortalSession.authHeaders({'Content-Type':'application/json'}).then(h=>fetch('/api/tracker/'+encodeURIComponent(id),{method:'PATCH',headers:h,body:JSON.stringify({status,kind})}))
-    .then(r=>r.ok?r.json():r.json().then(b=>{throw new Error(b.error||'HTTP '+r.status);}))
-    .then(()=>{dropData('/api/tracker');render();})
-    .catch(e=>alert('Could not save: '+e.message));
-}
-function trkSel(r,opts){return `<select class="trk-sel" onclick="event.stopPropagation()" onchange="trkSetStatus('${esc(r.id)}','${esc(r.kind||'')}',this.value)">${opts.map(o=>`<option value="${o}"${String(r.status||'open')===o?' selected':''}>${trkWords(o)}</option>`).join('')}</select>`;}
-function trackerHtml(){
-  return withData('/api/tracker','the tracker',d=>{
-    const c=d.counts||{}, rows=d[trkWho]||[];
-    const person=(id,n,q,open,total)=>`<button class="trk-person ${trkWho===id?'on':''}" onclick="setTrkWho('${id}')"><span class="trk-p-n">${n}</span><span class="trk-p-q">${q}</span><span class="trk-p-v">${open}<span class="trk-p-of"> open of ${total}</span></span></button>`;
-    const who=`<div class="trk-people">${person('megan','Megan','Is this value right?',c.megan||0,c.megan_total||0)}${person('mitch','Mitch','Where is this value?',c.mitch||0,c.mitch_total||0)}</div>`;
-    const st=r=>pill(trkWords(r.status||'open'),TRK_STATUS_PILL[r.status||'open']||'gray');
-    const table=trkWho==='megan'?dataTable('trk-megan',[
-        {k:'record',t:'Record',fmt:r=>`<div class="trk-t">${esc(r.record||'')}</div><div class="trk-s">${esc(r.field_name||'')}, ${esc(trkWords(r.issue_type).toLowerCase())}</div>`},
-        {k:'raw_value',t:'Current to suggested',fmt:r=>`<span class="trk-raw">${esc(r.raw_value==null||r.raw_value===''?'–':r.raw_value)}</span><span class="trk-arrow">→</span><span class="trk-sug">${esc(r.suggested_value==null||r.suggested_value===''?'–':r.suggested_value)}</span>`},
-        {k:'source_document',t:'Source',fmt:r=>`${esc(r.source_document||'')}<div class="trk-s">${esc(trkDate(r.raised))}</div>`},
-        {k:'status',t:'Status',fmt:st},{k:'set',t:'Set',val:()=>null,fmt:r=>trkSel(r,TRK_MEGAN_STATUS)}],rows,{name:'Tracker Megan'})
-      :dataTable('trk-mitch',[
-        {k:'title',t:'What',val:r=>r.title||r.record,fmt:r=>`<div class="trk-t">${esc(r.title||r.record||'')}</div><div class="trk-s">${esc(r.record||'')}</div>`},
-        {k:'area',t:'Area'},
-        {k:'blocked_reason',t:'Blocker or notes',val:r=>r.blocked_reason||r.notes,fmt:r=>r.blocked_reason?`<span class="trk-block">${esc(r.blocked_reason)}</span>`:esc(r.notes||'–')},
-        {k:'source_document',t:'Source'},
-        {k:'status',t:'Status',fmt:st},{k:'set',t:'Set',val:()=>null,fmt:r=>trkSel(r,TRK_MITCH_STATUS)}],rows,{name:'Tracker Mitch'});
-    return who+table;
-  });
-}
 
 /* ---- Properties: exactly as built ---- */
 V.properties=function(){return '<div id="reportingNative"></div>';};
@@ -427,8 +389,15 @@ function toggleBio(){const t=document.getElementById('bioText'),b=document.getEl
 function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 
 /* ---- theme ---- */
-function paintThemeBtn(){document.getElementById('themeBtn').innerHTML=ico(theme==='dark'?'sun':'moon');}
-function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);try{localStorage.setItem('lwTheme',theme);}catch(e){}paintThemeBtn();}
+/* The switch names what it will do. Each person's choice is kept under their
+   staff id; with none saved, the device setting decides. */
+function paintThemeBtn(){const b=document.getElementById('themeBtn');if(!b)return;const to=theme==='dark'?'light':'dark';
+  b.innerHTML=ico(to==='light'?'sun':'moon',15)+`<span>${to==='light'?'Light mode':'Dark mode'}</span>`;b.setAttribute('aria-label','Switch to '+to+' mode');}
+function deviceTheme(){return (window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}
+function setTheme(t){theme=t==='light'?'light':'dark';document.documentElement.setAttribute('data-theme',theme);paintThemeBtn();}
+function personTheme(){let t=null;const u=dashAccess&&dashAccess.user;try{if(u)t=localStorage.getItem('lwTheme:'+u.id);}catch(e){}setTheme(t==='light'||t==='dark'?t:deviceTheme());}
+function toggleTheme(){setTheme(theme==='light'?'dark':'light');const u=dashAccess&&dashAccess.user;
+  try{if(u)localStorage.setItem('lwTheme:'+u.id,theme);localStorage.setItem('lwThemeLast',theme);}catch(e){}}
 
 /* ---- per-person memory ---- */
 function memKey(){const u=dashAccess&&dashAccess.user;return u?'lwShell:'+u.id:null;}
@@ -489,6 +458,7 @@ function writeState(){
       Object.keys(x).forEach(k=>{if(x[k]!==null&&x[k]!==undefined&&x[k]!=='')p.set(k,x[k]);});
     }
     if(view==='team'&&teamFilter!=='all') p.set('who',teamFilter);
+    if(view==='exec'&&execTab==='l10'&&window.PortalHome) p.set('sec',PortalHome.l10Tab());
     const q=new URLSearchParams(location.search);q.delete('v');
     const qs=q.toString();
     history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#'+p.toString());
@@ -505,6 +475,7 @@ function readState(){
   if(!allowedBizz().includes(b)) return false;
   brand=b; view=v&&itemVisible(b,v)?v:firstAllowedView(b);
   if(view==='exec'&&s&&execTabs().some(t=>t[0]===s)) execTab=s;
+  if(view==='exec'&&p.get('sec')&&window.PortalHome) PortalHome.setL10Tab(p.get('sec'));
   if(view==='departments'&&s&&['list','org','dept'].includes(s)) deptTab=s;
   if(view==='exec'&&s==='org'){const d=p.get('dsub');if(d)deptTab=d;}
   const w=p.get('who'); teamFilter=['emp','con'].includes(w)?w:'all';
@@ -525,7 +496,7 @@ function render(){
   document.getElementById('crumb').innerHTML=dashAccess?crumbHtml():'';
   const content=document.getElementById('content');
   if(!dashAccess){content.innerHTML='';return;}
-  content.className='content view-in'+(view==='properties'?' props':(view==='financials'||view==='reports'||(view==='exec'&&execTab==='financials'))?' wide':'');
+  content.className='content view-in'+(view==='properties'?' props':(view==='financials'||view==='reports'||view==='exec')?' wide':'');
   if(brand==='home'){
     content.innerHTML='<div id="homeNative"></div>';
     if(window.PortalHome) PortalHome.mount(document.getElementById('homeNative'),{view,onCounts:()=>{document.getElementById('nav').innerHTML=navHtml();}});
@@ -537,7 +508,7 @@ function render(){
   if(brand==='folio'&&view==='financials'&&window.PortalFolioFin) PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
   if(brand==='folio'&&view==='reports'&&window.PortalFolioFin) PortalFolioFin.mount(document.getElementById('folioSubsNative'));
   if(brand==='leadli'&&view==='financials'&&window.PortalLeadliFin) PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
-  if(view==='exec'&&execTab==='financials'&&window.PortalFinancials) PortalFinancials.mount(document.getElementById('financialsNative'));
+  if(view==='exec'&&execTab==='l10'&&window.PortalHome) PortalHome.mountL10(document.getElementById('l10Native'),{onTab:writeState});
   if(view==='exec'&&execTab==='access'&&window.PortalAccess&&isAdmin()) PortalAccess.mount(document.getElementById('usersNative'),{me:dashAccess.user});
 }
 function goHome(v){brand='home';view=v||pagesByBrand.home||'mine';render();}
@@ -569,18 +540,16 @@ if(window.PortalAuth){
   PortalAuth.onChange(function(){ if(window.PortalHome) PortalHome.reset(); if(brand==='home') render(); });
 }
 if(window.PortalRealtime) PortalRealtime.start({
-  currentView:function(){ return view==='exec'?(execTab==='access'?'access':execTab==='financials'?'financials':'exec'):view; },
+  currentView:function(){ return view==='exec'?(execTab==='access'?'access':'exec'):view; },
   rerender:function(){ render(); },
   invalidate:function(v){
     if(v==='*'||v==='access'){ if(window.PortalAccess) PortalAccess.invalidate(); }
     if((v==='*'||v==='properties')&&window.PortalProps) PortalProps.invalidate();
-    if((v==='*'||v==='financials')&&window.PortalFinancials) PortalFinancials.invalidate();
-    if((v==='*'||v==='financials')&&window.PortalFolioFin) PortalFolioFin.invalidate();
+      if((v==='*'||v==='financials')&&window.PortalFolioFin) PortalFolioFin.invalidate();
     if((v==='*'||v==='financials')&&window.PortalLeadliFin) PortalLeadliFin.invalidate();
     if(v==='*'||v==='financials'){ dropData('/api/folio/'); dropData('/api/leadli/'); }
     if(v==='*'||v==='team'){ dropData('/api/shell/team'); dropData('/api/shell/departments'); }
-    if(v==='*'||v==='tracker') dropData('/api/tracker');
-  },
+    },
 });
 window.addEventListener('hashchange',function(){ if(readState()) render(); });
 render();
@@ -698,6 +667,7 @@ if(window.PortalSession){
         if(mem&&mem.last&&mem.last!=='home'&&allowedBizz().includes(mem.last)) setBrandQuiet(mem.last);
         else { brand='home'; view=pagesByBrand.home||'mine'; }
       }
+      personTheme();
       renderIdentity();
       render();
       reveal();

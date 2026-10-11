@@ -105,8 +105,10 @@ function stub(payload) {
     check('Home sidebar: My tasks and All tasks', await navLabels(page), ['My tasks', 'All tasks']);
     check('not connected: one Connect ClickUp button and nothing else to click',
       await page.$$eval('#content a, #content button', e => e.map(x => x.textContent.trim())), ['Connect ClickUp']);
-    check('header is a breadcrumb only: no search, no bell, no buttons',
-      await page.evaluate(() => [document.querySelectorAll('.sh-head button, .sh-head input').length, /Search or jump/.test(document.body.textContent)]), [0, false]);
+    check('header: breadcrumb plus the labelled light/dark switch, top right; no search, no bell',
+      await page.evaluate(() => { const b = document.querySelectorAll('.sh-head button, .sh-head input'); const h = document.querySelector('.sh-head').getBoundingClientRect();
+        return [b.length, b[0] && b[0].id, b[0] && /mode/.test(b[0].textContent), b[0] && Math.round(h.right - b[0].getBoundingClientRect().right) <= 28, /Search or jump/.test(document.body.textContent)]; }),
+      [1, 'themeBtn', true, true, false]);
     check('crumb reads Home > My tasks', await page.$eval('#crumb', e => e.innerText.replace(/\s+/g, ' ').trim()), 'Home My tasks');
 
     console.log('\nMenus, exactly as the brief lists them');
@@ -129,8 +131,8 @@ function stub(payload) {
 
     console.log('\nExecutive board');
     await page.evaluate(() => { setBrand('leavenwealth'); setView('exec'); });
-    check('tabs, Users & roles inside', await page.$$eval('#content .seg .segbtn', e => e.map(x => x.textContent)),
-      ['Overview', 'Financials', 'Org & departments', 'Data tracker', 'Users & roles']);
+    check('two tabs: L10 agenda and Users & roles', await page.$$eval('#content > .seg .segbtn', e => e.map(x => x.textContent)),
+      ['L10 agenda', 'Users & roles']);
     await page.click('#content .seg .segbtn:has-text("Users & roles")');
     check('tab is in the URL', new URLSearchParams(new URL(page.url()).hash.slice(1)).get('sub'), 'access');
     check('crumb names the tab', await page.$eval('#crumb', e => e.innerText.replace(/\s+/g, ' ').trim()), 'LeavenWealth Executive board Users & roles');
@@ -156,13 +158,19 @@ function stub(payload) {
     check('nothing in the shell is set in capitals', await page.evaluate(() =>
       [...document.querySelectorAll('#app *')].filter(e => e.offsetParent && getComputedStyle(e).textTransform === 'uppercase').map(e => e.className)), []);
     check('IBM Plex Sans is the face', await page.evaluate(() => getComputedStyle(document.body).fontFamily.split(',')[0].replace(/['"]/g, '')), 'IBM Plex Sans');
-    await page.click('#themeBtn');
-    check('the theme switch flips and is remembered', await page.evaluate(() => [document.documentElement.getAttribute('data-theme'), localStorage.getItem('lwTheme')]), ['light', 'light']);
+    check('with nothing saved, the device setting decides (this browser: light)', await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'light');
     check('Light stone page colour', await page.evaluate(() => getComputedStyle(document.body).backgroundColor), 'rgb(245, 244, 241)');
+    check('the switch says what it does', await page.$eval('#themeBtn', b => b.textContent.trim()), 'Dark mode');
+    await page.click('#themeBtn');
+    check('it flips and is remembered for this person', await page.evaluate(() => [document.documentElement.getAttribute('data-theme'), localStorage.getItem('lwTheme:s-admin')]), ['dark', 'dark']);
+    await page.goto(BASE + '/?r=4', { waitUntil: 'domcontentloaded' });
+    await page.waitForFunction(() => window.dashAccess !== null && !document.getElementById('authGate'));
+    check('and comes back on the next visit', await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
     await ctx.close();
 
     console.log('\nOne business, plain user');
-    ({ ctx, page } = await open(SOLO, 'brand=folio&view=overview'));
+    ({ ctx, page } = await open(SOLO, 'brand=folio&view=overview', await browser.newContext({ viewport: { width: 1440, height: 900 }, colorScheme: 'dark' })));
+    check('another person on a dark device starts dark (not the last person\'s choice)', await page.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
     check('a link to a business they cannot reach falls back to Home', await state(page), { brand: 'home', view: 'mine' });
     check('the rail is not shown', await page.$eval('#rail', e => getComputedStyle(e).display), 'none');
     await page.evaluate(() => setBrand('leavenwealth'));

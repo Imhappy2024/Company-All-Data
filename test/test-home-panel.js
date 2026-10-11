@@ -34,6 +34,14 @@ const COMMENTS = [
   { id: 'c1', author: 'Mitchell Hagen', at: 1791000000000, parts: [{ text: 'Older note' }] },
   { id: 'c2', author: 'Brian Nelson', at: 1792000000000, parts: [{ text: 'See ' }, { link: 'https://files.example/report.pdf', text: 'report.pdf', file: true }] },
 ];
+/* The L10 agenda: MASTER LIST items with their "Appears In" sections. */
+const mk = (id, name, sections, extra) => Object.assign({ id, name, url: 'https://app.clickup.com/t/' + id, list: 'MASTER LIST', listId: '901403327501',
+  spaceName: 'Company', folder: '', status: 'in progress', statusType: 'custom', statusColor: '#5f55ee', priority: 'high', tags: [], created: 1780000000000,
+  updated: 1791800000000, due: 1792900000000, assignees: [{ id: 'u-mitchell-hagen', name: 'Mitchell Hagen', initials: 'MH' }], sections }, extra || {});
+const L10 = { list: { id: '901403327501', name: 'MASTER LIST', space: 'Company' }, items: [
+  mk('r1', 'Refinance Carter Place', ['rock']), mk('r2', 'One source of truth (database + ClickUp)', ['rock', 'sprint']),
+  mk('s1', 'Vestmint fund return of capital', ['sprint'], { due: 1791363600000, priority: 'urgent' }),
+  mk('i1', 'Insurance renewal underwriting', ['ids'], { assignees: [] }) ] };
 let REFUSE = false;
 const sent = [];
 let commentsDelay = 900;
@@ -49,13 +57,14 @@ const server = http.createServer((req, res) => {
     req.on('end', () => {
       sent.push({ method: req.method, path: p, token: req.headers['x-clickup-token'] || null, body: body ? JSON.parse(body) : null });
       if (p === '/api/home/tasks') return json(200, FX);
+      if (p === '/api/home/l10') return json(200, L10);
       if (/\/list\/[^/]+\/statuses$/.test(p)) return json(200, { statuses: STATUSES });
       if (/\/list\/[^/]+\/members$/.test(p)) return json(200, { members: MEMBERS });
       if (/\/comments$/.test(p)) return setTimeout(() => json(200, { comments: COMMENTS.slice().sort((a, b) => b.at - a.at) }), commentsDelay);
       if (/\/comment$/.test(p)) { const b = JSON.parse(body); COMMENTS.push({ id: 'c' + (COMMENTS.length + 1), author: 'Jay Delgado', at: 1793000000000, parts: [{ text: b.comment_text }] }); return json(200, { ok: true }); }
       if (req.method === 'PUT') {
         if (REFUSE) return json(403, { error: 'You do not have permission to edit this task' });
-        const t = FX.tasks.find(x => x.id === p.split('/').pop());   /* ClickUp keeps what it saved */
+        const t = FX.tasks.concat(L10.items).find(x => x.id === p.split('/').pop());   /* ClickUp keeps what it saved */
         const b = JSON.parse(body);
         if (b.status) t.status = b.status;
         if ('due_date' in b) t.due = b.due_date;
@@ -200,7 +209,47 @@ const STUB = `window.PortalSession = {
     check('posted with the person\'s token', [post.path, post.body, post.token], ['/api/home/task/' + TARGET + '/comment', { comment_text: 'Posted from Home' }, 'person-token']);
     check('box cleared and newest on top', [await page.$eval('.hm-c-in', e => e.value), await page.$eval('.hm-c-meta b', e => e.textContent)], ['', 'Jay Delgado']);
 
-    console.log('\nEsc closes');
+    console.log('\nIt is a centered modal: focus trapped, Esc and outside click close it');
+    const box = await page.$eval('.hm-panel', e => { const r = e.getBoundingClientRect(); return [Math.round(r.left + r.width / 2), Math.round(r.top + r.height / 2)]; });
+    check('centered on the screen', [Math.abs(box[0] - 720) <= 2, Math.abs(box[1] - 450) <= 2], [true, true]);
+    check('the page behind is dimmed and does not scroll', await page.evaluate(() => [getComputedStyle(document.querySelector('.hm-scrim')).backgroundColor !== 'rgba(0, 0, 0, 0)', document.documentElement.classList.contains('hm-locked')]), [true, true]);
+    for (let i = 0; i < 25; i++) await page.keyboard.press('Tab');
+    check('Tab never leaves the dialog', await page.evaluate(() => !!document.activeElement.closest('.hm-panel')), true);
+    for (let i = 0; i < 25; i++) await page.keyboard.press('Shift+Tab');
+    check('nor does Shift+Tab', await page.evaluate(() => !!document.activeElement.closest('.hm-panel')), true);
+    await page.keyboard.press('Escape');
+    check('Esc closes it', await page.$$eval('.hm-panel', e => e.length), 0);
+    await page.click('tr[data-hm-open] a');
+    await page.waitForSelector('.hm-panel');
+    await page.mouse.click(30, 450);
+    check('a click outside closes it', await page.$$eval('.hm-panel', e => e.length), 0);
+    await page.click('tr[data-hm-open] a');
+    await page.waitForSelector('.hm-panel');
+    await page.click('[data-p="close"]');
+    check('and so does X', await page.$$eval('.hm-panel', e => e.length), 0);
+
+    console.log('\nExecutive board: L10 agenda');
+    await page.goto(BASE + '/?r=l10#brand=leavenwealth&view=exec', { waitUntil: 'domcontentloaded' });
+    await page.waitForSelector('[data-l10-open]', { timeout: 10000 });
+    await shot(page, 'exec-l10');
+    check('tabs with counts', await page.$$eval('#l10Native .segbtn', e => e.map(x => x.innerText.replace(/\s+/g, ' ').trim())), ['Rocks 2', 'Sprint 2', 'IDS 1']);
+    check('columns', await page.$$eval('#l10Native thead th', e => e.map(x => x.textContent)), ['Item', 'Status', 'Owner', 'Due', 'Priority', 'Updated']);
+    check('Rocks rows', await page.$$eval('#l10Native tbody tr', e => e.map(x => x.cells[0].innerText)), ['One source of truth (database + ClickUp)', 'Refinance Carter Place']);
+    await page.click('#l10Native .segbtn[data-l10-tab="sprint"]');
+    check('section in the URL', new URLSearchParams(new URL(page.url()).hash.slice(1)).get('sec'), 'sprint');
+    check('Sprint rows, earliest due first', await page.$$eval('#l10Native tbody tr', e => e.map(x => x.cells[0].innerText)), ['Vestmint fund return of capital', 'One source of truth (database + ClickUp)']);
+    await page.click('#l10Native tr[data-l10-open="s1"] a');
+    await page.waitForSelector('.hm-panel');
+    await page.waitForSelector('.hm-c, .hm-c-none', { timeout: 5000 }).catch(() => {});
+    await shot(page, 'exec-l10-task');
+    check('a row opens the same pop-up', await page.$eval('#hmPTitle', e => e.textContent), 'Vestmint fund return of capital');
+    check('location line', await page.$eval('.hm-p-where', e => e.innerText.replace(/\s+/g, ' ')), 'Company / MASTER LIST');
+    await page.click('[data-p="status"]');
+    await page.waitForSelector('.hm-menu button');
+    await page.click('.hm-menu button[data-v="complete"]');
+    await page.waitForTimeout(250);
+    check('completing it takes it off the agenda at once', [await page.$$eval('#l10Native tr[data-l10-open="s1"]', e => e.length),
+      await page.$eval('#l10Native .segbtn[data-l10-tab="sprint"]', e => e.innerText.replace(/\s+/g, ' ').trim())], [0, 'Sprint 1']);
     await page.keyboard.press('Escape');
     check('panel gone', await page.$$eval('.hm-panel', e => e.length), 0);
     check('nothing in capitals in the panel CSS', /text-transform:\s*uppercase/.test(fs.readFileSync(path.join(ROOT, 'public', 'portal-shell.css'), 'utf8').split('Home task panel')[1]), false);
