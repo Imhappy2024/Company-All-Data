@@ -114,10 +114,10 @@ window.PortalLeadliFin = (function () {
   function load() {
     S.loading = true; S.error = null;
     paint();
-    return Promise.all([
+    return window.PortalLoader.hold(Promise.all([
       getJson(API + '/summary'),
       getJson(API + '/payments?' + qs())
-    ]).then(function (out) {
+    ])).then(function (out) {
       S.summary = out[0];
       S.rows = out[1].rows || [];
       if (S.expanded && !S.rows.some(function (r) { return r.id === S.expanded; })) S.expanded = null;
@@ -137,7 +137,7 @@ window.PortalLeadliFin = (function () {
       return '<div class="fin-problem"><div><b>Leadli financials could not load.</b><div>' +
         esc(S.error) + '</div></div></div>';
     }
-    if (!S.summary) return '<div class="fin-loading">Reading the payment stream&hellip;</div>';
+    if (!S.summary) return window.PortalLoader.full('the payment stream');
     return head() + cards(S.summary) + filters() + table();
   }
 

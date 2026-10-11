@@ -2596,9 +2596,52 @@ Rules worth knowing before changing anything here:
 - portal.html styles `.btn`, `.chip`, `th` and `table` globally (uppercase mono);
   portal-props.css undoes that under `.lw`. Keep new class names under `.lw`/`lw-`.
 
+### No flicker: render in place, cache per key, load locally
+Every click used to assign the whole section's HTML to `innerHTML`: every node
+new, the fade replayed, scroll reset, and the browser re-laid out the page
+(94% of 1,844 layout objects for a period change, measured). Now:
+- **`paint()` morphs** (`public/portal-morph.js`, `PortalMorph.morph`): only
+  changed attributes, text and rows are touched. A period change re-lays out
+  **1%**; opening Export removes nothing. Identity is tag + `data-k`: the
+  `<main>` carries the page key (`property:<id>`, `entity:<id>`,
+  `portfolio:<tab>`), the tab body `tab:<name>`, the custom view `cv:...`,
+  so a page or tab switch replaces that node (and only then does `.view`'s
+  fade run) while every other render patches in place. Give any new
+  container whose CONTENT changes identity a `data-k`, or positional matching
+  will reuse its node and the fade will not run.
+- **Session cache**: `S.data[key]` per property/period/tab, so going back is
+  instant. `needOr(kind, ...)` keeps the previous period's panel on screen,
+  dimmed (`ld-stale`), with the small loader beside the controls while the new
+  one loads. `invalidate()` keeps answers in `S.old` and refetches behind
+  them; `cur(key)` reads either.
+- **What-if inputs recalculate as you type**, in the browser; morph leaves the
+  focused input alone, so the caret never moves.
+- **The builder's preview runs in the browser.** `public/props-views-core.js`
+  is the ONE copy of the custom-view rules (fields, periods, formulas,
+  validation), required by `props-views.js` on the server and loaded by
+  portal.html. The browser evaluates drafts over `GET /api/props/views/dataset`
+  (every property's plain figures, loaded once). The server preview is only
+  the fallback when a draft names a group this browser has not loaded.
+  `test/test-views-parity.js` asserts both give identical results, live.
+
+### Loading states: one component, everywhere
+`public/portal-loader.{js,css}` (`PortalLoader`), from `docs/mockup/loader.dc.html`
+(SVG and keyframes copied exactly; Graphite colors dark, Light stone light).
+`full(name)`: 88px mark + "Loading <name>", content area only. `small(label)`:
+20px, beside the panel being refreshed, old content kept and dimmed
+(`stale()` / `ld-stale`). Hidden for 250ms (`ldIn` delay) so fast loads never
+show it; `settle()` / `hold(promise)` keep it up 400ms once visible. Used by
+Properties, Financials, Folio, Leadli, Leads (via `tools/build-ghl.cjs`),
+Tasks, Users & Roles, Loans, Tracker, Team and Ads. `ld-stale` dims with
+`filter: opacity()`, not `opacity`: the `.view` fade fills forwards and holds
+opacity at 1, which silently cancelled the dim the first time.
+
 Tests and tools:
 
     node test/test-props-ui.js [--shots]   # 38 checks, live data, acceptance figures on screen
+    node test/test-props-flicker.js [--baseline]  # 15 checks, Franklin Court: nodes kept, fades, requests, layout from a Chrome trace
+    node test/test-views-parity.js         # builder preview in the browser == server evaluation, live
+    node tools/shot-loader.js              # docs/screenshots/loader/*.png, both themes
     node tools/side-by-side.js             # docs/screenshots/compare/*.png, live vs mockup
     node tools/dry-run-migrations.js <files>   # apply inside a transaction, check, roll back
     node tools/apply-migrations.js <files>     # apply for real, one transaction per file

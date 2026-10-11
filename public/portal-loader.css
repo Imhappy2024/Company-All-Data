@@ -1,0 +1,56 @@
+/* ===========================================================================
+   portal-loader.css — the animated LeavenWealth mark, every loading state.
+
+   The SVG, keyframes and reduced-motion fallback are copied exactly from
+   docs/mockup/loader.dc.html. Dark theme takes its Graphite colors, light
+   theme its Light stone colors. Built by PortalLoader (portal-loader.js).
+
+   Timing: .ld-fade holds the mark invisible for 250ms, so a fast load never
+   shows it; PortalLoader.settle() keeps it up at least 400ms once it shows.
+   =========================================================================== */
+.lw-mark .bar{transform-box:fill-box;transform-origin:center;animation:lwApart 1.8s cubic-bezier(0.65,0,0.35,1) infinite}
+.lw-mark .b1{--x:0px;--y:-64px;animation-delay:0ms}
+.lw-mark .b2{--x:-64px;--y:-18px;animation-delay:60ms}
+.lw-mark .b3{--x:56px;--y:-10px;animation-delay:120ms}
+.lw-mark .b4{--x:-64px;--y:10px;animation-delay:180ms}
+.lw-mark .b5{--x:0px;--y:64px;animation-delay:240ms}
+.lw-mark .b6{--x:64px;--y:0px;animation-delay:90ms}
+@keyframes lwApart{
+  0%,14%{transform:translate(0,0);opacity:1}
+  42%,56%{transform:translate(var(--x),var(--y)) scale(0.92);opacity:0.35}
+  84%,100%{transform:translate(0,0);opacity:1}
+}
+.lw-mark{animation:lwBreathe 1.8s cubic-bezier(0.65,0,0.35,1) infinite}
+@keyframes lwBreathe{0%,14%,84%,100%{transform:scale(1)}42%,56%{transform:scale(0.96)}}
+.ld-fade{animation:ldIn 220ms cubic-bezier(0.23,1,0.32,1) 250ms both}
+@keyframes ldIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.ld-dots::after{content:'';display:inline-block;width:1.2em;text-align:left;animation:ldDots 1.2s steps(4,end) infinite}
+@keyframes ldDots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+@media (prefers-reduced-motion: reduce){
+  .lw-mark,.lw-mark .bar{animation:none}
+  .lw-mark{animation:lwPulse 1.6s ease-in-out infinite}
+  @keyframes lwPulse{0%,100%{opacity:1}50%{opacity:0.55}}
+}
+
+/* colors: Graphite (dark, the portal default) and Light stone */
+.lw-mark .ld-c1{fill:#2A7A76}
+.lw-mark .ld-c2{fill:#34D88A}
+.lw-mark .ld-c3{fill:#14B886}
+html[data-theme="light"] .lw-mark .ld-c1{fill:#1F5C5A}
+html[data-theme="light"] .lw-mark .ld-c2{fill:#2ECC7A}
+html[data-theme="light"] .lw-mark .ld-c3{fill:#10A87A}
+
+/* full-section: centred in the content area; chrome around it stays */
+.ld-full{display:flex;align-items:center;justify-content:center;min-height:min(60vh,520px);padding:24px}
+.ld-full .ld-col{display:flex;flex-direction:column;align-items:center;gap:16px}
+.ld-text{font-size:14px;color:#A2A6AD}
+html[data-theme="light"] .ld-text{color:#5D5B56}
+
+/* partial refresh: 20px beside the panel's title; old content stays, dimmed */
+.ld-small{display:inline-flex;align-items:center;gap:8px;vertical-align:middle;font-size:12.5px;color:#A2A6AD;font-weight:400}
+html[data-theme="light"] .ld-small{color:#5D5B56}
+.ld-small svg{flex:none}
+/* filter, not opacity: an entry animation that fills forwards (Properties'
+   fade-in) holds opacity at 1 and would silently cancel the dim */
+.ld-stale{filter:opacity(.5);transition:filter 150ms ease;pointer-events:none}
+@media (prefers-reduced-motion: reduce){ .ld-stale{transition:none} }

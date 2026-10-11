@@ -325,6 +325,7 @@ window.PortalFinancials = (function () {
 
   function loadEntityRows() {
     S.loading = true; S.error = null;
+    var t0 = window.PortalLoader.now();
     paint();
     var extra = { page: S.page, per_page: S.perPage };
     if (S.sort) { extra.sort = S.sort; extra.dir = S.dir; }
@@ -340,8 +341,7 @@ window.PortalFinancials = (function () {
     }).catch(function (e) {
       S.error = e.message; S.rows = []; S.total = 0; S.totals = null;
     }).then(function () {
-      S.loading = false;
-      writeUrl(); saveLocal(); paint();
+      window.PortalLoader.settle(t0, function () { S.loading = false; writeUrl(); saveLocal(); paint(); });
     });
   }
 
@@ -417,6 +417,7 @@ window.PortalFinancials = (function () {
        correctly. Only the tiles have to pin to one date, and the server does
        that. */
     S.loading = true; S.error = null;
+    var t0 = window.PortalLoader.now();
     paint();
     var extra = { page: S.page, per_page: S.perPage };
     if (S.sort) { extra.sort = S.sort; extra.dir = S.dir; }
@@ -428,8 +429,7 @@ window.PortalFinancials = (function () {
     }).catch(function (e) {
       S.error = e.message; S.rows = []; S.total = 0;
     }).then(function () {
-      S.loading = false;
-      writeUrl(); saveLocal(); paint();
+      window.PortalLoader.settle(t0, function () { S.loading = false; writeUrl(); saveLocal(); paint(); });
     });
   }
 
@@ -477,7 +477,7 @@ window.PortalFinancials = (function () {
     if (!open) return main;
     return main + '<tr class="fin-exp"><td colspan="' + cols.length + '">' +
       (S.expandedRows === null
-        ? '<div class="fin-loading">Reading accounts&hellip;</div>'
+        ? '<div class="fin-loading">' + window.PortalLoader.small('Loading accounts') + '</div>'
         : accountsTable(S.expandedRows)) + '</td></tr>';
   }
 
@@ -533,7 +533,7 @@ window.PortalFinancials = (function () {
         esc(S.error) + '</div></div>';
     }
     if (S.loading && !S.rows.length) {
-      return '<div class="fin-tablewrap"><div class="fin-loading">Reading&hellip;</div></div>';
+      return '<div class="fin-tablewrap">' + window.PortalLoader.full(S.tab === 'entities' ? 'entities' : S.tab) + '</div>';
     }
     if (!S.rows.length) {
       return '<div class="fin-tablewrap"><div class="fin-empty"><b>Nothing to show</b>' +
@@ -565,7 +565,7 @@ window.PortalFinancials = (function () {
     }).join('') + '</tr></tfoot>' : '';
 
     var pages = Math.max(1, Math.ceil(S.total / S.perPage));
-    return '<div class="fin-tablewrap">' +
+    return '<div class="fin-tablewrap' + (S.loading ? ' ld-stale' : '') + '">' +
       '<div class="fin-scroll"><table class="fin-table fin-etable"><thead><tr>' + head + '</tr></thead>' +
       '<tbody>' + body + '</tbody>' + foot + '</table></div>' +
       '<div class="fin-foot">' +
@@ -588,7 +588,7 @@ window.PortalFinancials = (function () {
       return '<div class="fin-problem"><div><b>Financials could not load.</b><div>' +
         esc(S.optionsErr) + '</div></div></div>';
     }
-    if (!S.options) return '<div class="fin-loading">Reading accounts&hellip;</div>';
+    if (!S.options) return window.PortalLoader.full('financials');
     return header() + problems() + tiles() + filterBar() + chips() + tabs() +
            (S.tab === 'entities' ? entityNotes() + entityTable() : tabNote() + table());
   }
@@ -813,7 +813,7 @@ window.PortalFinancials = (function () {
     var noun = S.tab === 'entities' ? 'entities' : S.tab === 'loans' ? 'loans'
              : S.tab === 'accounts' ? 'accounts' : 'rows';
     var shownN = Math.min(S.rows.length, S.total);
-    var count = S.loading ? 'Loading&hellip;'
+    var count = S.loading ? window.PortalLoader.small('Updating')
       : 'Showing ' + shownN.toLocaleString() + ' of ' + S.total.toLocaleString() + ' ' + noun;
 
     if (!out.length) return '<div class="fin-chips"><span class="fin-count">' + count + '</span></div>';
@@ -859,7 +859,7 @@ window.PortalFinancials = (function () {
         esc(S.error) + '</div></div>';
     }
     if (S.loading && !S.rows.length) {
-      return '<div class="fin-tablewrap"><div class="fin-loading">Reading&hellip;</div></div>';
+      return '<div class="fin-tablewrap">' + window.PortalLoader.full(S.tab === 'entities' ? 'entities' : S.tab) + '</div>';
     }
     if (!S.rows.length) {
       /* An empty result is stated as an empty result. It is never rendered as
@@ -892,7 +892,7 @@ window.PortalFinancials = (function () {
     }).join('');
 
     var pages = Math.max(1, Math.ceil(S.total / S.perPage));
-    return '<div class="fin-tablewrap">' +
+    return '<div class="fin-tablewrap' + (S.loading ? ' ld-stale' : '') + '">' +
       '<div class="fin-scroll"><table class="fin-table"><thead><tr>' + head + '</tr></thead>' +
       '<tbody>' + body + '</tbody></table></div>' +
       '<div class="fin-foot">' +

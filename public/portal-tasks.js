@@ -298,8 +298,8 @@
       return;
     }
 
-    if (!payload) el.innerHTML = skeletonHtml();
-    load(false).then(paint).catch(function (err) {
+    if (!payload) el.innerHTML = window.PortalLoader.full('tasks');
+    window.PortalLoader.hold(load(false)).then(paint).catch(function (err) {
       var e = container();
       if (e) e.innerHTML = emptyState('Could not reach ClickUp',
         String(err && err.message || err) + '. Nothing stale is being shown in its place, because there is nothing to show yet.');
@@ -480,13 +480,6 @@
     '</div>';
   }
 
-  function skeletonHtml() {
-    var bars = '';
-    for (var i = 0; i < 10; i++) bars += '<div class="nt-sk-row"></div>';
-    return '<div class="nt-cards">' + CARDS.map(function () { return '<div class="nt-card nt-sk-card"></div>'; }).join('') + '</div>' +
-      '<div class="nt-sk-bar"></div><div class="nt-tablewrap">' + bars + '</div>';
-  }
-
   function emptyState(title, body) {
     return '<div class="nt-blank"><div class="nt-blank-t">' + title + '</div><div class="nt-blank-b">' + body + '</div></div>';
   }
@@ -634,7 +627,7 @@
   function openStatusPop(task, anchor) {
     var listId = task.list && task.list.id;
     if (!listId) { toast('This task has no list, so its statuses cannot be read.', true); return; }
-    showPop(anchor, '<div class="nt-pop-load">Loading statuses…</div>');
+    showPop(anchor, '<div class="nt-pop-load">' + window.PortalLoader.small('Loading statuses') + '</div>');
     PortalAuth.fetch('/api/list/' + encodeURIComponent(listId) + '/statuses')
       .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
       .then(function (data) {
@@ -661,7 +654,7 @@
   function openAssignPop(task, anchor) {
     var listId = task.list && task.list.id;
     if (!listId) { toast('This task has no list, so its members cannot be read.', true); return; }
-    showPop(anchor, '<div class="nt-pop-load">Loading people…</div>');
+    showPop(anchor, '<div class="nt-pop-load">' + window.PortalLoader.small('Loading people') + '</div>');
     PortalAuth.fetch('/api/list/' + encodeURIComponent(listId) + '/members')
       .then(function (r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
       .then(function (data) {
@@ -763,7 +756,7 @@
       '</div>' +
       (task.url ? '<a class="nt-dr-link" href="' + esc(task.url) + '" target="_blank" rel="noopener">Open in ClickUp ↗</a>' : '') +
       '<div class="nt-dr-sec">Comments</div>' +
-      '<div id="ntComments" class="nt-comments"><div class="nt-pop-load">Loading…</div></div>' +
+      '<div id="ntComments" class="nt-comments"><div class="nt-pop-load">' + window.PortalLoader.small('Loading comments') + '</div></div>' +
       '<form class="nt-cform" id="ntCForm"><textarea id="ntCText" rows="2" placeholder="Add a comment…"></textarea>' +
       '<button class="nt-pop-btn" type="submit">Post</button></form>';
     d.hidden = false; if (s) s.hidden = false;
@@ -949,12 +942,7 @@
         'box-shadow:var(--shadow-md,0 8px 24px -6px rgba(0,0,0,.4))}',
       '.nt-toast.bad{background:var(--crit,#d03b3b);color:#fff}',
 
-      '.nt-sk-card{height:76px;background:var(--surface-2,var(--panel-2));border-color:transparent}',
-      '.nt-sk-bar{height:30px;border-radius:8px;background:var(--surface-2,var(--panel-2));margin-bottom:10px;max-width:420px}',
-      '.nt-sk-row{height:var(--row-h,38px);border-bottom:1px solid var(--border);background:',
-        'linear-gradient(90deg,transparent,var(--surface-2,var(--panel-2)),transparent);background-size:200% 100%;animation:ntsk 1.4s linear infinite}',
-      '@keyframes ntsk{to{background-position:-200% 0}}',
-      '@media (prefers-reduced-motion:reduce){.nt-sk-row,.nt-icon.spin svg{animation:none}}',
+      '@media (prefers-reduced-motion:reduce){.nt-icon.spin svg{animation:none}}',
     ].join('');
     var el = document.createElement('style');
     el.id = 'nt-styles';

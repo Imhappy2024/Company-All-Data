@@ -774,8 +774,7 @@ function canSend(loc){
    name resolved through staff or ghl_user rather than an id nobody can read. */
 function detailSections(l){
   const d = DETAIL[l.id];
-  if (!d) return '<div class="fields"><div class="frow"><span class="k">Loading</span>'
-    + '<span class="v" style="color:var(--dimmer)">reading Supabase…</span></div></div>';
+  if (!d) return '<div class="fields"><div class="frow">' + window.PortalLoader.small('Loading details') + '</div></div>';
 
   const rows = list => list.map(r =>
     '<div class="frow"><span class="k">' + escL(r[0]) + '</span>'
@@ -1220,7 +1219,7 @@ function drawLeadHeader(){
       + INGEST.done + ' feeds';
     el.title = 'Last ingest run ' + INGEST.lastRun;
   } else {
-    el.innerHTML = '<span class="d"></span>Reading Supabase';
+    el.innerHTML = window.PortalLoader.small('Reading Supabase');
   }
   /* The brand, not "All locations". There is one sub-account per brand and the
      switcher already chose it, so the roll-up label described a choice nobody

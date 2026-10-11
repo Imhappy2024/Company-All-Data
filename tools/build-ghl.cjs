@@ -258,6 +258,15 @@ ld = edit(ld, "    if (a === 'call') {",
 
     if (a === 'call') {`, 'close action');
 
+/* Loading states use the portal's one loader (public/portal-loader.js): the
+   lead's details are a partial refresh inside the reader, and the ingest
+   status sits in the header, so both take the small mark. */
+ld = edit(ld, `if (!d) return '<div class="fields"><div class="frow"><span class="k">Loading</span>'
+    + '<span class="v" style="color:var(--dimmer)">reading Supabase…</span></div></div>';`,
+  `if (!d) return '<div class="fields"><div class="frow">' + window.PortalLoader.small('Loading details') + '</div></div>';`, 'detail loader');
+ld = edit(ld, `el.innerHTML = '<span class="d"></span>Reading Supabase';`,
+  `el.innerHTML = window.PortalLoader.small('Reading Supabase');`, 'ingest loader');
+
 /* command-center prices in pesos. This portfolio is in dollars, and an
    opportunity value rendered with the wrong symbol is a wrong number. */
 ld = edit(ld, "const money = n => '\\u20b1' + n.toLocaleString();",

@@ -132,28 +132,52 @@
     dense: false,
     exportOpen: false, exportMsg: '',
     oa: {}, wnoi: {},     /* what-if inputs per property; never saved */
-    data: {}, pending: {}, errors: {},
+    data: {}, pending: {}, errors: {}, old: {}, last: {}, staleNow: false,
+    dataset: null,        /* every property's plain figures, for the builder's local preview */
     cv: { mode: 'view', sel: null, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '' },
   };
   try { S.dense = localStorage.getItem('lwDense') === '1'; } catch (e) { /* storage blocked: default density */ }
 
+  /* Every response is kept for the session under its key (property, period,
+     tab), so going back to anything already loaded is instant. A key being
+     fetched again after a realtime invalidation keeps showing its previous
+     answer (S.old) until the new one lands: no loader, no blank. The loader
+     is held back 250ms and, once visible, kept 400ms (PortalLoader.settle). */
   function need(key, url) {
     if (S.data[key]) return S.data[key];
     if (!S.pending[key] && !S.errors[key]) {
       S.pending[key] = true;
-      api(url).then(function (d) { S.data[key] = d; delete S.pending[key]; paint(); },
-                    function (e) { S.errors[key] = e.message; delete S.pending[key]; paint(); });
+      var t0 = window.PortalLoader.now();
+      api(url).then(function (d) {
+        window.PortalLoader.settle(t0, function () { S.data[key] = d; delete S.old[key]; delete S.pending[key]; paint(); });
+      }, function (e) {
+        /* a failed refresh must say so, not keep showing the old answer as current */
+        window.PortalLoader.settle(t0, function () { S.errors[key] = e.message; delete S.old[key]; delete S.pending[key]; paint(); });
+      });
     }
-    return null;
+    return S.old[key] || null;
+  }
+  /* For a tab whose period or date changed: the new answer if loaded, else
+     the last one this tab showed for the same property, marked stale, so the
+     panel stays on screen (dimmed) while the new one loads. */
+  function needOr(kind, key, url) {
+    var d = need(key, url);
+    if (d) { if (!S.pending[key]) S.last[kind] = key; return { D: d, stale: false }; }
+    var lk = S.last[kind];
+    if (lk && lk.split(':')[1] === S.prop && S.data[lk] && !errOf(key)) { S.staleNow = true; return { D: S.data[lk], stale: true }; }
+    return { D: null, stale: false };
   }
   function errOf(key) { return S.errors[key] || null; }
+  /* the latest answer for a key, including one being refreshed */
+  function cur(key) { return S.data[key] || S.old[key] || null; }
   function drop(prefix) {
-    Object.keys(S.data).forEach(function (k) { if (k.indexOf(prefix) === 0) delete S.data[k]; });
-    Object.keys(S.errors).forEach(function (k) { if (k.indexOf(prefix) === 0) delete S.errors[k]; });
+    [S.data, S.errors, S.old].forEach(function (o) {
+      Object.keys(o).forEach(function (k) { if (k.indexOf(prefix) === 0) delete o[k]; });
+    });
   }
 
   function list() { return need('list', '/api/props/list'); }
-  function through() { var L = S.data.list; return (L && L.dataThrough) || null; }
+  function through() { var L = cur('list'); return (L && L.dataThrough) || null; }
   function defaultPeriod() {
     var t = through(); if (!t || S.ty) return;
     var y = +t.slice(0, 4), m = +t.slice(5, 7);
@@ -219,10 +243,10 @@
     closeMenus(); pushUrl(); paint();
   }
   function closeMenus() { S.exportOpen = false; S.exportMsg = ''; S.cv.exportOpen = false; }
-  function propById(id) { var L = S.data.list; return L ? L.properties.find(function (p) { return p.id === id; }) || null : null; }
+  function propById(id) { var L = cur('list'); return L ? L.properties.find(function (p) { return p.id === id; }) || null : null; }
   function entName(id) {
     if (!id || id === 'none') return NONE;
-    var L = S.data.list; var p = L && L.properties.find(function (x) { return x.mgrId === id; });
+    var L = cur('list'); var p = L && L.properties.find(function (x) { return x.mgrId === id; });
     return p ? p.mgr : '';
   }
 
@@ -267,11 +291,10 @@
         '<div class="lw-card-s" title="' + esc(k.sub || '') + '"><span>' + esc(k.sub || '') + '</span>' + (k.tag ? '<span class="lw-tag">' + esc(k.tag) + '</span>' : '') + '</div></div>';
     }).join('') + '</div>';
   }
-  function skeleton(rows) {
-    var s = '<div class="lw-skel" aria-busy="true" aria-label="Loading">';
-    for (var i = 0; i < (rows || 8); i++) s += '<i style="width:' + (60 + ((i * 37) % 40)) + '%"></i>';
-    return s + '</div>';
-  }
+  /* every loading state: the animated mark (portal-loader.js), shown after
+     250ms and for at least 400ms, in the content area only */
+  function loading(name) { return window.PortalLoader.full(name); }
+  function staleCls(m) { return m && m.stale ? ' ld-stale' : ''; }
   function errorBox(msg) { return '<div class="lw-err" role="alert">' + esc(msg) + ' <button class="link" data-a="retry">Try again</button></div>'; }
 
   /* ===================================================================== */
@@ -283,8 +306,10 @@
        by a link has no drill-down behind it, and S.ent may be empty */
     var pp = S.level === 'property' ? propById(S.prop) : null;
     if (pp) S.ent = pp.mgrId || 'none';
-    if (S.level !== 'portfolio') parts.push({ label: entName(S.ent) || 'Entity', a: 'crumb:entity' });
-    if (S.level === 'property') { var p = propById(S.prop); parts.push({ label: p ? p.name : '' }); }
+    /* a property opened cold has no manager to name until the list arrives;
+       leave the crumb out rather than say "No managing entity" */
+    if (S.level === 'entity' || (S.level === 'property' && pp)) parts.push({ label: entName(S.ent) || 'Entity', a: 'crumb:entity' });
+    if (S.level === 'property' && pp) parts.push({ label: pp.name });
     var crumbs = parts.map(function (c, i) {
       var last = i === parts.length - 1;
       return (i ? svg(ICON_CRUMB, 14, ' style="color:var(--muted)"') : '') +
@@ -293,7 +318,7 @@
     var t = through();
     return '<header class="lw-head"><nav aria-label="Breadcrumb" class="lw-crumbs">' + crumbs + '</nav>' +
       '<span class="lw-through">' + (t ? 'Data through ' + ymLong(t) : '') +
-      (S.data.list && S.data.list.nextSync ? ', next sync ' + esc(S.data.list.nextSync.label) : '') + '</span>' +
+      (cur('list') && cur('list').nextSync ? ', next sync ' + esc(cur('list').nextSync.label) : '') + '</span>' +
       '<div role="group" aria-label="Row density" style="display:flex;gap:4px">' +
       '<button class="btn press' + (!S.dense ? ' on' : '') + '" data-a="dense:0">Comfortable</button>' +
       '<button class="btn press' + (S.dense ? ' on' : '') + '" data-a="dense:1">Compact</button></div></header>';
@@ -309,7 +334,7 @@
   }
   function portfolioHtml() {
     var L = list();
-    if (!L) return '<main class="view lw-main">' + (errOf('list') ? errorBox(errOf('list')) : skeleton(12)) + '</main>';
+    if (!L) return '<main class="view lw-main">' + (errOf('list') ? errorBox(errOf('list')) : loading('the portfolio')) + '</main>';
     var P = L.properties;
     var units = sum(P.map(function (p) { return p.units; })) || 0;
     var h = '<main class="view lw-main"><div style="display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap">' +
@@ -367,7 +392,7 @@
   /* ===================================================================== */
   function entityHtml() {
     var L = list();
-    if (!L) return '<main class="view lw-main">' + (errOf('list') ? errorBox(errOf('list')) : skeleton(12)) + '</main>';
+    if (!L) return '<main class="view lw-main">' + (errOf('list') ? errorBox(errOf('list')) : loading('the entity')) + '</main>';
     var scope = L.properties.filter(function (p) { return (p.mgrId || 'none') === (S.ent || 'none'); });
     var nm = entName(S.ent);
     var q = S.q.trim().toLowerCase();
@@ -413,16 +438,18 @@
     var H = need('p:' + S.prop, '/api/props/' + S.prop);
     if (!L || !H) {
       var e = errOf('list') || errOf('p:' + S.prop);
-      return '<main class="view lw-main">' + (e ? errorBox(e) : skeleton(14)) + '</main>';
+      var pp = propById(S.prop);
+      return '<main class="view lw-main">' + (e ? errorBox(e) : loading(pp ? pp.name : 'the property')) + '</main>';
     }
     var p = H.property, flags = H.flags;
     var h = '<main class="view lw-main"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><h1 class="h1">' + esc(p.name) + '</h1>' +
       '<span style="padding:2px 8px;border-radius:4px;font-size:12px;font-weight:500;background:var(--okBg);color:var(--ok)">Held</span>' +
       '<span class="chip">' + esc(p.src) + '</span></div>' +
       '<p class="note" style="margin-top:4px">' + esc((p.pm ? 'Managed by ' + p.pm : '') + (p.mgr ? ', managing entity ' + p.mgr : ', no managing entity on file')) + '</p>';
-    if (S.ptab === 'overview') h += '<div style="margin-top:16px">' + cardsHtml(overviewCards(p, H)) + '</div>';
+    if (S.ptab === 'overview') h += '<div data-k="ovcards" style="margin-top:16px">' + cardsHtml(overviewCards(p, H)) + '</div>';
 
-    h += '<div class="lw-tabbar"><div role="tablist" aria-label="Property sections" style="display:flex;flex-wrap:wrap">' +
+    var body = TAB_RENDER[S.ptab](p, H);
+    h += '<div class="lw-tabbar" data-k="tabbar"><div role="tablist" aria-label="Property sections" style="display:flex;flex-wrap:wrap">' +
       TABS.map(function (t) {
         var badge = t[0] === 'attention' && flags.length ? '<span class="lw-badge">' + flags.length + '</span>' : '';
         return '<button role="tab" aria-selected="' + (S.ptab === t[0]) + '" class="tab press' + (S.ptab === t[0] ? ' on' : '') + '" data-a="ptab:' + t[0] + '">' + t[1] + badge + '</button>';
@@ -431,8 +458,7 @@
       h += '<div role="status" class="lw-status">' + svg('<path d="M5 12l5 5L20 7"></path>', 14, ' style="color:var(--ok)"') + '<span>' + esc(S.exportMsg) +
         '</span><button class="link" data-a="clearmsg" style="margin-left:auto">Dismiss</button></div>';
     }
-    var body = TAB_RENDER[S.ptab](p, H);
-    return h + body + '</main>';
+    return h + '<div data-k="tab:' + S.ptab + '">' + body + '</div></main>';
   }
 
   function periodSelects() {
@@ -454,23 +480,25 @@
 
   function controlsHtml() {
     var h = '';
-    if (S.ptab === 'monthly' || S.ptab === 'capex') h += '<div class="lw-ctrls">' + periodSelects() + '</div>';
+    var busy = S.staleNow ? window.PortalLoader.small('Updating') : '';
+    if (S.ptab === 'monthly' || S.ptab === 'capex') h += '<div class="lw-ctrls">' + periodSelects() + busy + '</div>';
     if (S.ptab === 'fee') {
       var t = through(); var maxY = t ? +t.slice(0, 4) : new Date().getFullYear();
       var ys = []; for (var y = maxY - 1; y <= maxY; y++) ys.push(y);
       h += '<div class="lw-ctrls"><label for="lw-fy">Year</label><select id="lw-fy" class="sel" data-in="feeYear">' +
-        ys.map(function (y) { return '<option' + (S.feeYear === y ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select>' +
+        ys.map(function (y) { return '<option value="' + y + '"' + (S.feeYear === y ? ' selected' : '') + '>' + y + '</option>'; }).join('') + '</select>' +
         '<label for="lw-ff" style="margin-left:6px">From</label><select id="lw-ff" class="sel" data-in="feeFrom">' + MN.map(function (m, i) {
           return '<option value="' + (i + 1) + '"' + (S.feeFrom === i + 1 ? ' selected' : '') + '>' + m + ' ' + String(S.feeYear).slice(2) + '</option>'; }).join('') + '</select>' +
         '<label for="lw-ft">to</label><select id="lw-ft" class="sel" data-in="feeTo">' + MN.map(function (m, i) {
-          return '<option value="' + (i + 1) + '"' + (S.feeTo === i + 1 ? ' selected' : '') + '>' + m + ' ' + String(S.feeYear).slice(2) + '</option>'; }).join('') + '</select></div>';
+          return '<option value="' + (i + 1) + '"' + (S.feeTo === i + 1 ? ' selected' : '') + '>' + m + ' ' + String(S.feeYear).slice(2) + '</option>'; }).join('') + '</select>' + busy + '</div>';
     }
     if (S.ptab === 'rent') {
-      var R = S.data['rr:' + S.prop + ':' + (S.asOf || '')];
+      /* while another date loads, keep the dates list the panel already has */
+      var R = S.data['rr:' + S.prop + ':' + (S.asOf || '')] || (S.last.rr && S.last.rr.split(':')[1] === S.prop ? S.data[S.last.rr] : null);
       var dates = R ? R.asOfDates : [];
       if (dates.length) {
         h += '<div class="lw-ctrls"><label for="lw-asof">As of</label><select id="lw-asof" class="sel" data-in="asOf">' +
-          dates.map(function (d) { return '<option value="' + d + '"' + ((S.asOf || R.asOf) === d ? ' selected' : '') + '>' + dayLong(d) + '</option>'; }).join('') + '</select></div>';
+          dates.map(function (d) { return '<option value="' + d + '"' + ((S.asOf || R.asOf) === d ? ' selected' : '') + '>' + dayLong(d) + '</option>'; }).join('') + '</select>' + busy + '</div>';
       }
     }
     if (EXPORTABLE[S.ptab]) {
@@ -536,7 +564,7 @@
   /* ---- Buildings & units ------------------------------------------------ */
   function buildingsHtml(p) {
     var key = 'b:' + S.prop, D = need(key, '/api/props/' + S.prop + '/buildings');
-    if (!D) return errOf(key) ? errorBox(errOf(key)) : skeleton(8);
+    if (!D) return errOf(key) ? errorBox(errOf(key)) : loading('buildings and units');
     var B = D.buildings, rrUnits = D.rentRollUnits;
     var main = B.filter(function (x) { return x[2] !== null || (x[3] !== null && x[3] > 0); });
     var other = B.filter(function (x) { return !(x[2] !== null || (x[3] !== null && x[3] > 0)); });
@@ -588,7 +616,7 @@
   function monthlyModel(p) {
     var pf = periodFromTo();
     var key = 'm:' + S.prop + ':' + pf.from + ':' + pf.to;
-    var D = need(key, '/api/props/' + S.prop + '/monthly?from=' + pf.from + '&to=' + pf.to);
+    var got = needOr('m', key, '/api/props/' + S.prop + '/monthly?from=' + pf.from + '&to=' + pf.to), D = got.D;
     if (!D) return { pending: true, error: errOf(key) };
     var se = D.series, requested = D.months.length;
     /* months with no data are hidden: Oct-Dec 2025 are being backfilled and
@@ -683,14 +711,14 @@
       tables.push({ title: 'Cash flow statement', heads: heads, rows: cfRows, maxH: 620, firstW: 260,
         note: 'Cash flow statement by month: net income adjusted for deposits, prepaid rent, escrows and clearing balances, then loan principal, credit-line draws, owner activity and any purchases. Capital expenses are already deducted in net income. Beginning and ending bank balances come from the manager’s cash report and are not in these books.' + outside });
     }
-    return { cards: tiles, tables: tables, empty: !n };
+    return { cards: tiles, tables: tables, empty: !n, stale: got.stale };
   }
   function monthlyHtml(p) {
     var M = monthlyModel(p);
-    if (M.pending) return M.error ? errorBox(M.error) : skeleton(14);
-    S.exportModel = M;
-    if (M.empty) return '<div class="frame view" style="margin-top:16px;padding:18px;color:var(--muted)">No income statement is loaded for these months. Choose a period inside the months on file.</div>';
-    return '<div class="view" style="margin-top:14px"><div style="margin-bottom:14px">' + cardsHtml(M.cards) + '</div>' +
+    if (M.pending) return M.error ? errorBox(M.error) : loading('monthly financials');
+    S.exportModel = M.stale ? null : M;
+    if (M.empty) return '<div class="frame view' + staleCls(M) + '" style="margin-top:16px;padding:18px;color:var(--muted)">No income statement is loaded for these months. Choose a period inside the months on file.</div>';
+    return '<div class="view' + staleCls(M) + '" style="margin-top:14px"><div style="margin-bottom:14px">' + cardsHtml(M.cards) + '</div>' +
       M.tables.map(function (t) {
         return '<h2 class="h2" style="margin:20px 0 4px">' + esc(t.title) + '</h2><p class="note" style="margin-bottom:8px">' + esc(t.note) + '</p>' + tableHtml(t);
       }).join('') + '</div>';
@@ -789,7 +817,7 @@
   }
   function optimizedHtml(p) {
     var M = optimizedModel(p);
-    if (M.pending) return M.error ? errorBox(M.error) : skeleton(12);
+    if (M.pending) return M.error ? errorBox(M.error) : loading('optimized NOI');
     S.exportModel = M;
     var inp = function (lbl, k, step, suffix, wide, ph) {
       return '<label>' + lbl + ' <input class="inp' + (wide ? ' wide' : '') + '" type="number" step="' + step + '" value="' + esc(M.cur[k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + ' data-in="oa:' + k + '">' + (suffix ? ' ' + suffix : '') + '</label>';
@@ -812,9 +840,9 @@
 
   /* ---- Asset management fee -------------------------------------------- */
   function feeHtml(p) {
-    var key = 'f:' + S.prop + ':' + S.feeYear, D = need(key, '/api/props/' + S.prop + '/fee?year=' + S.feeYear);
-    if (!D) return errOf(key) ? errorBox(errOf(key)) : skeleton(6);
-    if (!D.schedule) return '<div class="frame view" style="margin-top:16px;padding:18px;color:var(--muted)">No asset management fee is set up for this property.</div>';
+    var key = 'f:' + S.prop + ':' + S.feeYear, got = needOr('f', key, '/api/props/' + S.prop + '/fee?year=' + S.feeYear), D = got.D;
+    if (!D) return errOf(key) ? errorBox(errOf(key)) : loading('the asset management fee');
+    if (!D.schedule) return '<div class="frame view' + staleCls(got) + '" style="margin-top:16px;padding:18px;color:var(--muted)">No asset management fee is set up for this property.</div>';
     var a = Math.min(S.feeFrom, S.feeTo) - 1, b = Math.max(S.feeFrom, S.feeTo) - 1;
     var idx = []; for (var i = a; i <= b; i++) idx.push(i);
     var heads = [{ label: '' }].concat(idx.map(function (i) { return { label: MN[i] + ' ' + String(D.year).slice(2) }; }), [{ label: 'Total', cls: 'sep' }]);
@@ -828,7 +856,7 @@
           .concat([{ v: vt, f: 'money2', cls: 'sep', style: 'font-weight:600;' + vStyle(vt), html: isNum(vt) && Math.abs(vt) < 1 ? '0.00' : undefined }]) },
     ] };
     var facts = [['Paid by', D.schedule.group], ['Fee', D.schedule.feeText], ['Timing', D.schedule.following ? 'Following month' : 'Same month'], ['Fee row', D.schedule.label]];
-    return '<div class="view" style="margin-top:14px"><div style="display:flex;gap:8px 28px;flex-wrap:wrap">' +
+    return '<div class="view' + staleCls(got) + '" style="margin-top:14px"><div style="display:flex;gap:8px 28px;flex-wrap:wrap">' +
       facts.map(function (f) { return '<div><div style="font-size:12.5px;color:var(--muted)">' + esc(f[0]) + '</div><div style="font-weight:600">' + esc(f[1]) + '</div></div>'; }).join('') +
       '</div><div style="margin-top:12px">' + tableHtml(t) + '</div>' +
       '<p class="note" style="margin-top:8px">Expected is the fee rate times the month’s gross income; managers who pay the following month are charged on the previous month’s income. Italic received amounts come from the property’s books. Differences under $1 count as matched.</p></div>';
@@ -838,9 +866,9 @@
   var STATUS = { current: 'Current', notice: 'Notice', vacant_rented: 'Vacant, rented', vacant_unrented: 'Vacant, unrented', past: 'Past', future: 'Future' };
   function rentModel() {
     var key = 'rr:' + S.prop + ':' + (S.asOf || '');
-    var D = need(key, '/api/props/' + S.prop + '/rent-roll' + (S.asOf ? '?as_of=' + S.asOf : ''));
+    var got = needOr('rr', key, '/api/props/' + S.prop + '/rent-roll' + (S.asOf ? '?as_of=' + S.asOf : '')), D = got.D;
     if (!D) return { pending: true, error: errOf(key) };
-    if (!D.rentRoll) return { none: true };
+    if (!D.rentRoll) return { none: true, stale: got.stale };
     var R = D.rentRoll;
     var units = R[0], occ = R[1], notice = R[2], vacR = R[3], vacU = R[4], rent = R[5], mktOcc = R[6], mktAll = R[7], delinq = R[8], delinqN = R[9], prepaid = R[10], exp90 = R[11], mtm = R[12], mix = R[13], exp = R[14];
     var vac = vacR + vacU, ltl = isNum(mktOcc) && rent ? mktOcc - rent : null, occP = units ? occ / units : null;
@@ -883,14 +911,14 @@
           { v: u.balance, f: 'moneyc', style: u.balance > 0 ? C('bad') : '' }, { v: u.leaseEnd ? dayLong(u.leaseEnd) : '', f: 'text' }] };
       }) };
     var lines = D.units.length;
-    return { cards: cards, tables: [mixT, expT, unitT], asOf: D.asOf, lines: lines, units: units };
+    return { cards: cards, tables: [mixT, expT, unitT], asOf: D.asOf, lines: lines, units: units, stale: got.stale };
   }
   function rentHtml() {
     var M = rentModel();
-    if (M.pending) return M.error ? errorBox(M.error) : skeleton(12);
-    if (M.none) { S.exportModel = null; return '<div class="frame view" style="margin-top:16px;padding:18px;color:var(--muted)">No rent roll on file for this property.</div>'; }
-    S.exportModel = M;
-    return '<div class="view" style="margin-top:14px">' + cardsHtml(M.cards) +
+    if (M.pending) return M.error ? errorBox(M.error) : loading('the rent roll');
+    if (M.none) { S.exportModel = null; return '<div class="frame view' + staleCls(M) + '" style="margin-top:16px;padding:18px;color:var(--muted)">No rent roll on file for this property.</div>'; }
+    S.exportModel = M.stale ? null : M;
+    return '<div class="view' + staleCls(M) + '" style="margin-top:14px">' + cardsHtml(M.cards) +
       M.tables.map(function (t) { return '<h2 class="h2" style="margin-top:20px">' + esc(t.title) + '</h2><div style="margin-top:8px">' + tableHtml(t) + '</div>'; }).join('') +
       '<p class="note" style="margin-top:8px">' + M.units + ' units on ' + M.lines + ' lease lines: roommates each have a line. Occupied means a current lease or one on notice. A negative balance means prepaid.</p></div>';
   }
@@ -899,7 +927,7 @@
   function capexModel() {
     var pf = periodFromTo();
     var key = 'c:' + S.prop + ':' + pf.from + ':' + pf.to;
-    var D = need(key, '/api/props/' + S.prop + '/capex?from=' + pf.from + '&to=' + pf.to);
+    var got = needOr('c', key, '/api/props/' + S.prop + '/capex?from=' + pf.from + '&to=' + pf.to), D = got.D;
     if (!D) return { pending: true, error: errOf(key) };
     var ms = D.months, units = D.units;
     var vals = ms.map(function (m) { return m.capex; });
@@ -937,13 +965,13 @@
         return { label: c[0], cells: [{ v: c[1], f: 'money', style: 'background:color-mix(in srgb, var(--accent) ' + Math.round(6 + (Math.max(c[1], 0) / mxC) * 30) + '%, transparent)' },
           { v: catTot ? c[1] / catTot : null, f: 'pct', style: '' }, { v: units ? c[1] / units : null, f: 'money', style: '' }] };
       }).concat([{ label: 'All capital expenses', kind: 'total', cells: [{ v: catTot, f: 'money', style: '' }, { v: catTot ? 1 : null, f: 'pct', style: '' }, { v: null, f: 'text', html: '' }] }]) };
-    return { cards: cards, tables: cats.length ? [monthT, catT] : [monthT], cats: cats.length };
+    return { cards: cards, tables: cats.length ? [monthT, catT] : [monthT], cats: cats.length, stale: got.stale };
   }
   function capexHtml() {
     var M = capexModel();
-    if (M.pending) return M.error ? errorBox(M.error) : skeleton(10);
-    S.exportModel = M;
-    return '<div class="view" style="margin-top:14px">' + cardsHtml(M.cards) +
+    if (M.pending) return M.error ? errorBox(M.error) : loading('capex');
+    S.exportModel = M.stale ? null : M;
+    return '<div class="view' + staleCls(M) + '" style="margin-top:14px">' + cardsHtml(M.cards) +
       M.tables.map(function (t) { return '<h2 class="h2" style="margin-top:20px">' + esc(t.title) + '</h2><div style="margin-top:8px">' + tableHtml(t) + '</div>'; }).join('') +
       '<p class="note" style="margin-top:8px">' + (M.cats ? 'Categories group the capital accounts in the income statement by the rules in the capex category map, which can be edited.' : 'No account-level capex detail on file for this property; monthly totals come from the income statement.') + '</p></div>';
   }
@@ -978,12 +1006,12 @@
   var FIELD_GROUPS = ['Location', 'Rent roll', 'Income and NOI', 'Expenses and capex', 'Asset management fee', 'Debt and value', 'Management'];
 
   function meta() { return need('people', '/api/props/people'); }
-  function fieldsMap() { var M = S.data.people; var o = {}; (M ? M.fields : []).forEach(function (f) { o[f.key] = f; }); return o; }
+  function fieldsMap() { var M = cur('people'); var o = {}; (M ? M.fields : []).forEach(function (f) { o[f.key] = f; }); return o; }
   function vfmt(type, v) { return type === 'money' ? money(v) : type === 'pct' ? pct(v) : type === 'ratio' ? ratio(v) : type === 'count' ? cnt(v) : type === 'number' ? (isNum(v) ? (Math.round(v * 100) / 100).toLocaleString('en-US') : DASH) : (v === null || v === undefined || v === '' ? DASH : String(v)); }
 
   function customHtml() {
     var V = need('views', '/api/props/views'), M = meta();
-    if (!V || !M) return (errOf('views') || errOf('people')) ? errorBox(errOf('views') || errOf('people')) : skeleton(10);
+    if (!V || !M) return (errOf('views') || errOf('people')) ? errorBox(errOf('views') || errOf('people')) : loading('custom views');
     var views = V.views, cv = S.cv;
     if (cv.mode !== 'build' && views.length && !views.some(function (v) { return v.id === cv.sel; })) cv.sel = views[0].id;
     var h = '<div class="view" style="margin-top:12px"><div style="display:flex;align-items:flex-end;justify-content:space-between;gap:12px;border-bottom:1px solid var(--rule)">' +
@@ -995,14 +1023,15 @@
       '<button class="btn press on" data-a="cvadd" style="margin-bottom:8px;color:var(--ink);display:inline-flex;align-items:center;gap:6px">' +
       svg('<path d="M12 5v14M5 12h14"></path>', 13, ' stroke-width="2.4"') + 'Add custom view</button></div>';
     if (!views.length && cv.mode !== 'build') h += '<p class="note" style="margin-top:14px">No custom views yet. Use "Add custom view" to build one; each view you save appears as a tab here.</p>';
-    h += '<div style="margin-top:14px">' + (cv.mode === 'build' ? builderHtml() : views.length ? viewerHtml() : '') + '</div></div>';
+    h += '<div style="margin-top:14px" data-k="cv:' + esc(cv.mode === 'build' ? 'build:' + ((cv.draft && cv.draft.id) || 'new') : cv.sel || '') + '">' +
+      (cv.mode === 'build' ? builderHtml() : views.length ? viewerHtml() : '') + '</div></div>';
     return h;
   }
 
   /* ---- the saved view, read --------------------------------------------- */
   function viewerHtml() {
     var cv = S.cv, key = 'view:' + cv.sel, D = need(key, '/api/props/views/' + cv.sel);
-    if (!D) return errOf(key) ? errorBox(errOf(key)) : skeleton(10);
+    if (!D) return errOf(key) ? errorBox(errOf(key)) : loading('the view');
     var v = D.view, r = D.result, cfg = v.config;
     var sub = r.count + ' properties' + (r.groupNames.length ? ' from ' + (r.groupNames.length === 1 ? 'the group ' : 'the groups ') +
       r.groupNames.map(function (x) { return '"' + x + '"'; }).join(' and ') + (r.excluded ? ', ' + r.excluded + ' excluded' : '') : ', picked one by one') +
@@ -1126,7 +1155,24 @@
     return { mode: quick ? 'quick' : 'advanced', quickCards: !!d.quickCards, groups: useG ? d.groups.slice() : [], excl: useG ? d.excl.slice() : [],
              props: useG ? null : d.props.slice(), fields: d.fields.slice(), styles: d.styles.slice(), chartField: d.chartField, cards: cards, layout: layout };
   }
-  /* live result preview: the draft is evaluated on the server, debounced */
+  /* live result preview, computed HERE: the same engine the server runs
+     (props-views-core.js) over every property's figures, loaded once per
+     session, so each change to a field, period or formula updates at once
+     with no request. Null while that data loads, or when the draft names a
+     group this browser has not loaded (a view shared by its owner); the
+     server preview below covers those. */
+  function localPreview(d) {
+    var core = window.PropsViewsCore, DS = need('dataset', '/api/props/views/dataset'), G = cur('groups');
+    if (!core || !DS || !G) return null;
+    var cfg = core.validateConfig(draftConfig(d)), k = JSON.stringify(cfg);
+    /* cached per draft AND per data: a refreshed dataset or group list is a new answer */
+    if (S.cv.localKey === k && S.cv.localDS === DS && S.cv.localG === G) return S.cv.local;
+    if (cfg.groups.some(function (gid) { return !G.groups.some(function (g) { return g.id === gid; }); })) return null;
+    S.cv.localKey = k; S.cv.localDS = DS; S.cv.localG = G;
+    S.cv.local = core.evaluateData(cfg, core.resolve(cfg, G.groups), DS);
+    return S.cv.local;
+  }
+  /* server preview: only when the local one cannot answer, debounced */
   var previewTimer = null;
   function schedulePreview() {
     var d = S.cv.draft; if (!d) return;
@@ -1164,7 +1210,7 @@
 
   function builderHtml() {
     var d = S.cv.draft, M = meta(), G = need('groups', '/api/props/groups'), L = list();
-    if (!G || !L) return errOf('groups') ? errorBox(errOf('groups')) : skeleton(10);
+    if (!G || !L) return errOf('groups') ? errorBox(errOf('groups')) : loading('the builder');
     var F = fieldsMap(), P = L.properties, byId = {};
     P.forEach(function (p) { byId[p.id] = p; });
     var isQuick = d.bmode !== 'advanced';
@@ -1177,7 +1223,7 @@
     var canSaveGroup = !!d.newGroupName.trim() && d.newProps.length > 0;
     var canSave = !!d.name.trim() && (d.fields.length || d.cards.length) && (d.styles.length || d.cards.length || (isQuick && d.quickCards)) &&
       (d.how === 'pick' ? d.props.length > 0 : d.how === 'group' ? selIds.length > 0 : false);
-    var pv = S.cv.preview, pvCards = {};
+    var local = localPreview(d), pv = local || S.cv.preview, pvCards = {};
     if (pv) pv.cards.forEach(function (c) { pvCards[c.id] = c; });
 
     var h = '<section class="frame" style="padding:18px 20px"><h2 class="h2" style="font-size:17px">' + (d.id ? 'Edit custom view' : 'Add custom view') + '</h2>' +
@@ -1329,7 +1375,7 @@
       '<button class="btn press" data-a="cvcancel">Cancel</button>' +
       '<span class="note">' + esc(S.cv.err || (canSave ? '' : d.how === 'create' ? 'Save the property group first, then it is used for this view.' : 'Add a name, properties, and at least one card or display style.')) + '</span>' +
       (d.id && d.isOwner ? '<button class="link" data-a="cvdelete" style="margin-left:auto;color:var(--bad)">Delete view</button>' : '') + '</div></section>';
-    schedulePreview();
+    if (!local) schedulePreview();
     return h;
   }
 
@@ -1377,21 +1423,23 @@
   /* ===================================================================== */
   /*  paint + events                                                        */
   /* ===================================================================== */
+  /* The page a render belongs to. Its <main> carries this as data-k, so a
+     different page replaces the main (and fades in) while every other
+     render - a filter, an input, a menu, a sort, density, a load landing -
+     patches the existing nodes in place (PortalMorph): nothing replays its
+     entry animation, scroll positions and the caret stay where they are. */
+  function pageKey() {
+    if (S.level === 'property') return 'property:' + S.prop;
+    if (S.level === 'entity') return 'entity:' + (S.ent || 'none');
+    return 'portfolio:' + S.l1;
+  }
   function paint() {
     if (!S.host || !document.body.contains(S.host)) return;
-    if (S.data.list) defaultPeriod();
-    /* keep the caret where it was across a repaint */
-    var ae = document.activeElement, fk = null, sel = null;
-    if (ae && S.host.contains(ae) && ae.getAttribute('data-in')) {
-      fk = ae.getAttribute('data-in');
-      try { sel = [ae.selectionStart, ae.selectionEnd]; } catch (e) { sel = null; }
-    }
+    if (cur('list')) defaultPeriod();
+    S.staleNow = false;
     var body = S.level === 'property' ? propertyHtml() : S.level === 'entity' ? entityHtml() : portfolioHtml();
-    S.host.innerHTML = '<div class="lw' + (S.dense ? ' lw-dense' : '') + '">' + headHtml() + body + '</div>';
-    if (fk) {
-      var el = S.host.querySelector('[data-in="' + fk.replace(/"/g, '\\"') + '"]');
-      if (el) { el.focus(); if (sel && sel[0] !== null && el.setSelectionRange) { try { el.setSelectionRange(sel[0], sel[1]); } catch (e) { /* not a text input */ } } }
-    }
+    body = body.replace('<main ', '<main data-k="' + esc(pageKey()) + '" ');
+    window.PortalMorph.morph(S.host, '<div class="lw' + (S.dense ? ' lw-dense' : '') + '">' + headHtml() + body + '</div>');
   }
 
   function onClick(ev) {
@@ -1484,8 +1532,10 @@
       case 'feeFrom': S.feeFrom = +value; return true;
       case 'feeTo': S.feeTo = +value; return true;
       case 'asOf': S.asOf = value; pushUrl(); return true;
-      case 'oa': S.oa[S.prop] = Object.assign({}, S.oa[S.prop] || {}, (function () { var o = {}; o[parts[1]] = value; return o; })()); return isChange;
-      case 'wnoi': S.wnoi[S.prop] = value; return isChange;
+      /* what-if inputs recalculate as you type, all in the browser: the
+         render patches the figures in place and leaves the input alone */
+      case 'oa': S.oa[S.prop] = Object.assign({}, S.oa[S.prop] || {}, (function () { var o = {}; o[parts[1]] = value; return o; })()); return true;
+      case 'wnoi': S.wnoi[S.prop] = value; return true;
     }
     if (!d) return false;
     if (parts[0] === 'd') { d[parts[1]] = value; return true; }
@@ -1507,7 +1557,7 @@
         tm[tk] = value;
         if (tk === 'kind' && value === 'field' && !tm.field) { tm.field = 'inc'; tm.period = { t: 'ttm' }; tm.agg = 'total'; }
       }
-      return tk !== 'num' || isChange;
+      return true;
     }
     return false;
   }
@@ -1567,7 +1617,12 @@
   }
   /* realtime: a property, unit, loan or rent roll changed somewhere. The
      materialised views only move after a refresh, so drop everything. */
-  function invalidate() { S.data = {}; S.errors = {}; S.pending = {}; paint(); }
+  function invalidate() {
+    /* keep showing what is on screen while each key refetches (need() serves
+       S.old until the new answer lands), so a sync elsewhere never blanks it */
+    Object.keys(S.data).forEach(function (k) { S.old[k] = S.data[k]; });
+    S.data = {}; S.errors = {}; S.pending = {}; S.cv.localKey = ''; paint();
+  }
 
   window.PortalProps = { mount: mount, invalidate: invalidate, urlParams: urlParams, _state: S,
                          _internal: { monthlyModel: monthlyModel, optimizedModel: optimizedModel, sentence: sentence, fmt: fmt } };

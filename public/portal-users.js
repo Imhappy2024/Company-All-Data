@@ -113,10 +113,10 @@
     if (ui.users && ui.modules && !force) return Promise.resolve();
     ui.loading = true; ui.error = null;
     var q = ui.scope === EXEC ? '' : ('?company=' + encodeURIComponent(ui.scope));
-    return Promise.all([
+    return window.PortalLoader.hold(Promise.all([
       api('/api/access/users' + q),
       ui.modules ? Promise.resolve({ modules: ui.modules }) : api('/api/access/modules'),
-    ]).then(function (out) {
+    ])).then(function (out) {
       ui.users = out[0].users || [];
       ui.modules = out[1].modules || [];
       ui.loading = false;
@@ -190,7 +190,7 @@
       return blank('Could not load users', esc(ui.error));
     }
     if (ui.loading && !ui.users) {
-      return '<div class="pu-wrap"><div class="pu-skel"></div><div class="pu-skel"></div><div class="pu-skel"></div></div>';
+      return '<div class="pu-wrap">' + window.PortalLoader.full('users') + '</div>';
     }
     var scopeName = ui.scope === EXEC ? 'the whole group' : (ui.companies[ui.scope] || 'this business');
     return '<div class="pu-wrap">' +
@@ -909,7 +909,6 @@
     if (document.getElementById('pu-styles')) return;
     var css = [
       '.pu-wrap{display:flex;flex-direction:column;gap:14px}',
-      '.pu-skel{height:56px;border-radius:10px;background:var(--surface-2,var(--panel-2))}',
       '.pu-msg{padding:9px 12px;border-radius:8px;font-size:12.5px;background:var(--good-soft,rgba(12,163,12,.12));color:var(--good-ink,var(--text))}',
       '.pu-msg.bad{background:var(--crit-soft,rgba(208,59,59,.12));color:var(--crit-ink,var(--text));border:1px solid var(--crit,#d03b3b)}',
       '.pu-head{display:flex;align-items:flex-start;justify-content:space-between;gap:14px}',
