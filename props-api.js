@@ -693,6 +693,13 @@ async function preview(req, res, who) {
   res.json({ ok: true, config, result: await V.evaluate(config, who.tenantId) });
 }
 
+/* every property's plain figures, read once per session so the builder can
+   evaluate drafts in the browser (public/props-views-core.js) with no request
+   per keystroke. The same tenant scope as preview; nothing written. */
+async function dataset(req, res, who) {
+  res.json(Object.assign({ ok: true }, await V.loadPlain(null, who.tenantId)));
+}
+
 async function createView(req, res, who) {
   const b = req.body || {};
   const name = String(b.name || '').trim().slice(0, 160);
@@ -800,6 +807,7 @@ function propsRoutes() {
   r.get('/views', g(listViews));
   r.post('/views', g(createView));
   r.post('/views/preview', g(preview));
+  r.get('/views/dataset', g(dataset));
   r.get('/views/:id', g(getView));
   r.put('/views/:id', g(updateView));
   r.delete('/views/:id', g(deleteView));

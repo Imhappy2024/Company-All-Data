@@ -174,10 +174,10 @@ window.PortalFolioFin = (function () {
     /* Every screen reads the same two endpoints, so no two of them can report
        different money for the brand. There is no /funnel call: pipeline data
        is CRM data and belongs on the Leads page. */
-    return Promise.all([
+    return window.PortalLoader.hold(Promise.all([
       getJson(API + '/summary'),
       getJson(API + '/subscribers?' + qs())
-    ]).then(function (out) {
+    ])).then(function (out) {
       S.summary = out[0];
       S.subs = out[1].rows || [];
       S.options = out[1].options || null;
@@ -195,8 +195,8 @@ window.PortalFolioFin = (function () {
   function loadPayments(id) {
     S.payLoading = id;
     paint();
-    return getJson(API + '/subscribers/' + encodeURIComponent(id) + '/payments?' +
-                   'include_test=' + (S.includeTest ? 'true' : 'false'))
+    return window.PortalLoader.hold(getJson(API + '/subscribers/' + encodeURIComponent(id) + '/payments?' +
+                   'include_test=' + (S.includeTest ? 'true' : 'false')))
       .then(function (j) { S.payments[id] = j; })
       .catch(function (e) { S.payments[id] = { error: e.message }; })
       .then(function () { S.payLoading = null; paint(); });
@@ -219,7 +219,7 @@ window.PortalFolioFin = (function () {
       return '<div class="fin-problem"><div><b>Folio financials could not load.</b><div>' +
         esc(S.error) + '</div></div></div>';
     }
-    if (!S.summary) return '<div class="fin-loading">Reading Whop billing&hellip;</div>';
+    if (!S.summary) return window.PortalLoader.full('Whop billing');
     return body();
   }
 
@@ -552,9 +552,9 @@ window.PortalFolioFin = (function () {
   }
 
   function paymentsPanel(row) {
-    if (S.payLoading === row.id) return '<div class="fin-loading">Reading payments&hellip;</div>';
+    if (S.payLoading === row.id) return '<div class="fin-loading">' + window.PortalLoader.small('Loading payments') + '</div>';
     var d = S.payments[row.id];
-    if (!d) return '<div class="fin-loading">Reading payments&hellip;</div>';
+    if (!d) return '<div class="fin-loading">' + window.PortalLoader.small('Loading payments') + '</div>';
     if (d.error) return '<div class="fin-problem"><div>' + esc(d.error) + '</div></div>';
     if (!d.rows.length) {
       return '<div class="fin-empty">No payment recorded against ' +

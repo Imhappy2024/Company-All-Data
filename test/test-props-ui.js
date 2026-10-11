@@ -88,7 +88,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   async function settle() {
     await pg.waitForFunction(() => {
       const h = document.querySelector('#reportingNative .lw');
-      return h && !h.querySelector('.lw-skel');
+      return h && !h.querySelector('.ld-full, .ld-stale');
     }, null, { timeout: 60000 });
     await pg.waitForTimeout(150);
   }

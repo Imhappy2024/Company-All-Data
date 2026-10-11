@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LeavenWealth loading animation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.ld{font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif}
+.lw-mark .bar{transform-box:fill-box;transform-origin:center;animation:lwApart 1.8s cubic-bezier(0.65,0,0.35,1) infinite}
+.lw-mark .b1{--x:0px;--y:-64px;animation-delay:0ms}
+.lw-mark .b2{--x:-64px;--y:-18px;animation-delay:60ms}
+.lw-mark .b3{--x:56px;--y:-10px;animation-delay:120ms}
+.lw-mark .b4{--x:-64px;--y:10px;animation-delay:180ms}
+.lw-mark .b5{--x:0px;--y:64px;animation-delay:240ms}
+.lw-mark .b6{--x:64px;--y:0px;animation-delay:90ms}
+@keyframes lwApart{
+  0%,14%{transform:translate(0,0);opacity:1}
+  42%,56%{transform:translate(var(--x),var(--y)) scale(0.92);opacity:0.35}
+  84%,100%{transform:translate(0,0);opacity:1}
+}
+.lw-mark{animation:lwBreathe 1.8s cubic-bezier(0.65,0,0.35,1) infinite}
+@keyframes lwBreathe{0%,14%,84%,100%{transform:scale(1)}42%,56%{transform:scale(0.96)}}
+.ld-fade{animation:ldIn 220ms cubic-bezier(0.23,1,0.32,1) 250ms both}
+@keyframes ldIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.ld-dots::after{content:'';display:inline-block;width:1.2em;text-align:left;animation:ldDots 1.2s steps(4,end) infinite}
+@keyframes ldDots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+@media (prefers-reduced-motion: reduce){
+  .lw-mark,.lw-mark .bar{animation:none}
+  .lw-mark{animation:lwPulse 1.6s ease-in-out infinite}
+  @keyframes lwPulse{0%,100%{opacity:1}50%{opacity:0.55}}
+}
+</style>
+</helmet>
+<div class="ld" style="width: 1440px; min-height: 900px; display: grid; grid-template-columns: 1fr 1fr; background: #111214">
+  <section style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; border-right: 1px solid #2B2D31; color: #ECEDEF">
+    <div style="position: absolute; top: 20px; left: 24px; font-size: 13px; color: #A2A6AD">Dark theme (Graphite): full-section loading</div>
+    <div class="ld-fade" style="display: flex; flex-direction: column; align-items: center; gap: 16px">
+      <svg class="lw-mark" width="88" height="88" viewBox="0 0 1024 1024" role="img" aria-label="Loading">
+        <g transform="rotate(45 512 512) translate(-20 4)">
+          <rect class="bar b1" x="300" y="282" width="344" height="92" rx="16" fill="#2A7A76"></rect>
+          <rect class="bar b2" x="300" y="402" width="150" height="92" rx="16" fill="#34D88A"></rect>
+          <rect class="bar b3" x="478" y="402" width="166" height="92" rx="16" fill="#2A7A76"></rect>
+          <rect class="bar b4" x="300" y="522" width="344" height="92" rx="16" fill="#2A7A76"></rect>
+          <rect class="bar b5" x="300" y="642" width="464" height="92" rx="16" fill="#14B886"></rect>
+          <rect class="bar b6" x="672" y="282" width="92" height="332" rx="16" fill="#14B886"></rect>
+        </g>
+      </svg>
+      <div style="font-size: 14px; color: #A2A6AD"><span class="ld-dots">Loading Estrella</span></div>
+    </div>
+  </section>
+  <section style="position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; background: #F5F4F1; color: #1A1A18">
+    <div style="position: absolute; top: 20px; left: 24px; font-size: 13px; color: #5D5B56">Light theme (Light stone)</div>
+    <div class="ld-fade" style="display: flex; flex-direction: column; align-items: center; gap: 16px">
+      <svg class="lw-mark" width="88" height="88" viewBox="0 0 1024 1024" role="img" aria-label="Loading">
+        <g transform="rotate(45 512 512) translate(-20 4)">
+          <rect class="bar b1" x="300" y="282" width="344" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b2" x="300" y="402" width="150" height="92" rx="16" fill="#2ECC7A"></rect>
+          <rect class="bar b3" x="478" y="402" width="166" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b4" x="300" y="522" width="344" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b5" x="300" y="642" width="464" height="92" rx="16" fill="#10A87A"></rect>
+          <rect class="bar b6" x="672" y="282" width="92" height="332" rx="16" fill="#10A87A"></rect>
+        </g>
+      </svg>
+      <div style="font-size: 14px; color: #5D5B56"><span class="ld-dots">Loading Estrella</span></div>
+    </div>
+    <div style="position: absolute; bottom: 28px; left: 24px; right: 24px; display: flex; align-items: center; gap: 10px; font-size: 13px; color: #5D5B56">
+      <svg class="lw-mark" width="20" height="20" viewBox="0 0 1024 1024" aria-hidden="true">
+        <g transform="rotate(45 512 512) translate(-20 4)">
+          <rect class="bar b1" x="300" y="282" width="344" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b2" x="300" y="402" width="150" height="92" rx="16" fill="#2ECC7A"></rect>
+          <rect class="bar b3" x="478" y="402" width="166" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b4" x="300" y="522" width="344" height="92" rx="16" fill="#1F5C5A"></rect>
+          <rect class="bar b5" x="300" y="642" width="464" height="92" rx="16" fill="#10A87A"></rect>
+          <rect class="bar b6" x="672" y="282" width="92" height="332" rx="16" fill="#10A87A"></rect>
+        </g>
+      </svg>
+      Small version, for refreshing one table or panel without blanking the page
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() { return {}; }
+}
+</script>
+</body>
+</html>

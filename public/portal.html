@@ -22,6 +22,7 @@
 <style id="authGate">body{visibility:hidden}</style>
 <!-- Shared design system (palette, geometry, dark theme) — same file /ops uses. -->
 <link rel="stylesheet" href="/tokens.css">
+<link rel="stylesheet" href="/portal-loader.css">
 <link rel="stylesheet" href="/portal-properties.css">
 <link rel="stylesheet" href="/portal-reporting.css">
 <link rel="stylesheet" href="/portal-props.css">
@@ -270,9 +271,6 @@ tbody tr:hover{background:var(--panel-2)}
 .trk-block{color:#c67c11;font-weight:600;font-size:12px}
 .trk-sel{padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font:inherit;font-size:11.5px;cursor:pointer}
 @media(max-width:900px){.trk-people{grid-template-columns:1fr}}
-.person.skel{opacity:.45;pointer-events:none}
-.person.skel .pav{background:var(--panel-2)}
-.person.skel .pn,.person.skel .pr{background:var(--panel-2);border-radius:4px}
 .dr-nm{font-size:18px;font-weight:700}
 .dr-rl{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px}
 .dr-tag{display:inline-block;margin-top:10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--dim);padding:3px 11px;border-radius:20px}
@@ -425,6 +423,9 @@ tbody tr:hover{background:var(--panel-2)}
 <!-- Phase 4/5 modules. Plain tags, NOT defer: the inline script below runs
      during parsing and calls render() immediately, so deferred scripts would
      not have executed yet and PortalAuth/PortalTasks would be undefined. -->
+<script src="/portal-loader.js"></script>
+<script src="/portal-morph.js"></script>
+<script src="/props-views-core.js"></script>
 <script src="/portal-session.js"></script>
 <script src="/portal-users.js"></script>
 <script src="/portal-auth.js"></script>
@@ -668,7 +669,7 @@ function fetchTracker(force){
      and anything that re-enters render() from here can spin. */
   if(trkErr && !force) return;
   trkFetching=true;
-  fetch('/api/tracker',{headers:authHeadersPortal()})
+  PortalLoader.hold(fetch('/api/tracker',{headers:authHeadersPortal()}))
     .then(r=>r.text().then(t=>{let b=null;try{b=t?JSON.parse(t):null;}catch(e){b={error:t};}
       if(!r.ok) throw new Error((b&&b.error)||('HTTP '+r.status)); return b;}))
     .then(d=>{trkData=d;trkErr=null;trkFetching=false;render();})
@@ -690,7 +691,7 @@ function trkSetStatus(id,kind,status){
 }
 function fetchTeam(){
   if(teamFetching) return; teamFetching=true;
-  PortalSession.client().then(c=>c.auth.getSession()).then(r=>{
+  PortalLoader.hold(PortalSession.client().then(c=>c.auth.getSession())).then(r=>{
     const t=r&&r.data&&r.data.session&&r.data.session.access_token;
     if(!t) throw new Error('Your session has expired. Sign in again.');
     return fetch('/api/team',{headers:{Authorization:'Bearer '+t}});
@@ -938,7 +939,7 @@ const V={
     const seg=`<div class="seg"><button class="segbtn ${loansTab==='book'?'on':''}" onclick="setLoansTab('book')">Loan Book</button><button class="segbtn ${loansTab==='views'?'on':''}" onclick="setLoansTab('views')">Loan Views</button></div>`;
     if(loansTab==='views') return seg;   // Loan Views iframe rendered in #embedHost (keep-alive)
     if(!loansCache) setTimeout(function(){loadLoans(false);},0);
-    const body = loansCache ? renderLoans(loansCache) : '<div class="muted" style="padding:10px 2px">Loading loans from Supabase&hellip;</div>';
+    const body = loansCache ? renderLoans(loansCache) : PortalLoader.full('loans');
     return seg+`<div id="loansBody">${body}</div>`;
   },
   /* Leads is the command-center GHL screen, running natively and scoped to the
@@ -977,7 +978,7 @@ const V={
   borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
   tracker(){
     if(trkErr) return `<div class="placeholder">${I.check}<div>Could not load the tracker<div class="ph-sub">${esc(trkErr)}</div></div></div>`;
-    if(!trkData){ fetchTracker(); return `<div class="placeholder">${I.check}<div>Loading tracker&hellip;</div></div>`; }
+    if(!trkData){ fetchTracker(); return PortalLoader.full('the tracker'); }
     const c=trkData.counts||{};
     const rows=(trkData[trkWho]||[]);
     const by=k=>rows.filter(r=>String(r.status||'open')===k).length;
@@ -1004,7 +1005,7 @@ const V={
     if(teamErr) return `<div class="placeholder">${I.users}<div>Could not load the team<div class="ph-sub">${esc(teamErr)}</div></div></div>`;
     /* Fetched on first paint rather than at boot: most sessions never open this
        screen, and fetchTeam() guards against the re-entry this creates. */
-    if(!teamRows){ fetchTeam(); return `<div class="people">${'<div class="person skel"><span class="pav"></span><div style="flex:1"><div class="pn">&nbsp;</div><div class="pr">&nbsp;</div></div></div>'.repeat(6)}</div>`; }
+    if(!teamRows){ fetchTeam(); return PortalLoader.full('the team'); }
     if(!teamRows.length) return `<div class="placeholder">${I.users}<div>No active staff<div class="ph-sub">Nobody in <b>staff</b> is marked active.</div></div></div>`;
     return `<div class="people">${teamRows.map(p=>{
       const go=`openStaff('${esc(p.id)}')`;
@@ -1071,7 +1072,7 @@ async function loadLoans(force){
   const el=document.getElementById('loansBody'); if(!el) return;
   if(loansCache && !force){ el.innerHTML=renderLoans(loansCache); return; }
   try{
-    const r=await fetch('/api/loans',{headers:{'Accept':'application/json'}});
+    const r=await PortalLoader.hold(fetch('/api/loans',{headers:{'Accept':'application/json'}}));
     let data=null; try{ data=await r.json(); }catch(_){}
     if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
     if(data && data.error) throw new Error(data.error);
@@ -1123,7 +1124,7 @@ async function loadAds(force){
   const sb=await getSb(); let session=null;   /* async now: config comes from /api/portal-config */
   if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
   if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
-  el.innerHTML=`<div class="muted" style="padding:12px 2px">Loading ad data&hellip;</div>`;
+  el.innerHTML=PortalLoader.full('ad data');
   try{
     const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
     let q=sb.from('meta_ads_insight').select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name').gte('date_start',since);
@@ -1138,7 +1139,7 @@ async function loadAds(force){
        would have withheld. */
     const cid=brandCompanyId(brand);
     if(cid) q=q.or(`company_id.eq.${cid},company_id.is.null`);
-    const {data,error}=await q;
+    const {data,error}=await PortalLoader.hold(q);
     if(error) throw error;
     adsRows=data||[]; adsMode='live';
   }catch(e){ adsRows=null; adsMode='baked'; }
