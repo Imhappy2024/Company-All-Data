@@ -682,8 +682,9 @@ function strings(o, out) {
      invented figures behind the old page. */
   const PORTAL = decomment(fs.readFileSync(path.join(__dirname, '..', 'public', 'portal.html'), 'utf8'));
   check('portal.html no longer computes Folio reports from a baked array', () => {
-    assert.ok(/reports\(\)\{return '<div id="folioReportsNative"><\/div>';\},/.test(PORTAL),
-      'V.reports() does not render the live container');
+    /* The shell routes Folio's Financials page to the live container. */
+    assert.ok(/if\(brand==='folio'\) return '<div id="folioReportsNative"><\/div>';/.test(PORTAL),
+      'Folio Financials does not render the live container');
     /* The three specific fabrications that were on that page. */
     assert.ok(!/'ARR'/.test(PORTAL), 'the ARR tile is still there');
     assert.ok(!/Net revenue retention/i.test(PORTAL), 'the NRR tile is still there');

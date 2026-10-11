@@ -1,0 +1,23 @@
+[
+  { "name": "home-mine", "hash": "brand=home&view=mine", "wait": 1500 },
+  { "name": "home-all", "hash": "brand=home&view=all", "wait": 1500 },
+  { "name": "lw-properties", "hash": "brand=leavenwealth&view=properties", "wait": 4000 },
+  { "name": "lw-team", "hash": "brand=leavenwealth&view=team", "wait": 2500 },
+  { "name": "lw-departments", "hash": "brand=leavenwealth&view=departments", "wait": 2500 },
+  { "name": "lw-tools", "hash": "brand=leavenwealth&view=tools", "wait": 2500 },
+  { "name": "lw-documents", "hash": "brand=leavenwealth&view=documents", "wait": 1200 },
+  { "name": "exec-overview", "hash": "brand=leavenwealth&view=exec&sub=overview", "wait": 1200 },
+  { "name": "exec-financials", "hash": "brand=leavenwealth&view=exec&sub=financials", "wait": 4000 },
+  { "name": "exec-org", "hash": "brand=leavenwealth&view=exec&sub=org", "wait": 1500 },
+  { "name": "exec-tracker", "hash": "brand=leavenwealth&view=exec&sub=tracker", "wait": 2500 },
+  { "name": "exec-access", "hash": "brand=leavenwealth&view=exec&sub=access", "wait": 3000 },
+  { "name": "folio-overview", "hash": "brand=folio&view=overview", "wait": 2500 },
+  { "name": "folio-financials", "hash": "brand=folio&view=financials", "wait": 3000 },
+  { "name": "folio-plans", "hash": "brand=folio&view=plans", "wait": 2500 },
+  { "name": "folio-reports", "hash": "brand=folio&view=reports", "wait": 3000 },
+  { "name": "folio-team", "hash": "brand=folio&view=team", "wait": 2500 },
+  { "name": "leadli-overview", "hash": "brand=leadli&view=overview", "wait": 2500 },
+  { "name": "leadli-financials", "hash": "brand=leadli&view=financials", "wait": 3000 },
+  { "name": "liquid-overview", "hash": "brand=liquid&view=overview", "wait": 1200 },
+  { "name": "liquid-team", "hash": "brand=liquid&view=team", "wait": 2500 }
+]

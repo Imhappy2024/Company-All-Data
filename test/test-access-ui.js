@@ -49,7 +49,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"login":"test","connector":"test"}' });
   });
 
-  await pg.goto(BASE + '/?t=1#brand=all&view=access', { waitUntil: 'domcontentloaded' });
+  await pg.goto(BASE + '/?t=1#brand=leavenwealth&view=exec&sub=access', { waitUntil: 'domcontentloaded' });
   await pg.waitForSelector('.pa-tbl', { timeout: 60000 });
   const t = await pg.evaluate(() => ({
     heads: [...document.querySelectorAll('.pa-tbl:not(.pa-log) thead th')].map(x => x.textContent.trim()),
@@ -66,8 +66,9 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   check('Brian reads Folio Excel: Editor (no financials), LeavenWealth: Operations', () => {
     assert.strictEqual(brianRow[4], 'Editor (no financials)'); assert.strictEqual(brianRow[6], 'Operations');
   });
-  const menu = await pg.evaluate(() => { const a = document.querySelector('aside, .side, .sidebar, nav'); return a ? a.innerText : document.body.innerText; });
-  check('Users & Roles is in the Executive Board menu', () => assert.ok(/Users & Roles/.test(menu), menu.slice(0, 200)));
+  /* Users & roles is a tab inside the Executive board, not a menu item. */
+  const menu = await pg.evaluate(() => { const a = document.querySelector('.seg'); return a ? a.innerText : document.body.innerText; });
+  check('Users & roles is a tab on the Executive board', () => assert.ok(/Users & roles/.test(menu), menu.slice(0, 200)));
   if (SHOTS) await pg.screenshot({ path: path.join(ROOT, 'docs', 'screenshots', 'access-list.png') });
 
   /* open Brian, narrow a screen, save: the body is the connector model */

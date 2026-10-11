@@ -1,0 +1,294 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Dashboard shell redesign</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.sh{--ease:cubic-bezier(0.23,1,0.32,1);font-family:'IBM Plex Sans','Segoe UI',system-ui,sans-serif;font-size:14px;line-height:1.45;font-variant-numeric:tabular-nums lining-nums;-webkit-font-smoothing:antialiased}
+.sh *{box-sizing:border-box}
+.sh button{font:inherit;color:inherit;cursor:pointer}
+.sh :focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.sh .press{transition:transform 160ms var(--ease),background-color 150ms ease,color 150ms ease}
+.sh .press:active{transform:scale(0.97)}
+.sh .biz{position:relative;width:40px;height:40px;border-radius:10px;border:0;padding:0;display:flex;align-items:center;justify-content:center;background:transparent;transition:background-color 150ms ease,box-shadow 150ms ease}
+.sh .biz:hover{background:var(--hover)}
+.sh .biz.on{box-shadow:0 0 0 2px var(--accent)}
+.sh .biz .tip{position:absolute;left:52px;top:50%;transform:translateY(-50%) translateX(-4px);opacity:0;pointer-events:none;white-space:nowrap;padding:5px 9px;border-radius:6px;background:var(--ink);color:var(--canvas);font-size:12.5px;font-weight:500;transition:opacity 120ms ease,transform 120ms var(--ease);z-index:20}
+.sh .biz:hover .tip,.sh .biz:focus-visible .tip{opacity:1;transform:translateY(-50%)}
+.sh .nav{display:flex;align-items:center;gap:10px;width:100%;height:34px;padding:0 10px;border:0;border-radius:6px;background:transparent;color:var(--muted);text-align:left;transition:background-color 120ms ease,color 120ms ease}
+.sh .nav:hover{background:var(--hover);color:var(--ink)}
+.sh .nav.on{background:var(--hover);color:var(--ink);font-weight:500}
+.sh .nav svg{flex:none}
+.sh .chip{height:30px;padding:0 12px;border:1px solid var(--rule);border-radius:6px;background:transparent;color:var(--muted);font-size:13px}
+.sh .chip.on{background:var(--hover);color:var(--ink)}
+.sh table{border-collapse:separate;border-spacing:0;width:100%}
+.sh th,.sh td{padding:9px 14px;text-align:left;border-bottom:1px solid var(--rule);white-space:nowrap}
+.sh thead th{position:sticky;top:0;background:var(--panel);font-size:12.5px;font-weight:500;color:var(--muted);z-index:1}
+.sh tbody tr{transition:background-color 120ms ease}
+.sh tbody tr:hover td{background:var(--hover)}
+.sh .pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+.sh tr.grp td{background:var(--canvas);font-weight:600;font-size:13px;padding-top:14px}
+.sh a.tl{color:var(--ink);text-decoration:none}
+.sh a.tl:hover{text-decoration:underline;text-underline-offset:3px}
+.sh .view{animation:shIn 140ms var(--ease) both}
+@keyframes shIn{from{opacity:0}to{opacity:1}}
+@media (prefers-reduced-motion: reduce){.sh .press,.sh .nav,.sh .biz,.sh .biz .tip,.sh tbody tr{transition:none}.sh .press:active{transform:none}.sh .view{animation:none}}
+</style>
+</helmet>
+<div class="sh" style="--canvas: {{t.canvas}}; --rail: {{t.rail}}; --panel: {{t.panel}}; --rule: {{t.rule}}; --ink: {{t.ink}}; --muted: {{t.muted}}; --accent: {{t.accent}}; --hover: {{t.hover}}; width: 1440px; height: 900px; display: grid; grid-template-columns: 64px 232px 1fr; background: var(--canvas); color: var(--ink)">
+
+  <nav aria-label="Businesses" style="background: var(--rail); border-right: 1px solid var(--rule); display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 14px 0">
+    <button class="{{homeCls}}" onClick="{{goHome}}" aria-label="Home" aria-current="{{homeCurrent}}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path></svg>
+      <span class="tip">Home: your tasks<span style="opacity: 0.6; margin-left: 8px">Ctrl 0</span></span>
+    </button>
+    <div style="width: 28px; height: 1px; background: var(--rule); margin: 2px 0"></div>
+    <sc-for list="{{bizList}}" as="b" hint-placeholder-count="4">
+      <button class="{{b.cls}}" onClick="{{b.go}}" aria-label="{{b.name}}" aria-current="{{b.current}}">
+        <sc-if value="{{b.isLW}}" hint-placeholder-val="{{ true }}">
+          <svg width="26" height="26" viewBox="0 0 1024 1024" aria-hidden="true"><g transform="rotate(45 512 512) translate(-20 4)"><rect x="300" y="282" width="344" height="92" rx="20" fill="{{t.lw1}}"></rect><rect x="300" y="402" width="150" height="92" rx="20" fill="#2ECC7A"></rect><rect x="478" y="402" width="166" height="92" rx="20" fill="{{t.lw1}}"></rect><rect x="300" y="522" width="344" height="92" rx="20" fill="{{t.lw1}}"></rect><rect x="300" y="642" width="464" height="92" rx="20" fill="#10A87A"></rect><rect x="672" y="282" width="92" height="332" rx="20" fill="#10A87A"></rect></g></svg>
+        </sc-if>
+        <sc-if value="{{b.isMono}}" hint-placeholder-val="{{ false }}">
+          <span style="width: 28px; height: 28px; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; letter-spacing: 0.01em; {{b.monoStyle}}">{{b.mono}}</span>
+        </sc-if>
+        <span class="tip">{{b.name}}<span style="opacity: 0.6; margin-left: 8px">{{b.key}}</span></span>
+      </button>
+    </sc-for>
+  </nav>
+
+  <aside style="background: var(--panel); border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0">
+    <div style="height: 56px; display: flex; align-items: center; padding: 0 18px; border-bottom: 1px solid var(--rule)">
+      <span style="font-weight: 600; font-size: 15px">{{bizName}}</span>
+    </div>
+    <div style="flex: 1; padding: 10px; display: flex; flex-direction: column; gap: 2px">
+      <sc-for list="{{navMain}}" as="n" hint-placeholder-count="6">
+        <button class="{{n.cls}}" onClick="{{n.go}}" aria-current="{{n.current}}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.icon}}"></path></svg>
+          <span style="flex: 1">{{n.label}}</span><span style="font-size: 12px; color: var(--muted)">{{n.count}}</span>
+        </button>
+      </sc-for>
+      <sc-if value="{{showAdminDivider}}" hint-placeholder-val="{{ true }}"><div style="height: 1px; background: var(--rule); margin: 10px 4px"></div></sc-if>
+      <sc-for list="{{navAdmin}}" as="n" hint-placeholder-count="1">
+        <button class="{{n.cls}}" onClick="{{n.go}}" aria-current="{{n.current}}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{n.icon}}"></path></svg>
+          <span>{{n.label}}</span>
+        </button>
+      </sc-for>
+    </div>
+    <div style="padding: 12px 14px; border-top: 1px solid var(--rule); display: flex; align-items: center; gap: 10px">
+      <span style="width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--hover); font-size: 12px; font-weight: 600">JD</span>
+      <div style="min-width: 0; flex: 1"><div style="font-weight: 500; font-size: 13.5px">Jay Delgado</div><div style="font-size: 12px; color: var(--muted)">Admin</div></div>
+      <button class="press" onClick="{{toggleTheme}}" aria-label="Switch light or dark" style="width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: flex; align-items: center; justify-content: center">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="{{themeIcon}}"></path></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main style="display: flex; flex-direction: column; min-width: 0; min-height: 0">
+    <header style="height: 56px; flex: none; display: flex; align-items: center; padding: 0 28px; border-bottom: 1px solid var(--rule); font-size: 13.5px">
+      <span style="color: var(--muted)">{{bizName}}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="2" style="margin: 0 8px" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+      <span aria-current="page">{{pageName}}</span>
+    </header>
+    <div class="view" style="flex: 1; overflow: auto; padding: 24px 28px">
+      <sc-if value="{{isTeam}}" hint-placeholder-val="{{ true }}">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px">
+          <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">Team</h1>
+          <span style="font-size: 13px; color: var(--muted)">{{teamCount}}</span>
+        </div>
+        <div style="display: flex; gap: 6px; margin-top: 14px">
+          <sc-for list="{{chips}}" as="c" hint-placeholder-count="3"><button class="{{c.cls}}" onClick="{{c.go}}" aria-pressed="{{c.on}}">{{c.label}}</button></sc-for>
+        </div>
+        <div style="margin-top: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); overflow: auto; max-height: 640px">
+          <table>
+            <thead><tr><th>Name</th><th>Title</th><th>Email</th><th>Businesses</th><th>Type</th></tr></thead>
+            <tbody>
+              <sc-for list="{{people}}" as="p" hint-placeholder-count="10">
+                <tr>
+                  <td><span style="display: inline-flex; align-items: center; gap: 10px"><span style="width: 28px; height: 28px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--hover); font-size: 11.5px; font-weight: 600">{{p.ini}}</span><span style="font-weight: 500">{{p.name}}</span></span></td>
+                  <td style="{{p.titleStyle}}">{{p.title}}</td>
+                  <td style="color: var(--muted)">{{p.email}}</td>
+                  <td>{{p.biz}}</td>
+                  <td style="color: var(--muted)">{{p.type}}</td>
+                </tr>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+      </sc-if>
+      <sc-if value="{{isTasks}}" hint-placeholder-val="{{ false }}">
+        <div style="display: flex; align-items: baseline; justify-content: space-between; gap: 16px">
+          <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">{{pageName}}</h1>
+          <span style="font-size: 13px; color: var(--muted)">{{taskSub}}</span>
+        </div>
+        <div style="margin-top: 14px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); overflow: auto; max-height: 700px">
+          <table>
+            <thead><tr><th style="min-width: 380px">Task</th><th>List</th><th>Status</th><th>Priority</th><th>Due</th><th>Assigned to</th></tr></thead>
+            <tbody>
+              <sc-for list="{{taskRows}}" as="r" hint-placeholder-count="12">
+                <sc-if value="{{r.isGroup}}" hint-placeholder-val="{{ false }}"><tr class="grp"><td colspan="6"><span style="{{r.gStyle}}">{{r.label}}</span><span style="margin-left: 8px; font-weight: 400; color: var(--muted)">{{r.count}}</span></td></tr></sc-if>
+                <sc-if value="{{r.isTask}}" hint-placeholder-val="{{ true }}">
+                  <tr>
+                    <td style="white-space: normal; max-width: 460px"><a class="tl" href="{{r.url}}" target="_blank" rel="noopener">{{r.name}}</a></td>
+                    <td style="color: var(--muted)">{{r.list}}</td>
+                    <td><span class="pill" style="{{r.stStyle}}">{{r.status}}</span></td>
+                    <td><span style="display: inline-flex; align-items: center; gap: 6px; {{r.prStyle}}"><span style="width: 7px; height: 7px; border-radius: 50%; {{r.prDot}}"></span>{{r.priority}}</span></td>
+                    <td style="{{r.dueStyle}}">{{r.due}}</td>
+                    <td><span style="display: inline-flex; gap: 4px">
+                      <sc-for list="{{r.people}}" as="a" hint-placeholder-count="2"><span title="{{a.name}}" style="width: 24px; height: 24px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: var(--hover); font-size: 10.5px; font-weight: 600">{{a.ini}}</span></sc-for>
+                    </span></td>
+                  </tr>
+                </sc-if>
+              </sc-for>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin: 8px 0 0; font-size: 12.5px; color: var(--muted)">From ClickUp, using your own ClickUp sign-in, so you only see spaces and lists you can access. Click a task to open it in ClickUp.</p>
+      </sc-if>
+      <sc-if value="{{isOther}}" hint-placeholder-val="{{ false }}">
+        <h1 style="margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.01em">{{pageName}}</h1>
+        <div style="margin-top: 16px; padding: 20px; border: 1px dashed var(--rule); border-radius: 8px; color: var(--muted); max-width: 640px; line-height: 1.6">{{otherNote}}</div>
+      </sc-if>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"light":{"editor":"boolean","default":false,"section":"Theme"},"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { home: true, homeView: 'mine', biz: 0, page: { 0: 'team', 1: 'team', 2: 'team', 3: 'team' }, filter: 'all', light: null };
+    if (typeof window !== 'undefined' && !window.__shKeys) {
+      window.__shKeys = true;
+      window.addEventListener('keydown', (e) => { if ((e.ctrlKey || e.metaKey) && ['0', '1', '2', '3', '4'].includes(e.key)) { e.preventDefault(); this.setState(e.key === '0' ? { home: true } : { home: false, biz: Number(e.key) - 1 }); } });
+    }
+  }
+  renderVals() {
+    const s = this.state;
+    const light = s.light === null ? !!this.props.light : s.light;
+    const t = light
+      ? { canvas: '#F5F4F1', rail: '#ECEAE5', panel: '#FFFFFF', rule: '#E3E1DC', ink: '#1A1A18', muted: '#5D5B56', accent: '#0F766E', hover: '#F1EFEA', lw1: '#1F5C5A' }
+      : { canvas: '#111214', rail: '#0C0D0F', panel: '#18191C', rule: '#2B2D31', ink: '#ECEDEF', muted: '#A2A6AD', accent: '#6CC4C0', hover: '#222428', lw1: '#2A7A76' };
+    const I = {
+      properties: 'M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6', tasks: 'M9 11l3 3 8-8M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11',
+      team: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+      departments: 'M12 3v6M5 15v-3h14v3M3 21h4v-6H3zM10 21h4v-6h-4zM17 21h4v-6h-4zM9 3h6v6H9z', tools: 'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z',
+      documents: 'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5', financials: 'M3 3v18h18M7 15l4-4 3 3 5-6',
+      overview: 'M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z', plans: 'M4 4h16v16H4zM4 9h16M9 4v16', reports: 'M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6M9 9h2',
+      exec: 'M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z'
+    };
+    const BIZ = [
+      { name: 'LeavenWealth', key: 'Ctrl 1', mono: 'LW', isLW: true, nav: [['properties', 'Properties'], ['team', 'Team'], ['departments', 'Departments'], ['tools', 'Tools & apps'], ['documents', 'Documents']] },
+      { name: 'Folio Excel', key: 'Ctrl 2', mono: 'FE', tint: ['#E8F0FB', '#2B5DA8', 'rgba(110,160,230,0.16)', '#8FB6EC'], nav: [['overview', 'Overview'], ['financials', 'Financials'], ['plans', 'Plans'], ['reports', 'Reports'], ['team', 'Team'], ['departments', 'Departments'], ['tools', 'Tools & apps'], ['documents', 'Documents']] },
+      { name: 'Leadli AI', key: 'Ctrl 3', mono: 'LA', tint: ['#F3ECFA', '#6B3FA0', 'rgba(170,130,220,0.16)', '#C3A6E8'], nav: [['overview', 'Overview'], ['financials', 'Financials'], ['team', 'Team'], ['departments', 'Departments'], ['tools', 'Tools & apps'], ['documents', 'Documents']] },
+      { name: 'Liquid Lending Solutions', key: 'Ctrl 4', mono: 'LL', tint: ['#FBF1E4', '#9A5A12', 'rgba(230,170,90,0.16)', '#E9B877'], nav: [['overview', 'Overview'], ['financials', 'Financials'], ['team', 'Team'], ['departments', 'Departments'], ['tools', 'Tools & apps'], ['documents', 'Documents']] }
+    ];
+    const b = BIZ[s.biz];
+    const page = s.page[s.biz] || 'team';
+    const allNav = b.nav.concat([['exec', 'Executive board']]);
+    const label = (allNav.find((x) => x[0] === page) || [0, 'Team'])[1];
+    const navBtn = ([k, lab]) => ({ label: lab, icon: I[k], current: String(page === k), cls: 'nav press' + (page === k ? ' on' : ''), go: () => this.setState({ page: { ...s.page, [s.biz]: k } }) });
+    const STAFF = [
+      ['Adriana Alvarado', null, 'adriana@leasepointguard.com', 'Employee', ['LeavenWealth']], ['Bailey Thurman', null, 'bailey@leasepointguard.com', 'Employee', ['LeavenWealth']],
+      ['Brian Nelson', 'Director of Asset Management', 'brian@leavenwealth.com', 'Employee', ['LeavenWealth', 'Folio Excel']], ['Cane Bueno', null, 'cane@leavenwealth.com', 'Employee', ['LeavenWealth']],
+      ['Chris Pomerleau', 'Co-Founder & Director of Investment Strategy', 'chris@leavenwealth.com', 'Employee', ['LeavenWealth']], ['Collin Schwartz', 'Co-Founder & Director of Business Development', 'collin@leavenwealth.com', 'Employee', ['LeavenWealth']],
+      ['Jason Belt', 'Director of Capital Resources', 'jason@leavenwealth.com', 'Employee', ['LeavenWealth']], ['Jay Delgado', 'Tech & Automation Specialist', 'jay@leadliconsulting.com', 'Contractor', ['Leadli AI', 'Folio Excel', 'LeavenWealth']],
+      ['John Younes', 'Director of Property Management', 'john@leavenwealth.com', 'Employee', ['LeavenWealth']], ['Kalen Speake', null, 'kalen@leasepointguard.com', 'Employee', ['LeavenWealth']],
+      ['Karen Romero', null, 'karen@leavenwealth.com', 'Employee', ['LeavenWealth']], ['Megan Richardson', 'Risk Management & Investor Relations Advisor', 'megan@leavenwealth.com', 'Employee', ['LeavenWealth']],
+      ['Mitch Hagen', 'Director of Finance', 'mitch@leavenwealth.com', 'Employee', ['LeavenWealth']], ['Nick Bruhn', 'Acquisition Specialist', 'nick@leavenwealth.com', 'Employee', ['LeavenWealth']]
+    ];
+    const inBiz = STAFF.filter((p) => p[4].includes(b.name));
+    const shown = inBiz.filter((p) => s.filter === 'all' || (s.filter === 'emp' ? p[3] === 'Employee' : p[3] === 'Contractor'));
+    const chips = [['all', 'Everyone'], ['emp', 'Employees'], ['con', 'Contractors']].map(([k, lab]) => ({ label: lab, on: String(s.filter === k), cls: 'chip press' + (s.filter === k ? ' on' : ''), go: () => this.setState({ filter: k }) }));
+    // Real ClickUp tasks (first page of the workspace, Oct 11, 2026). [name, status, priority, due (ms), assignees, list, url id]
+    const TASKS = [
+      ['Annual Send BG Champion Budget to Heidi', 'annual recurring', 'normal', 1801476000000, ['Jay Delgado'], "AM To-Do's", '86b8p1agh'],
+      ['Move Quarterly Report and Monthly Report tool Supabase and github to Leavenwealth\u2019s account', 'to do', 'normal', 1796032800000, ['Brian Nelson', 'Jay Delgado'], "AM To-Do's", '86bcfmzyf'],
+      ['VestMint distro tool', 'to do', 'high', 1795514400000, ['Mitchell Hagen', 'Jay Delgado'], 'Chris Mitch List', '86bba0e3d'],
+      ['BRENT VILLAGE: Quarterly Loan Report Requirements', 'to do', 'high', 1794564000000, ['Jay Delgado'], "AM To-Do's", '86bce80dn'],
+      ['Building task test', 'in progress', null, 1793649600000, ['Jay Delgado'], 'All Tasks', '86bamw5jp'],
+      ['List of all applications used and usernames and passwords and SOPs', 'to do', null, 1792400400000, ['Jay Delgado'], 'Chris Mitch List', '86bb050g2'],
+      ['SREO', 'quarterly recurring', 'normal', 1792054800000, ['Jay Delgado'], "AM To-Do's", '86bak2a6w'],
+      ['Semi Annual TIF/TIF Loans', 'semi-annual recurring', 'normal', 1792054800000, ['Jay Delgado'], "AM To-Do's", '86b9eveey'],
+      ['Monthly Property Financials Spreadsheet', 'monthly recurring', null, 1791795600000, ['Jay Delgado'], "AM To-Do's", '86bbxge3t'],
+      ['Monthly AM Fee Update', 'monthly recurring', 'normal', 1791795600000, ['Jay Delgado'], "AM To-Do's", '86b7tuavj'],
+      ['Monthly Asset Review Tool Uploads', 'monthly recurring', 'normal', 1791795600000, ['Jay Delgado'], "AM To-Do's", '86b52gjhh'],
+      ['500 Willow Ave - Refi w/ Construction Line', 'in progress', 'normal', 1789416000000, ['Jay Delgado'], 'Dashboard', '86ba40k5m'],
+      ['AI Agent for Mitch (test case for rest of team)', 'in review', 'normal', 1787648400000, ['Jay Delgado'], 'Jay Project Pipeline', '86baxe6qg'],
+      ['Modern Heights - refi', 'in progress', 'high', 1787169600000, ['Jay Delgado'], 'Dashboard', '86ba40k59'],
+      ['Lion Creek Cap - Jay please add to LW GHL', 'to do', 'low', 1787043600000, ['Jay Delgado'], 'List', '86b45rffa'],
+      ['Add "Safeguard Referral Partner Program" to GHL', 'not started', 'high', 1785834000000, ['Jay Delgado'], 'Jay Project Pipeline', '86baxe88e'],
+      ['Re: LW Lender Contacts - initial start for GHL Setup', 'in review', 'high', 1785834000000, ['Jay Delgado'], 'Jay Project Pipeline', '86baxe7bf'],
+      ['Eagle Creek / Langston - Refi', 'to do', 'high', 1785528000000, ['Jay Delgado'], 'Dashboard', '86ba40k65'],
+      ['Brian send Test Service Agreement through GHL to Chris', 'in review', 'normal', 1785402000000, ['Jay Delgado'], 'FolioExcel', '86bayrx3g'],
+      ['Carter Place - REFI (not selling)', 'in progress', 'normal', 1805792400000, ['Mitchell Hagen'], 'MASTER LIST', '86bc596wp'],
+      ['Copperleaf Reserve Replacement Draw', 'quarterly recurring', 'normal', 1799575200000, ['John Younes'], "AM To-Do's", '86bcgevjd'],
+      ['Modern Heights - refi w Arbor or Igor, need 90%+ occupancy', 'in progress', 'normal', 1797933600000, ['Mitchell Hagen'], 'MASTER LIST', '86b8be54h'],
+      ['Heston Pointe - Igor/Lument - Appraisals complete 9/28/26', 'in progress', 'normal', 1797933600000, ['Mitchell Hagen'], 'MASTER LIST', '86b8be50d'],
+      ['Annual Investor In-Person Events', 'in progress', 'normal', 1794909600000, ['Jason Belt'], 'MASTER LIST', '86bbtr0x4'],
+      ['Monthly Ask Kouri for Boulder Ridge Cash to cover 321', 'monthly recurring', null, 1794823200000, ['Brian Nelson'], "AM To-Do's", '86bbbp7tc'],
+      ['Get Folio Excel Dundee Debit Card', 'in progress', 'normal', 1794477600000, ['Mitchell Hagen'], 'FolioExcel', '86baqb4ap'],
+      ['Quarterly Investor Reports', 'quarterly recurring', 'normal', 1793959200000, ['Brian Nelson'], "AM To-Do's", '86b7ux1hc'],
+      ['PARK PLACE: Internet Project', 'in progress', 'normal', 1793437200000, ['Brian Nelson'], "AM To-Do's", '86ba1jgrg'],
+      ['Gather Underwriting Info. for LeavenWealth\u2019s E&O, D&O and Crime Insurance Renewal', 'in progress', 'normal', 1793336400000, ['Mitchell Hagen', 'Megan Richardson'], 'MASTER LIST', '86bbwyvt1'],
+      ['BG Champion Investor Vote for LLS Loan', 'to do', 'normal', 1792486800000, ['Megan Richardson'], 'MASTER LIST', '86bc0ygr8'],
+      ['26Q3 Quarterly reports identify ROC or lack there of in reports', 'to do', 'normal', 1792486800000, ['Mitchell Hagen'], "AM To-Do's", '86bbm524y'],
+      ['Finish insurance', 'in progress', 'normal', 1792123200000, ['Mitchell Hagen'], 'FolioExcel', '86barwk1n'],
+      ['Liv at 68th - Loan Modification w Aaron i3 Bank', 'in progress', 'normal', 1792040400000, ['Mitchell Hagen'], 'MASTER LIST', '86bb71c33'],
+      ['Confirm with all PMs for proof of insurance for all tenants', 'in progress', 'normal', 1792054800000, ['Brian Nelson'], "AM To-Do's", '86bbehfu0'],
+      ['Claude users: Are you using LW Claude? Karen, Jason, Nick, John', 'in progress', 'normal', 1791882000000, ['Mitchell Hagen', 'Jason Belt', 'Karen Romero', 'Nick Bruhn', 'John Younes'], 'MASTER LIST', '86bcfdpnd'],
+      ['One Source of Truth (Database + Clickup)', 'in progress', 'normal', 1791882000000, ['Mitchell Hagen'], 'MASTER LIST', '86b4q91ad'],
+      ['500 S DAKOTA: renovation funds - $143k unused (bank inquiry from First Savings Bank)', 'in progress', 'high', 1791536400000, ['Mitchell Hagen'], "AM To-Do's", '86bax806c'],
+      ['600k Vestmint Fund ROC from LLS 1st week October. Coordinate w Luke', 'to do', 'high', 1791363600000, ['Mitchell Hagen'], 'MASTER LIST', '86bc10wmn'],
+      ['BRENT VILLAGE: Replacement Reserve - Greystone', 'in progress', 'normal', 1790758800000, ['John Younes'], "AM To-Do's", '86bb6ffqn'],
+      ['DORAL: ATV Title work', 'in progress', 'normal', 1790758800000, ['Brian Nelson'], "AM To-Do's", '86b9yy0gh'],
+      ['Park Place - Small Claims Judgement', 'in progress', null, 1788339600000, ['John Younes'], 'PM Review Questions', '86bbh33k4'],
+      ['102 n 38 - fast Ave sale', 'off track', 'normal', 1787648400000, ['Chris Pomerleau'], 'MASTER LIST', '86b8va0z5'],
+      ['Constructions Bids', 'in progress', null, 1785574800000, ['Chris Pomerleau'], 'Due Diligence', '86b5kqa2r'],
+      ['Annual Board Meeting', 'annual recurring', null, 1809028800000, ['Cane Bueno', 'Brian Nelson'], 'Towne Park HOA', '86b9zkm9g']
+    ];
+
+    const ME = 'Jay Delgado';
+    const dayOf = (ms) => new Date(ms).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+    const TODAY = '2026-10-11', WEEK_END = '2026-10-18';
+    const fmtDue = (ms) => new Date(ms).toLocaleDateString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', year: dayOf(ms).slice(0, 4) === '2026' ? undefined : 'numeric' });
+    const bucket = (ms) => { const d = dayOf(ms); return d < TODAY ? 'Overdue' : d === TODAY ? 'Today' : d <= WEEK_END ? 'This week' : 'Later'; };
+    const stStyle = (st) => { const x = st.toLowerCase(); if (x === 'off track') return 'background: ' + (light ? '#FBEAE8' : 'rgba(240,138,128,0.14)') + '; color: ' + (light ? '#B42318' : '#F08A80'); if (x === 'in review') return 'background: ' + (light ? '#FBF1E1' : 'rgba(227,178,91,0.14)') + '; color: ' + (light ? '#93520A' : '#E3B25B'); if (x === 'in progress') return 'background: color-mix(in srgb, var(--accent) 16%, transparent); color: var(--accent)'; return 'background: var(--hover); color: var(--muted)'; };
+    const prOf = (p) => (p === 'urgent' ? ['Urgent', light ? '#B42318' : '#F08A80'] : p === 'high' ? ['High', light ? '#93520A' : '#E3B25B'] : p === 'normal' ? ['Normal', 'var(--muted)'] : p === 'low' ? ['Low', 'var(--muted)'] : ['\u2013', 'transparent']);
+    const taskRow = (k) => { const pr = prOf(k[2]); const overdue = dayOf(k[3]) < TODAY; return { isGroup: false, isTask: true, name: k[0], url: 'https://app.clickup.com/t/' + k[6], list: k[5], status: k[1], stStyle: stStyle(k[1]), priority: pr[0], prDot: 'background: ' + pr[1] + ';', prStyle: k[2] ? '' : 'color: var(--muted)', due: fmtDue(k[3]), dueStyle: overdue ? 'color: ' + (light ? '#B42318' : '#F08A80') + '; font-weight: 500' : '', people: k[4].map((nm) => ({ name: nm, ini: nm.split(' ').map((w) => w[0]).join('').slice(0, 2) })) }; };
+    const mine = TASKS.filter((k) => k[4].includes(ME)).sort((a, b) => a[3] - b[3]);
+    const all = TASKS.slice().sort((a, b) => a[3] - b[3]);
+    let taskRows = [], taskSub = '';
+    if (s.homeView === 'mine') {
+      ['Overdue', 'Today', 'This week', 'Later'].forEach((g) => { const ks = mine.filter((k) => bucket(k[3]) === g); if (!ks.length) return; taskRows.push({ isGroup: true, isTask: false, label: g, count: String(ks.length), gStyle: g === 'Overdue' ? 'color: ' + (light ? '#B42318' : '#F08A80') : '' }); ks.forEach((k) => taskRows.push(taskRow(k))); });
+      const od = mine.filter((k) => bucket(k[3]) === 'Overdue').length;
+      taskSub = mine.length + ' open tasks assigned to you, ' + od + ' overdue';
+    } else {
+      const lists = {}; all.forEach((k) => { (lists[k[5]] = lists[k[5]] || []).push(k); });
+      Object.keys(lists).sort((a, b) => lists[b].length - lists[a].length).forEach((l) => { taskRows.push({ isGroup: true, isTask: false, label: l, count: String(lists[l].length), gStyle: '' }); lists[l].forEach((k) => taskRows.push(taskRow(k))); });
+      taskSub = all.length + ' open tasks in ' + Object.keys(lists).length + ' lists you can access';
+    }
+    const homeNav = [['mine', 'My tasks', 'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8', mine.length], ['all', 'All tasks', 'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01', all.length]].map(([k, lab, ic, n]) => ({ label: lab, icon: ic, count: String(n), current: String(s.homeView === k), cls: 'nav press' + (s.homeView === k ? ' on' : ''), go: () => this.setState({ homeView: k }) }));
+    return {
+      t, bizName: s.home ? 'Home' : b.name, pageName: s.home ? (s.homeView === 'mine' ? 'My tasks' : 'All tasks') : label,
+      homeCls: 'biz press' + (s.home ? ' on' : ''), homeCurrent: String(!!s.home), goHome: () => this.setState({ home: true }), showAdminDivider: !s.home, taskRows, taskSub,
+      bizList: BIZ.map((x, i) => ({ name: x.name, key: x.key, mono: x.mono, isLW: !!x.isLW, isMono: !x.isLW, current: String(!s.home && i === s.biz), cls: 'biz press' + (!s.home && i === s.biz ? ' on' : ''), monoStyle: x.tint ? 'background: ' + (light ? x.tint[0] : x.tint[2]) + '; color: ' + (light ? x.tint[1] : x.tint[3]) + ';' : '', go: () => this.setState({ home: false, biz: i }) })),
+      navMain: s.home ? homeNav : b.nav.map((x) => ({ ...navBtn(x), count: '' })), navAdmin: s.home ? [] : [navBtn(['exec', 'Executive board'])],
+      isTasks: !!s.home, isTeam: !s.home && page === 'team', isOther: !s.home && page !== 'team',
+      otherNote: page === 'exec' ? 'Admins only. Users & Roles (dashboard and Claude connector access), company books, sync and watchdog status, and change history live here.' : page === 'properties' ? 'Properties opens here exactly as built; only the frame around it changes.' : 'This page keeps its current features. It gets the same frame, type, colors, tables, loading and empty states as Properties.',
+      teamCount: shown.length + ' of ' + inBiz.length + ' people at ' + b.name,
+      chips, people: shown.map((p) => ({ name: p[0], ini: p[0].split(' ').map((w) => w[0]).join('').slice(0, 2), title: p[1] || 'No title on file', titleStyle: p[1] ? '' : 'color: var(--muted)', email: p[2], biz: p[4].join(', '), type: p[3] })),
+      toggleTheme: () => this.setState({ light: !light }), themeIcon: light ? 'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z' : 'M12 4V2M12 22v-2M4.9 4.9 3.5 3.5M20.5 20.5l-1.4-1.4M4 12H2M22 12h-2M4.9 19.1l-1.4 1.4M20.5 3.5l-1.4 1.4M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z'
+    };
+  }
+}
+</script>
+</body>
+</html>

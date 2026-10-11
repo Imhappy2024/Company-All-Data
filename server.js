@@ -2163,6 +2163,18 @@ app.use('/api/portfolio-setup', identityMw.adminOnly(), require('./portfolio-set
    deactivation - all on the connector's tables. Owners and admins only. */
 app.use('/api/people', identityMw.adminOnly(), require('./people-api').peopleRoutes());
 
+/* The shell (docs/mockup/shell.dc.html): Home is ClickUp tasks read with the
+   person's OWN ClickUp sign-in (home-tasks.js never uses the shared token);
+   Team, Departments and Tools & apps read as the person's connector role. */
+/* A dashboard session is required first (identify only, no data role: Home
+   reads ClickUp, not the database), so the route cannot be used anonymously to
+   make this server call ClickUp. */
+app.use('/api/home', (req, res, next) => require('./portal-identity').identify(req)
+  .then(who => { req.who = who; next(); },
+        e => res.status(e.status || 401).json({ error: e.message || 'Not signed in.' })),
+  require('./home-tasks').homeRoutes());
+app.use('/api/shell', identityMw.asCaller(), require('./shell-api').shellRoutes());
+
 /* Properties v2 (docs/PROPERTIES_SPEC.md): one endpoint per data method of the
    approved mockup, plus custom views, property groups and exports. Property
    data is read-only; the only writes are a person's own groups and views.

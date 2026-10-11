@@ -3,8 +3,9 @@
    Loaded by BOTH public/portal.html (/) and public/index.html (/ops) so the
    two surfaces read as one product.
 
-   The palette, type and geometry are adopted from Imhappy2024/command-center,
-   which is where Properties came from. Doing it here rather than in each
+   The palette is Graphite (dark, the default) and Light stone, with IBM Plex
+   Sans - the approved Properties and shell mockups (docs/mockup/). It replaced
+   command-center's indigo on 2026-10-11 so every page matches Properties. Doing it here rather than in each
    surface is the whole point of this file: one edit re-themes the portal, the
    ops dashboard and portal-properties.css together, and nothing downstream
    needs to know a colour changed.
@@ -37,106 +38,104 @@
 
 :root,
 [data-theme='light'] {
-  /* surfaces — cool near-whites, the light counterpart of the indigo ground */
-  --page: #f1f2f8;
+  /* Light stone (docs/mockup/shell.dc.html, properties-mockup.dc.html) */
+  --page: #f5f4f1;
   --surface: #ffffff;
-  --surface-2: #f6f7fc;
-  --surface-3: #eaecf6;
-  --border: #e0e3f0;
-  --border-strong: #c9cee4;
-  --grid: rgba(18, 21, 42, .055);
+  --surface-2: #f1efea;
+  --surface-3: #ecead5;
+  --border: #e3e1dc;
+  --border-strong: #cfccc5;
+  --grid: rgba(26, 26, 24, .05);
 
-  /* ink — four levels, because the source design uses four and collapsing
-     them to three flattens every label/value pair on the page */
-  --ink: #12152a;
-  --ink-2: #414868;
-  --ink-3: #6b7290;
-  --ink-4: #8b91ad;
+  /* ink — four levels: labels must never compete with their own values */
+  --ink: #1a1a18;
+  --ink-2: #3a3935;
+  --ink-3: #5d5b56;
+  --ink-4: #7a7872;
 
-  /* series (categorical) */
-  --s1: #5b4be0;
-  --s2: #de4327;
-  --s3: #12a37c;
-  --s4: #c07d00;
-  --s1-soft: #ecebfd;
-  --s2-soft: #fdeae6;
-  --s3-soft: #e4f5f0;
+  /* series (categorical): teal, rust, green, amber - label every series */
+  --s1: #0f766e;
+  --s2: #b42318;
+  --s3: #17663f;
+  --s4: #93520a;
+  --s1-soft: #e3f1ef;
+  --s2-soft: #fbeae8;
+  --s3-soft: #e7f2ea;
 
-  /* status — same hues as the series in this palette, see the note above */
-  --good: #12a37c;
-  --warn: #f0a500;
-  --serious: #e8703f;
-  --crit: #de4327;
-  --good-ink: #0a7a5c;
-  --warn-ink: #8a5f00;
-  --crit-ink: #b3301a;
-  --good-soft: #e4f5f0;
-  --warn-soft: #fdf1d9;
-  --crit-soft: #fdeae6;
+  --good: #17663f;
+  --warn: #93520a;
+  --serious: #a8461a;
+  --crit: #b42318;
+  --good-ink: #17663f;
+  --warn-ink: #93520a;
+  --crit-ink: #b42318;
+  --good-soft: #e7f2ea;
+  --warn-soft: #fbf1e1;
+  --crit-soft: #fbeae8;
 
-  --focus: #5b4be0;
+  --focus: #0f766e;
   --accent: var(--s1);
-  --glass: rgba(255, 255, 255, .82);
-  --scope: rgba(91, 75, 224, .08);
+  --glass: rgba(255, 255, 255, .86);
+  --scope: rgba(15, 118, 110, .07);
 
-  /* geometry — command-center's steps */
-  --r-sm: 8px;
-  --r-md: 11px;
-  --r-lg: 16px;
+  /* geometry — the Properties steps */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 8px;
   --row-h: 38px;
-  --sidebar-w: 252px;
+  --sidebar-w: 232px;
 
-  --shadow-pop: 0 0 0 1px rgba(18, 21, 42, .07), 0 10px 30px -8px rgba(18, 21, 42, .22);
+  --shadow-pop: 0 0 0 1px rgba(26, 26, 24, .06), 0 10px 28px -10px rgba(26, 26, 24, .22);
 
-  --font: 'Instrument Sans', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
-  --font-display: 'Space Grotesk', ui-sans-serif, system-ui, sans-serif;
-  --mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
-  --ease: cubic-bezier(.22, .68, .36, 1);
+  --font: 'IBM Plex Sans', 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
+  --font-display: 'IBM Plex Sans', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, monospace;
+  --ease: cubic-bezier(.23, 1, .32, 1);
 
   color-scheme: light;
 }
 
 /* command-center's palette, verbatim. Its own names are in the comments so a
    change here can be traced back to the source. */
+/* Graphite, the default (docs/mockup/shell.dc.html) */
 [data-theme='dark'] {
-  --page: #0e1120;          /* --ink    page ground */
-  --surface: #161a2c;       /* --panel  card surface */
-  --surface-2: #1d2238;     /* --panel2 raised / hover */
-  --surface-3: #252b44;     /* --panel3 tooltip, popover */
-  --border: #262c46;        /* --edge  */
-  --border-strong: #333a59; /* --edge2 */
+  --page: #111214;
+  --surface: #18191c;
+  --surface-2: #1f2124;
+  --surface-3: #222428;
+  --border: #2b2d31;
+  --border-strong: #3a3d42;
   --grid: rgba(255, 255, 255, .045);
 
-  --ink: #edeff8;           /* --cream  */
-  --ink-2: #c7cce4;         /* --text   */
-  --ink-3: #9ba2c2;         /* --dim    */
-  --ink-4: #828ab0;         /* --dimmer */
+  --ink: #ecedef;
+  --ink-2: #cdd0d4;
+  --ink-3: #a2a6ad;
+  --ink-4: #8a8f96;
 
-  --s1: #7c6cff;            /* --brass */
-  --s2: #ff5a45;            /* --rust  */
-  --s3: #35d0a5;            /* --jade  */
-  --s4: #ffb020;            /* --amber */
-  --s1-soft: #211f4a;
-  --s2-soft: #3a1f1c;
-  --s3-soft: #12332b;
+  --s1: #6cc4c0;
+  --s2: #f08a80;
+  --s3: #5fc38f;
+  --s4: #e3b25b;
+  --s1-soft: rgba(108, 196, 192, .14);
+  --s2-soft: rgba(240, 138, 128, .14);
+  --s3-soft: rgba(95, 195, 143, .13);
 
-  --good: #35d0a5;
-  --warn: #ffb020;
-  --serious: #ff8a5c;
-  --crit: #ff5a45;
-  --good-ink: #35d0a5;
-  --warn-ink: #ffb020;
-  --crit-ink: #ff7a68;
-  --good-soft: #12332b;
-  --warn-soft: #3a2e14;
-  --crit-soft: #3a1f1c;
+  --good: #5fc38f;
+  --warn: #e3b25b;
+  --serious: #ec9a6a;
+  --crit: #f08a80;
+  --good-ink: #5fc38f;
+  --warn-ink: #e3b25b;
+  --crit-ink: #f08a80;
+  --good-soft: rgba(95, 195, 143, .13);
+  --warn-soft: rgba(227, 178, 91, .14);
+  --crit-soft: rgba(240, 138, 128, .14);
 
-  --focus: #7c6cff;
-  --glass: rgba(22, 26, 44, .82);
-  --scope: rgba(124, 108, 255, .10);
+  --focus: #6cc4c0;
+  --glass: rgba(24, 25, 28, .86);
+  --scope: rgba(108, 196, 192, .08);
 
-  --shadow-pop: 0 1px 0 rgba(255, 255, 255, .035) inset,
-                0 0 0 1px rgba(255, 255, 255, .06),
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, .06),
                 0 18px 40px -24px rgba(0, 0, 0, .9);
 
   color-scheme: dark;
@@ -183,7 +182,7 @@
   --red: var(--crit);
   --yellow: var(--warn);
   --orange: var(--s2);
-  --purple: #7c6cff;
+  --purple: var(--s1);
   --teal: var(--s3);
   --mint: var(--good-soft);
   --header-bg: var(--surface);
@@ -203,40 +202,45 @@
    the head script sets html.embed-dark instead. Both map onto the same tokens. */
 body.dark-mode,
 html.embed-dark body {
-  --page: #0e1120;
-  --surface: #161a2c;
-  --surface-2: #1d2238;
-  --surface-3: #252b44;
-  --border: #262c46;
-  --border-strong: #333a59;
+  --page: #111214;
+  --surface: #18191c;
+  --surface-2: #1f2124;
+  --surface-3: #222428;
+  --border: #2b2d31;
+  --border-strong: #3a3d42;
   --grid: rgba(255, 255, 255, .045);
-  --ink: #edeff8;
-  --ink-2: #c7cce4;
-  --ink-3: #9ba2c2;
-  --ink-4: #828ab0;
-  --s1: #7c6cff;
-  --s2: #ff5a45;
-  --s3: #35d0a5;
-  --s4: #ffb020;
-  --s1-soft: #211f4a;
-  --s2-soft: #3a1f1c;
-  --s3-soft: #12332b;
-  --good: #35d0a5;
-  --warn: #ffb020;
-  --serious: #ff8a5c;
-  --crit: #ff5a45;
-  --good-ink: #35d0a5;
-  --warn-ink: #ffb020;
-  --crit-ink: #ff7a68;
-  --good-soft: #12332b;
-  --warn-soft: #3a2e14;
-  --crit-soft: #3a1f1c;
-  --focus: #7c6cff;
-  --glass: rgba(22, 26, 44, .82);
-  --scope: rgba(124, 108, 255, .10);
-  --shadow-pop: 0 1px 0 rgba(255, 255, 255, .035) inset,
-                0 0 0 1px rgba(255, 255, 255, .06),
+
+  --ink: #ecedef;
+  --ink-2: #cdd0d4;
+  --ink-3: #a2a6ad;
+  --ink-4: #8a8f96;
+
+  --s1: #6cc4c0;
+  --s2: #f08a80;
+  --s3: #5fc38f;
+  --s4: #e3b25b;
+  --s1-soft: rgba(108, 196, 192, .14);
+  --s2-soft: rgba(240, 138, 128, .14);
+  --s3-soft: rgba(95, 195, 143, .13);
+
+  --good: #5fc38f;
+  --warn: #e3b25b;
+  --serious: #ec9a6a;
+  --crit: #f08a80;
+  --good-ink: #5fc38f;
+  --warn-ink: #e3b25b;
+  --crit-ink: #f08a80;
+  --good-soft: rgba(95, 195, 143, .13);
+  --warn-soft: rgba(227, 178, 91, .14);
+  --crit-soft: rgba(240, 138, 128, .14);
+
+  --focus: #6cc4c0;
+  --glass: rgba(24, 25, 28, .86);
+  --scope: rgba(108, 196, 192, .08);
+
+  --shadow-pop: 0 0 0 1px rgba(255, 255, 255, .06),
                 0 18px 40px -24px rgba(0, 0, 0, .9);
+
   color-scheme: dark;
 
   --bg: var(--page);
@@ -263,7 +267,7 @@ html.embed-dark body {
   --amber: var(--warn);
   --orange: var(--s2);
   --teal: var(--s3);
-  --purple: #7c6cff;
+  --purple: var(--s1);
   --shadow: 0 0 0 1px var(--border);
   --shadow-sm: 0 0 0 1px var(--border);
   --shadow-md: var(--shadow-pop);

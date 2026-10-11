@@ -69,7 +69,7 @@ async function waitUp(tries = 80) {
     console.log('\nThe two real surfaces still work');
     const root = await get('/');
     check('/ is 200 html', [root.status, root.type], [200, 'text/html']);
-    check('/ is the portal, not the ops dashboard', /portal-tasks\.js/.test(root.body), true);
+    check('/ is the portal, not the ops dashboard', /portal-home\.js/.test(root.body), true);
     const ops = await get('/ops');
     check('/ops is 200 html', [ops.status, ops.type], [200, 'text/html']);
     check('/ops is the ops dashboard', /id="bulkBar"/.test(ops.body), true);

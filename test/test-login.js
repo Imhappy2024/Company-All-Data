@@ -81,8 +81,8 @@ const fake = http.createServer((req, res) => {
     if (url === '/rest/v1/rpc/dash_my_access') {
       return send(200, {
         user: { id: 's-1', email: EMAIL, full_name: 'Test Owner', avatar_url: null, role: 'owner' },
-        companies: { 'c-1': 'LeavenWealth' },
-        access: { exec: { exec: 'write' }, 'c-1': { overview: 'write' } },
+        companies: { 'c0000000-0000-4000-8000-000000000003': 'LeavenWealth' },
+        access: { exec: { exec: 'write' }, 'c0000000-0000-4000-8000-000000000003': { team: 'write' } },
       });
     }
     return send(404, { error: 'unhandled ' + url });
@@ -166,7 +166,7 @@ async function waitUp(tries = 80) {
             /* The shell's DOM, not its nav: as of the permission gate the nav is
                empty until dash_my_access() lands, so counting nav items here would
                now be counting the gate working rather than the curtain working. */
-            appPresent: !!document.querySelector('.app'),
+            appPresent: !!document.querySelector('.sh-app #rail'),
           }));
         } catch (e) { /* ignore */ }
       }, { once: true });

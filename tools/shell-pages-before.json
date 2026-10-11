@@ -1,0 +1,23 @@
+[
+  { "name": "exec-overview", "hash": "brand=all&view=exec" },
+  { "name": "exec-orgdept", "hash": "brand=all&view=orgdept" },
+  { "name": "exec-team", "hash": "brand=all&view=team" },
+  { "name": "exec-financials", "hash": "brand=all&view=financials", "wait": 5000 },
+  { "name": "exec-tracker", "hash": "brand=all&view=tracker", "wait": 4000 },
+  { "name": "exec-users-roles", "hash": "brand=all&view=access", "wait": 4000 },
+  { "name": "lw-properties", "hash": "brand=leavenwealth&view=properties", "wait": 5000 },
+  { "name": "lw-loans", "hash": "brand=leavenwealth&view=loans", "wait": 4000 },
+  { "name": "lw-team", "hash": "brand=leavenwealth&view=team" },
+  { "name": "lw-departments", "hash": "brand=leavenwealth&view=departments" },
+  { "name": "lw-tools", "hash": "brand=leavenwealth&view=tools" },
+  { "name": "lw-documents", "hash": "brand=leavenwealth&view=documents" },
+  { "name": "lw-financials", "hash": "brand=leavenwealth&view=financials", "wait": 5000 },
+  { "name": "folio-app-users", "hash": "brand=folio&view=subscribers", "wait": 4000 },
+  { "name": "folio-financials", "hash": "brand=folio&view=reports", "wait": 4000 },
+  { "name": "folio-team", "hash": "brand=folio&view=team" },
+  { "name": "leadli-financials", "hash": "brand=leadli&view=financials", "wait": 4000 },
+  { "name": "leadli-leads", "hash": "brand=leadli&view=leads", "wait": 5000 },
+  { "name": "leadli-team", "hash": "brand=leadli&view=team" },
+  { "name": "liquid-financials", "hash": "brand=liquid&view=financials" },
+  { "name": "liquid-team", "hash": "brand=liquid&view=team" }
+]

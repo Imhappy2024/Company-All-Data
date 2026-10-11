@@ -128,6 +128,8 @@ const SUBS_SQL = `
          sc.currency, sc.billing_period, sc.status, sc.payment_status,
          sc.start_date, sc.provider, sc.external_subscription_id,
          sc.next_billing_date, sc.cancelled_at, sc.lead_id,
+         /* the plan's NAME: the id alone is a uuid nobody can read */
+         (select p.name from public.subscription_plan p where p.id = sc.subscription_plan_id) as plan_name,
          (select max(sp.paid_at) from public.sales_payment sp
            where sp.provider = sc.provider
              and sp.external_subscription_id = sc.external_subscription_id
@@ -199,7 +201,7 @@ function subscriberWhere(f, P) {
   if (f.status.length) w.push(`coalesce(sc.status, '${NOT_SET}') = any(${P(f.status)}::text[])`);
   if (f.payment_status.length) w.push(`coalesce(sc.payment_status, '${NOT_SET}') = any(${P(f.payment_status)}::text[])`);
   if (f.billing_period.length) w.push(`coalesce(sc.billing_period, '${NOT_SET}') = any(${P(f.billing_period)}::text[])`);
-  if (f.plan.length) w.push(`coalesce(sc.subscription_plan_id::text, '${NOT_SET}') = any(${P(f.plan)}::text[])`);
+  if (f.plan.length) w.push(`coalesce((select p.name from public.subscription_plan p where p.id = sc.subscription_plan_id), sc.subscription_plan_id::text, '${NOT_SET}') = any(${P(f.plan)}::text[])`);
   if (f.provider.length) w.push(`coalesce(sc.provider, '${NOT_SET}') = any(${P(f.provider)}::text[])`);
   /* The date range is on paid_at, which lives on payments — so on the
      subscriber table it means "has a payment in this range". The screen says
@@ -408,6 +410,32 @@ function folioFinancialsRoutes() {
     } catch (err) { fail(res, err); }
   });
 
+  /* ---- plans: the price list, and how many active subscribers sit on each.
+     A subscriber with no plan recorded is counted separately rather than
+     guessed onto one. Read-only, scoped by business_entity_id like the rest. */
+  r.get('/plans', async (req, res) => {
+    try {
+      const plans = await q(`
+        select p.id, p.name, p.billing_period, p.price, p.price_per_unit, p.unit_range_min, p.unit_range_max,
+               p.description, p.is_active,
+               (select count(*) from public.subscription_client sc
+                 where sc.subscription_plan_id = p.id and sc.status = 'active')::int subscribers
+          from public.subscription_plan p
+         where p.tenant_id = $1 and p.business_entity_id = $2::uuid
+         order by p.is_active desc, coalesce(p.price, 0), p.name`, T());
+      const [u] = await q(`
+        select count(*)::int n from public.subscription_client sc
+         where sc.tenant_id = $1 and sc.business_entity_id = $2::uuid and sc.status = 'active' and sc.subscription_plan_id is null`, T());
+      res.json({
+        plans: plans.map(p => Object.assign(p, {
+          price: p.price === null ? null : Number(p.price),
+          price_per_unit: p.price_per_unit === null ? null : Number(p.price_per_unit),
+        })),
+        unassigned: u ? u.n : 0,
+      });
+    } catch (err) { fail(res, err); }
+  });
+
   /* ---- subscribers ----------------------------------------------------- */
   r.get('/subscribers', async (req, res) => {
     try {
@@ -438,14 +466,14 @@ function folioFinancialsRoutes() {
       const [opts] = await q(
         `with s as (
            select sc.status, sc.payment_status, sc.billing_period,
-                  sc.subscription_plan_id, sc.provider
+                  coalesce((select p.name from public.subscription_plan p where p.id = sc.subscription_plan_id), sc.subscription_plan_id::text) as plan_label, sc.provider
              from public.subscription_client sc
             where sc.tenant_id = $1 and sc.business_entity_id = $2::uuid
          )
          select array_agg(distinct coalesce(status, '${NOT_SET}'))                  as status,
                 array_agg(distinct coalesce(payment_status, '${NOT_SET}'))          as payment_status,
                 array_agg(distinct coalesce(billing_period, '${NOT_SET}'))          as billing_period,
-                array_agg(distinct coalesce(subscription_plan_id::text, '${NOT_SET}')) as plan,
+                array_agg(distinct coalesce(plan_label, '${NOT_SET}'))                  as plan,
                 array_agg(distinct coalesce(provider, '${NOT_SET}'))                as provider
            from s`, O.params);
 
@@ -588,7 +616,7 @@ function shapeSubscriber(r) {
     email: r.email,
     phone: r.phone,
     units: r.number_of_units,
-    plan: r.subscription_plan_id,
+    plan: r.plan_name || r.subscription_plan_id,
     amount: num(r.subscription_amount),
     currency: r.currency,
     billing_period: r.billing_period,

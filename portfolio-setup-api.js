@@ -368,7 +368,7 @@ async function checklist(req, res, who) {
               where c.property_id = p.id or c.unit_id in (select u.id from public.unit u where u.property_id = p.id)) as loans,
             ps.t12_period_end, ps.rent_roll_as_of
        from public.property p
-       left join reporting.property_summary_mv ps on ps.id = p.id
+       left join public.rpt_property_summary ps on ps.id = p.id   -- the row-filtered view: connector roles cannot read the reporting schema
       where p.id = $1 and p.tenant_id = $2`,
     [pid, who.tenantId]);
   const x = r.rows[0];

@@ -2,1689 +2,616 @@
 <html lang="en"><head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LeavenWealth Group</title>
-<!-- Remove any stale service worker BEFORE anything else runs. This used to live
-     inline in index.html, so it only healed people who opened /ops; most people only
-     ever see the portal at "/". See portal-sw-cleanup.js. -->
+<!-- Remove any stale service worker BEFORE anything else runs. See portal-sw-cleanup.js. -->
 <script src="/portal-sw-cleanup.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-<!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails
-     to load, the app falls back to baked data and never breaks. -->
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<!-- Default to dark, set before first paint so there's no light flash. -->
-<script>document.documentElement.setAttribute('data-theme','dark');</script>
-<!-- AUTH GATE, part 1 of 2. This hides the shell before the first paint, so a
-     signed-out visitor never sees a frame of dashboard content on the way to
-     /login. The rest of the page still builds behind it; portal-session.js
-     removes this style once a session is confirmed, or redirects instead.
-     Deleting this style tag without also removing the reveal in the boot script
-     leaves the app permanently invisible. -->
+<!-- Theme before first paint: Graphite (dark) unless this browser chose Light stone. -->
+<script>(function(){var t='dark';try{t=localStorage.getItem('lwTheme')||'dark';}catch(e){}document.documentElement.setAttribute('data-theme',t==='light'?'light':'dark');})();</script>
+<!-- AUTH GATE, part 1 of 2: hidden until portal-session.js confirms a session. -->
 <style id="authGate">body{visibility:hidden}</style>
-<!-- Shared design system (palette, geometry, dark theme) — same file /ops uses. -->
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/portal-loader.css">
-<link rel="stylesheet" href="/portal-properties.css">
-<link rel="stylesheet" href="/portal-reporting.css">
+<link rel="stylesheet" href="/portal-shell.css">
 <link rel="stylesheet" href="/portal-props.css">
 <link rel="stylesheet" href="/portal-financials.css">
-<link rel="stylesheet" href="/portal-ghl.css">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-/* Palette, geometry and the dark theme now come from the shared design system in
-   tokens.css (loaded above), so both / and /ops read as one product. The old
-   hard-coded :root/[data-theme=dark] colour blocks were removed. --border-2 is the
-   only legacy name tokens.css doesn't ship a shim for, so alias it here. */
-:root{ --border-2: var(--border-strong); }
-body{font-family:var(--font);background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased;font-size:14px;line-height:1.45}
-.app{display:grid;grid-template-columns:250px 1fr;height:100vh;overflow:hidden;transition:grid-template-columns .18s ease}
-.app.nav-hidden{grid-template-columns:0 1fr}
-
-/* sidebar */
-.side{background:var(--side);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;overflow:hidden;min-width:0}
-.brandpick{padding:10px;border-bottom:1px solid var(--border)}
-.bp-btn{display:flex;align-items:center;gap:9px;width:100%;padding:7px 8px;border-radius:var(--radius-sm);background:transparent;border:none;cursor:pointer;transition:.12s;text-align:left}
-.bp-btn:hover{background:var(--panel-2)}
-.bp-glyph{width:28px;height:28px;border-radius:7px;display:grid;place-items:center;color:#fff;font-weight:650;font-size:11.5px;letter-spacing:-.2px;flex:none}
-/* Brand marks are artwork in fixed brand colours, so they get a white plate
-   rather than the tinted initials chip - a dark mark on the dark theme's panel
-   would otherwise disappear. */
-.bp-glyph.has-logo,.bp-dot.has-logo{background:#fff;overflow:hidden;box-sizing:border-box}
-.bp-glyph.has-logo{padding:4px}
-.bp-dot.has-logo{padding:2px}
-.bp-glyph.has-logo img,.bp-dot.has-logo img{width:100%;height:100%;object-fit:contain;display:block}
-.bp-meta{text-align:left;flex:1;min-width:0}
-.bp-name{display:block;font-weight:600;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.25}
-.bp-sub{display:block;font-size:11px;color:var(--faint);line-height:1.25}
-/* Live-sync mark. Deliberately quiet: this fires whenever anyone edits anything. */
-.rt-stamp{font-size:11px;color:var(--faint);align-self:center;margin-right:6px;white-space:nowrap}
-.bp-caret{color:var(--faint);flex:none}
-.bp-menu{display:none;flex-direction:column;gap:1px;margin-top:6px}
-.bp-menu.open{display:flex}
-.bp-item{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:var(--radius-sm);cursor:pointer;font-size:12.5px;color:var(--dim)}
-.bp-item:hover{background:var(--panel-2)}
-.bp-item.active{background:var(--surface-3);color:var(--text);font-weight:600}
-.bp-dot{width:18px;height:18px;border-radius:5px;display:grid;place-items:center;color:#fff;font-weight:700;font-size:8.5px;flex:none}
-
-.nav{flex:1;overflow-y:auto;padding:8px}
-.nav::-webkit-scrollbar{width:8px}.nav::-webkit-scrollbar-thumb{background:var(--border);border-radius:8px}
-.nav-lbl{font-size:10.5px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:12px 8px 5px}
-.nav-item{display:flex;align-items:center;gap:9px;padding:6px 8px;border-radius:var(--radius-sm);cursor:pointer;color:var(--dim);font-size:13px;font-weight:500;transition:.12s;position:relative;width:100%}
-.nav-item svg{width:16px;height:16px;flex:none;opacity:.8}
-.nav-item:hover{background:var(--panel-2);color:var(--text)}
-.nav-item.active{background:var(--surface-3);color:var(--text);font-weight:600}
-.nav-item .badge{margin-left:auto;font-size:11px;font-weight:500;background:none;color:var(--faint);padding:0;border-radius:0;font-variant-numeric:tabular-nums}
-.nav-item.active .badge{background:none;color:var(--dim)}
-.side-foot{border-top:1px solid var(--border);padding:8px 10px;position:relative}
-/* The one identity control. A button because its menu contains Log out. */
-.idchip{width:100%;display:flex;align-items:center;gap:10px;padding:4px;border:none;border-radius:9px;
-  background:none;color:inherit;font:inherit;text-align:left;cursor:pointer}
-.idchip:hover{background:var(--surface-2,var(--panel-2))}
-.idchip-t{flex:1;min-width:0}
-.idchip-n{display:block;font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.idchip-r{display:block;font-size:11px;color:var(--text3,var(--faint))}
-.idmenu{position:absolute;left:8px;right:8px;bottom:calc(100% + 6px);z-index:60;padding:5px;
-  background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  box-shadow:var(--shadow-lg,0 18px 50px -12px rgba(0,0,0,.5))}
-.idmenu[hidden]{display:none}
-.idmenu-h{padding:8px 9px 9px;border-bottom:1px solid var(--border);margin-bottom:5px}
-.idmenu-n{font-size:13px;font-weight:650;overflow-wrap:anywhere}
-.idmenu-e{font-size:11.5px;color:var(--text3,var(--faint));overflow-wrap:anywhere}
-.idmenu-r{font-size:11.5px;color:var(--text2);margin-top:3px}
-/* An _svg() icon carries a viewBox and no intrinsic size, so without this rule it
-   renders at the SVG default (300x150) and each menu row becomes a tall block with a
-   wrapped label. Every other icon context declares its own size - .nav-item svg,
-   .tb-btn svg, .btn svg - and this menu was the only one inheriting nothing.
-   Same metrics as .nav-item, so the menu reads as a continuation of the sidebar. */
-.idmenu svg{width:16px;height:16px;flex:none;opacity:.8}
-.idmenu-i{display:flex;align-items:center;gap:9px;width:100%;min-height:32px;padding:0 9px;
-  border:none;border-radius:7px;background:none;color:var(--text);font:inherit;font-size:12.5px;
-  line-height:1.2;text-align:left;white-space:nowrap;cursor:pointer}
-.idmenu-i span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.idmenu-i:hover,.idmenu-i:focus{background:var(--surface-2,var(--panel-2));outline:none}
-/* Destructive, so it keeps the red. */
-.idmenu-i.danger{color:var(--crit-ink,var(--red,#d03b3b))}
-.idmenu-i.danger svg{opacity:1}
-/* Profile panel */
-.pf-head{display:flex;align-items:flex-start;gap:10px;padding:20px 22px 14px;border-bottom:1px solid var(--border)}
-.pf-t{font-size:16px;font-weight:650}
-.pf-s{font-size:12px;color:var(--text3);margin-top:2px}
-.pf-x{margin-left:auto;background:none;border:none;color:var(--text3);font-size:14px;cursor:pointer;padding:2px 6px}
-.pf-body{padding:16px 22px 26px}
-.pf-row{display:flex;gap:12px;padding:8px 0;border-bottom:1px solid var(--border);font-size:13px}
-.pf-k{width:70px;flex:none;color:var(--text3)}
-.pf-v{color:var(--text);overflow-wrap:anywhere}
-.pf-note{margin-top:14px;padding:10px 12px;border-radius:8px;background:var(--surface-2,var(--panel-2));
-  font-size:12px;color:var(--text2);line-height:1.55}
-.pf-sec{margin:20px 0 8px;font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--text3)}
-.pf-full{font-size:13px;color:var(--text2)}
-.pf-scope{margin-bottom:12px}
-.pf-scope-n{font-size:12.5px;font-weight:650;margin-bottom:3px}
-.pf-scope ul{margin:0 0 0 16px;padding:0}
-.pf-scope li{font-size:12.5px;color:var(--text2);margin:2px 0}
-.avatar{width:30px;height:30px;border-radius:50%;object-fit:cover;flex:none}
-.avatar.mono{display:grid;place-items:center;background:var(--accent);color:#fff;font-weight:700;font-size:11px}
-
-/* main */
-.main{overflow-y:auto;height:100vh}
-.topbar{position:sticky;top:0;z-index:5;background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:52px;display:flex;align-items:center;gap:14px}
-.crumb{font-size:13px;color:var(--faint)}.crumb b{color:var(--text);font-weight:600}
-.search{margin-left:auto;display:flex;align-items:center;gap:8px;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 10px;color:var(--faint);font-size:12.5px;min-width:200px;cursor:text;transition:.12s}
-.search:hover{border-color:var(--border-2)}
-.search svg{width:14px;height:14px}
-.tb-actions{display:flex;align-items:center;gap:6px}
-.tb-btn{width:29px;height:29px;border-radius:var(--radius-sm);border:none;background:transparent;display:grid;place-items:center;cursor:pointer;color:var(--dim);padding:0;box-sizing:border-box}
-.tb-btn:hover{background:var(--panel-2);color:var(--text)}
-.tb-btn svg{width:16px;height:16px}
-.content{padding:20px 24px 60px;max-width:1560px;margin:0 auto}
-.content.wide{max-width:none}
-.page-h{display:flex;align-items:flex-end;justify-content:space-between;margin-bottom:16px;gap:16px;flex-wrap:wrap}
-.page-t{font-size:19px;font-weight:650;letter-spacing:-.012em}
-.page-s{font-size:12.5px;color:var(--faint);margin-top:3px}
-.btn{background:var(--accent);color:#fff;border:none;border-radius:var(--radius-sm);padding:7px 13px;font-weight:600;font-size:12.5px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
-.btn svg{width:15px;height:15px}
-.btn.ghost{background:var(--panel);color:var(--text);border:1px solid var(--border)}
-
-/* components */
-.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:18px}
-.kpi{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px 12px}
-.kpi .k{font-size:11.5px;color:var(--dim);font-weight:550;display:flex;align-items:center;gap:6px}
-.kpi .k svg{width:14px;height:14px;color:var(--dim)}
-.kpi .v{font-size:25px;font-weight:640;margin-top:6px;letter-spacing:-.022em;line-height:1.12;font-variant-numeric:tabular-nums}
-.kpi .d{font-size:11.5px;margin-top:4px;color:var(--faint)}
-.kpi .d.up{color:var(--green)}.kpi .d.down{color:var(--rose)}
-.grid{display:grid;gap:12px}.g2{grid-template-columns:1fr 1fr}.g3{grid-template-columns:repeat(3,1fr)}
-.card{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.card-h{padding:12px 14px 10px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:9px;font-weight:600;font-size:13.5px}
-.card-h svg{width:15px;height:15px;color:var(--dim)}
-.card-h .badge{margin-left:auto;font-size:11px;color:var(--faint);background:var(--panel-2);padding:1.5px 8px;border-radius:999px;font-weight:600}
-.card-b{padding:12px 14px 14px}.card-b.flush{padding:0}
-table{width:100%;border-collapse:collapse;font-size:12.5px}
-th{text-align:left;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;color:var(--faint);padding:8px 12px;border-bottom:1px solid var(--border);white-space:nowrap}
-td{padding:9px 12px;border-bottom:1px solid var(--border)}
-tbody tr:last-child td{border-bottom:none}
-tbody tr:hover{background:var(--panel-2)}
-.r{text-align:right;font-variant-numeric:tabular-nums}
-.who{display:flex;align-items:center;gap:10px}
-.who img,.who .mo{width:30px;height:30px;border-radius:50%;flex:none;object-fit:cover}
-.who .mo{display:grid;place-items:center;color:#fff;font-weight:700;font-size:11px}
-.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;padding:1.5px 8px;border-radius:999px;border:1px solid transparent}
-.pill.green{background:var(--green-soft);color:var(--green)}.pill.amber{background:var(--amber-soft);color:var(--amber)}
-.pill.blue{background:var(--accent-soft);color:var(--accent)}.pill.rose{background:var(--rose-soft);color:var(--rose)}
-.pill.gray{background:var(--panel-2);color:var(--dim)}
-.chip{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--dim)}
-.chip .sw{width:8px;height:8px;border-radius:50%}
-.people{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
-.person{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:12px 13px;cursor:pointer;display:flex;gap:12px;align-items:center;transition:.12s}
-.person:hover{border-color:var(--border-2);background:var(--panel-2)}
-.person img{width:40px;height:40px;border-radius:10px;object-fit:cover;flex:none}
-.person .pn{font-weight:600;font-size:13px}.person .pr{font-size:11.5px;color:var(--faint);margin-top:2px}
-.board{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;align-items:start}
-.col{background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius);padding:10px}
-.col-h{display:flex;align-items:center;gap:8px;font-weight:600;font-size:13px;padding:6px 8px 10px}
-.col-h .cnt{color:var(--faint);font-weight:600}
-.col-add{margin-left:auto;color:var(--faint);cursor:pointer}.col-add svg{width:14px;height:14px}
-.col-dot{width:8px;height:8px;border-radius:50%;flex:none}
-.tcard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius-sm);padding:11px;margin-bottom:8px;cursor:pointer;transition:.12s}
-.tcard:hover{border-color:var(--border-2);background:var(--panel-2)}
-.tcard .tt{font-weight:600;font-size:13.5px;margin:8px 0;line-height:1.35}
-.tcard .tf{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--faint);text-transform:capitalize}
-.tcard .tf svg{width:13px;height:13px}
-.tcard .tf .due{margin-left:auto;display:flex;align-items:center;gap:6px}
-.prio{width:8px;height:8px;border-radius:50%;flex:none}
-.miniav{width:22px;height:22px;border-radius:50%;object-fit:cover}
-@media(max-width:900px){.board{grid-template-columns:1fr}}
-.segbtn{all:unset;cursor:pointer;padding:4px 12px;border-radius:4px;font-size:12.5px;font-weight:500;color:var(--faint)}
-.segbtn.on{background:var(--panel);color:var(--text);font-weight:600;box-shadow:0 0 0 1px var(--border-2)}
-.seg{display:inline-flex;background:var(--panel-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:2px;gap:0;margin-bottom:14px}
-.orgwrap{overflow-x:auto;padding:6px 2px 10px}
-.org{display:inline-flex;flex-direction:column;align-items:center;min-width:100%}
-.org-level{display:flex;justify-content:center;gap:18px;flex-wrap:nowrap}
-.onode{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);padding:10px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;min-width:190px;position:relative;transition:.12s}
-.onode:hover{border-color:var(--border-2);background:var(--panel-2)}
-.onode:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-.onode img{width:36px;height:36px;border-radius:9px;object-fit:cover;flex:none}
-.onode .on{font-weight:600;font-size:13px;white-space:nowrap}
-.onode .or{font-size:11px;color:var(--dim);white-space:nowrap}
-.org-trunk{width:2px;height:22px;background:var(--border)}
-.org-children{position:relative;display:flex;justify-content:center;gap:16px;flex-wrap:nowrap;padding-top:22px}
-.org-children::before{content:"";position:absolute;top:0;left:9%;right:9%;height:2px;background:var(--border)}
-.org-children>.onode::before{content:"";position:absolute;top:-22px;left:50%;transform:translateX(-50%);width:2px;height:22px;background:var(--border)}
-.deptgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.deptcard{background:var(--panel);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
-.deptcard .dh{padding:12px 14px;border-bottom:1px solid var(--border-2);font-weight:600;font-size:13.5px;display:flex;align-items:center;gap:8px}
-.deptcard .dh .cnt{margin-left:auto;font-size:11px;color:var(--faint);font-weight:600}
-.deptcard .dm{padding:9px 14px;display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px}
-.deptcard .dm:hover{background:var(--panel-2)}
-.deptcard .dm img{width:28px;height:28px;border-radius:50%;object-fit:cover;flex:none}
-.deptcard .dm .lead{margin-left:auto;font-size:10px;color:var(--accent);font-weight:700;letter-spacing:.03em}
-@media(max-width:900px){.deptgrid{grid-template-columns:1fr}}
-.bars{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:8px}
-.bars .bar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px;height:100%}
-.bars .bar .fill{width:100%;max-width:22px;border-radius:5px 5px 0 0;background:var(--accent)}
-.bars .bar .bl{font-size:10px;color:var(--faint);font-variant-numeric:tabular-nums}
-.selectbox{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:8px 12px;font:600 13px var(--font);color:var(--text);cursor:pointer}
-.livedot{width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;animation:pulse 2s infinite}
-@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(18,161,80,.5)}70%{box-shadow:0 0 0 6px rgba(18,161,80,0)}100%{box-shadow:0 0 0 0 rgba(18,161,80,0)}}
-.muted{font-size:12.5px;color:var(--faint)}
-.embedframe{width:100%;height:calc(100vh - 120px);min-height:460px;border:1px solid var(--border);border-radius:var(--radius);background:var(--panel);display:block}
-.embedhost{padding:0 28px 28px}
-.content.embed-lean{padding:14px 28px 0}
-.placeholder{background:var(--panel);border:1px dashed var(--border);border-radius:var(--radius);padding:44px;text-align:center;color:var(--faint)}
-.placeholder svg{width:34px;height:34px;margin-bottom:12px;color:var(--accent-line)}
-
-/* drawer (profile) */
-.scrim{position:fixed;inset:0;background:rgba(16,24,40,.35);opacity:0;pointer-events:none;transition:.2s;z-index:40}
-.scrim.open{opacity:1;pointer-events:auto}
-.drawer{position:fixed;top:0;right:0;height:100vh;width:390px;max-width:92vw;background:var(--panel);border-left:1px solid var(--border);transform:translateX(100%);transition:.24s cubic-bezier(.4,0,.2,1);z-index:41;overflow-y:auto}
-.drawer.open{transform:none}
-.dr-hero{padding:26px 24px 20px;text-align:center;border-bottom:1px solid var(--border-2);position:relative}
-.dr-x{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:8px;border:1px solid var(--border);background:var(--panel);cursor:pointer;font-size:18px;color:var(--dim);line-height:1}
-/* .dr-av and .pav are SPANS holding initials, with the photo layered over the top -
-   so a headshot that fails to load leaves the chip rather than an empty square. */
-.dr-av{width:80px;height:80px;border-radius:20px;margin:0 auto 12px;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-weight:700;font-size:24px}
-.pav{width:40px;height:40px;border-radius:10px;flex:none;display:flex;align-items:center;justify-content:center;background:var(--accent);color:#fff;font-weight:700;font-size:13px}
-.dr-av.has-photo,.pav.has-photo,.avatar.has-photo{position:relative;overflow:hidden}
-/* object-position sits ABOVE centre: these are headshots, and a centred square crop
-   of a portrait cuts the top of the head off. 50% 20% keeps the face in frame. */
-.dr-av img,.pav img,.avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:50% 20%;border-radius:inherit}
-.bio-none{font-size:13.5px;color:var(--faint);font-style:italic}
-.ph-sub{font-size:12px;margin-top:6px;color:var(--faint)}
-/* ---- Data Tracker -------------------------------------------------------
-   Green is Megan, blue is Mitch. Two colours for two QUESTIONS - "is this value
-   right?" against "where is this value?" - not two priority levels. */
-.trk-b{display:inline-block;min-width:18px;padding:0 5px;margin-left:6px;border-radius:999px;font-size:10.5px;font-weight:700;line-height:16px;text-align:center;color:#fff}
-.trk-g{background:#12a150}.trk-bl{background:#2a78d6}
-.trk-people{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px}
-.trk-person{display:flex;flex-direction:column;gap:3px;text-align:left;padding:14px 16px;border-radius:var(--radius);border:1.5px solid var(--border);background:var(--panel);cursor:pointer;font:inherit;transition:.12s}
-.trk-person:hover{border-color:var(--border-2)}
-.trk-person.on.trk-g{border-color:#12a150;background:rgba(18,161,80,.07)}
-.trk-person.on.trk-bl{border-color:#2a78d6;background:rgba(42,120,214,.07)}
-.trk-p-n{font-size:14px;font-weight:700;color:var(--text)}
-.trk-p-q{font-size:11.5px;color:var(--faint)}
-.trk-p-v{font-size:26px;font-weight:700;color:var(--text);margin-top:4px;line-height:1.1}
-.trk-p-of{font-size:12px;font-weight:600;color:var(--faint)}
-.trk-t{font-size:13px;font-weight:600;color:var(--text)}
-.trk-s{font-size:11.5px;color:var(--faint);margin-top:2px}
-.trk-raw{font-family:var(--mono,ui-monospace,monospace);font-size:12px;background:var(--panel-2);border:1px solid var(--border);border-radius:6px;padding:1px 7px}
-.trk-arrow{color:var(--faint);margin:0 6px}
-.trk-sug{font-family:var(--mono,ui-monospace,monospace);font-size:12px;color:#12a150;background:rgba(18,161,80,.12);border-radius:6px;padding:1px 7px}
-.trk-block{color:#c67c11;font-weight:600;font-size:12px}
-.trk-sel{padding:4px 8px;border-radius:8px;border:1px solid var(--border);background:var(--panel);color:var(--text);font:inherit;font-size:11.5px;cursor:pointer}
-@media(max-width:900px){.trk-people{grid-template-columns:1fr}}
-.dr-nm{font-size:18px;font-weight:700}
-.dr-rl{font-size:13px;color:var(--accent);font-weight:600;margin-top:3px}
-.dr-tag{display:inline-block;margin-top:10px;font-size:11.5px;font-weight:600;background:var(--panel-2);color:var(--dim);padding:3px 11px;border-radius:20px}
-.dr-b{padding:20px 24px}
-.dr-sec{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);margin-bottom:8px}
-.bio{font-size:13.5px;line-height:1.55;color:var(--text)}
-.bio.clamp{display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
-.bio-toggle{margin-top:7px;background:none;border:none;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--accent);padding:0}
-.dr-field{display:flex;align-items:center;gap:11px;padding:11px 0;border-top:1px solid var(--border-2);font-size:13.5px}
-.dr-field svg{width:16px;height:16px;color:var(--faint);flex:none}
-.dr-field .fk{font-size:11px;color:var(--faint);text-transform:uppercase;letter-spacing:.04em}
-@media(max-width:900px){.app{grid-template-columns:64px 1fr}.bp-meta,.nav-lbl,.nav-item span:not(.badge),.bp-name,.bp-sub,.bp-caret{display:none}.kpis{grid-template-columns:repeat(2,1fr)}.g2,.g3,.people{grid-template-columns:1fr}}
-
-/* ===========================================================================
-   Design adoption — command-center's typographic language.
-
-   tokens.css already carries the palette, the geometry and the three faces, so
-   the colours arrived on their own. What does not arrive through a variable is
-   how the type is USED, and that is most of what makes the source design
-   recognisable:
-
-     - Space Grotesk on headings and on any number big enough to be read as a
-       figure rather than as text. Body copy stays Instrument Sans.
-     - Mono, uppercase, .08em tracked, ~9.5-11px on every micro-label: section
-       labels, chips, pills, status text. Small caps in mono is the house style
-       there; sentence-case 11px sans is what it replaced.
-     - The accent is a marker, not a fill. Active nav gets an indigo edge and a
-       tinted ground rather than a solid block.
-
-   These layer on top of the existing component rules rather than replacing
-   them, so a rule that is already right is left alone and the diff says
-   exactly what the adoption changed.
-   =========================================================================== */
-
-/* Display face. -.012em was tuned for Inter; Space Grotesk is wider-set and
-   needs less negative tracking or the counters close up at 19px. */
-.page-t, .prtitle { font-family: var(--font-display); letter-spacing: -.006em; }
-.kpi .v           { font-family: var(--font-display); letter-spacing: -.014em; }
-.bp-name          { font-family: var(--font-display); }
-
-/* Micro-labels. */
-.nav-lbl {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: .08em;
-  color: var(--dimmer);
-  padding: 14px 8px 6px;
-}
-.kpi .k, .prsub, .page-s {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: .06em;
-  text-transform: uppercase;
-  color: var(--dimmer);
-  font-weight: 500;
-}
-.prstate {
-  font-family: var(--mono);
-  font-size: 10px;
-  letter-spacing: .06em;
-  color: var(--dimmer);
-}
-.chip, .pill {
-  font-family: var(--mono);
-  font-size: 9.5px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  font-weight: 500;
-}
-.pill { padding: 3px 8px; border-radius: 4px; }
-.chip { border-radius: 4px; padding: 3.5px 8px; border: 1px solid var(--border-strong); background: none; }
-
-/* Buttons carry the same treatment. .btn keeps its accent fill — it is the one
-   primary action on a screen and reading as a button is the point — but takes
-   the tracked mono label so it belongs to the same family as everything else. */
-.btn, .prbtn {
-  font-family: var(--mono);
-  font-size: 10.5px;
-  letter-spacing: .08em;
-  text-transform: uppercase;
-  font-weight: 500;
-}
-
-/* The accent as a marker. A solid indigo block down the nav is louder than the
-   source design, which marks the active row with an edge and a tint and lets
-   the label do the rest. */
-.nav-item.active {
-  background: var(--accent-soft);
-  color: var(--ink);
-  box-shadow: inset 2px 0 0 var(--accent);
-}
-.nav-item.active svg { color: var(--accent); opacity: 1; }
-
-/* Numbers are mono here. A column of figures in a proportional face does not
-   line up, and this design uses mono for every one of them. */
-.kpi .v, .num, td.num, .money { font-variant-numeric: tabular-nums; }
-</style></head>
+</head>
 <body>
-<div class="app" id="app">
-  <aside class="side">
-    <div class="brandpick">
-      <button class="bp-btn" onclick="document.getElementById('bpMenu').classList.toggle('open')">
-        <span class="bp-glyph" id="bpGlyph">LW</span>
-        <span class="bp-meta"><span class="bp-name" id="bpName">LeavenWealth</span><span class="bp-sub"></span></span>
-        <span class="bp-caret"><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6.5 8 10.5 12 6.5"/></svg></span>
-      </button>
-      <div class="bp-menu" id="bpMenu"></div>
-    </div>
-    <nav class="nav" id="nav"></nav>
-    <!-- The identity control. This REPLACED a static "Chris Pomerleau / Owner ·
-         Admin" chip; there must only ever be one of these, so do not add another
-         elsewhere. Painted by renderIdentity() from the dash_my_access() payload.
-         A <button>, not a hover target: it opens a menu containing Log out, and
-         hover menus fire by accident. -->
+<!-- The shell, as docs/mockup/shell.dc.html: business rail | sidebar | main. -->
+<div class="sh-app" id="app">
+  <nav class="sh-rail" id="rail" aria-label="Businesses"></nav>
+  <aside class="sh-side" id="side">
+    <div class="sh-side-h" id="sideTitle">&nbsp;</div>
+    <div class="sh-nav" id="nav"></div>
+    <!-- The identity control: name, role, and the light/dark switch. One only. -->
     <div class="side-foot" id="sideFoot">
-      <button class="idchip" id="idChip" aria-haspopup="menu" aria-expanded="false"
-              onclick="toggleIdMenu(event)" title="Account">
+      <button class="idchip" id="idChip" aria-haspopup="menu" aria-expanded="false" onclick="toggleIdMenu(event)" title="Account">
         <span class="avatar mono" id="idAvatar">&nbsp;</span>
-        <span class="idchip-t"><span class="idchip-n" id="idName">&nbsp;</span>
-        <span class="idchip-r" id="idRole">&nbsp;</span></span>
+        <span class="idchip-t"><span class="idchip-n" id="idName">&nbsp;</span><span class="idchip-r" id="idRole">&nbsp;</span></span>
       </button>
+      <button class="sh-theme press" id="themeBtn" onclick="toggleTheme()" aria-label="Switch light or dark"></button>
       <div class="idmenu" id="idMenu" role="menu" hidden></div>
     </div>
   </aside>
-
-  <main class="main">
-    <div class="topbar">
-      <button class="tb-btn" id="navToggle" onclick="toggleSidebar()" title="Hide menu" aria-label="Toggle menu"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="12" height="10" rx="1.5"/><path d="M6.2 3v10"/></svg></button>
-      <div class="crumb"><b id="cbBrand">LeavenWealth</b> <span id="cbView"></span></div>
-      <div class="search"><svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"><circle cx="7.2" cy="7.2" r="4.4"/><path d="M10.6 10.6 14 14"/></svg><span style="flex:1">Search or jump to&hellip;</span><span style="border:1px solid var(--border-2);border-radius:4px;padding:1px 5px;font-size:10.5px;color:var(--faint)">&#8984;K</span></div>
-      <div class="tb-actions">
-        <span id="rtStamp" class="rt-stamp" hidden></span>
-        <div class="tb-btn" onclick="refreshCurrent()" title="Refresh"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.2v3h-3"/></svg></div>
-        <div class="tb-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle theme"></div>
-        <div class="tb-btn"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 6.5a3.5 3.5 0 0 1 7 0c0 3 1.2 3.8 1.2 3.8H3.3s1.2-.8 1.2-3.8"/><path d="M6.5 12.6a1.5 1.5 0 0 0 3 0"/></svg></div>
-      </div>
-    </div>
-    <div class="content" id="content"></div>
-    <div class="embedhost" id="embedHost" hidden></div>
+  <main class="sh-main">
+    <header class="sh-head"><div class="sh-crumb" id="crumb"></div></header>
+    <div class="sh-scroll" id="scroll"><div class="content" id="content"></div></div>
   </main>
 </div>
 
 <div class="scrim" id="scrim" onclick="closeDrawer()"></div>
 <aside class="drawer" id="drawer"></aside>
-
-<!-- Profile settings. Read-only by decision; see paintProfile(). -->
 <div class="scrim" id="profileScrim" onclick="closeProfile()"></div>
 <aside class="drawer" id="profileDrawer" role="dialog" aria-modal="true"></aside>
 
-<!-- Phase 4/5 modules. Plain tags, NOT defer: the inline script below runs
-     during parsing and calls render() immediately, so deferred scripts would
-     not have executed yet and PortalAuth/PortalTasks would be undefined. -->
+<!-- Plain tags, NOT defer: the inline script below calls render() during parsing. -->
 <script src="/portal-loader.js"></script>
 <script src="/portal-morph.js"></script>
 <script src="/props-views-core.js"></script>
 <script src="/portal-session.js"></script>
 <script src="/portal-access.js"></script>
 <script src="/portal-auth.js"></script>
-<script src="/portal-tasks.js"></script>
-<script src="/portal-properties.js"></script>
-<script src="/noi-analysis.js"></script>
-<script src="/portal-setup.js"></script>
-<script src="/portal-reporting.js"></script>
-<script src="/portal-saved-views.js"></script>
+<script src="/portal-home.js"></script>
 <script src="/portal-props.js"></script>
 <script src="/portal-financials.js"></script>
 <script src="/portal-folio-fin.js"></script>
 <script src="/portal-leadli-fin.js"></script>
-<script src="/portal-ghl.js"></script>
 <script src="/portal-realtime.js"></script>
 <script>
-/* Thin-line icon set (16x16, 1.4 stroke, round caps) to match the shared design. */
-const _IW='viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"';
-const _svg=(p,w)=>`<svg ${w?_IW.replace('1.4',w):_IW}>${p}</svg>`;
-const I={
-  home:_svg('<path d="M2.5 6.6 8 2.5l5.5 4.1V13a.5.5 0 0 1-.5.5H3a.5.5 0 0 1-.5-.5z"/>'),
-  /* disclosure chevron, drawn in this set's own 1.4 stroke so it is not a
-     unicode triangle standing in for an icon */
-  chev:_svg('<path d="m6 4 4 4-4 4"/>'),
-  plus:_svg('<path d="M8 3.5v9M3.5 8h9"/>'),
-  grid:_svg('<rect x="2.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="2.2" width="4.6" height="4.6" rx="1"/><rect x="2.2" y="9.2" width="4.6" height="4.6" rx="1"/><rect x="9.2" y="9.2" width="4.6" height="4.6" rx="1"/>'),
-  check:_svg('<path d="M3 8.6l3 3 7-7.2"/>'),
-  target:_svg('<circle cx="8" cy="8" r="5.6"/><circle cx="8" cy="8" r="2.5"/>'),
-  users:_svg('<circle cx="6" cy="5.6" r="2.4"/><path d="M1.8 13.4c0-2.3 1.9-4.1 4.2-4.1s4.2 1.8 4.2 4.1M11 3.6a2.4 2.4 0 0 1 0 4.5M12.2 9.7c1.3.5 2.1 1.7 2.1 3.1"/>'),
-  layers:_svg('<path d="M8 2 2 5l6 3 6-3-6-3zM2 8.5l6 3 6-3M2 11.5l6 3 6-3"/>'),
-  wrench:_svg('<path d="M10.4 4.1a2.9 2.9 0 0 0-3.9 3.6L2.6 11.6 4.4 13.4l3.9-3.9a2.9 2.9 0 0 0 3.6-3.9L10.1 7.4 8.6 7l-.4-1.5z"/>'),
-  dollar:_svg('<path d="M8 2v12M10.6 4.4C10.6 3.4 9.4 2.7 8 2.7s-2.6.8-2.6 1.9 1.2 1.7 2.6 2.1 2.6.9 2.6 2.1S9.4 13.3 8 13.3s-2.6-.7-2.6-1.7"/>'),
-  file:_svg('<path d="M9 1.8H4.5a1 1 0 0 0-1 1v10.4a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V5.3zM9 1.8v3.5h3.5M6 8.5h4M6 11h4"/>'),
-  building:_svg('<path d="M2.5 13.5v-10a1 1 0 0 1 1-1h5a1 1 0 0 1 1 1v10M9.5 6.5h3a1 1 0 0 1 1 1v6M2 13.5h12M4.8 5h2M4.8 7.5h2M4.8 10h2"/>'),
-  bank:_svg('<path d="M2 6.2 8 2.6l6 3.6M3.4 6.8v5.4M6.4 6.8v5.4M9.6 6.8v5.4M12.6 6.8v5.4M2 13.4h12"/>'),
-  hand:_svg('<path d="M2.4 8.6c1.5-1.2 3.2-1.2 4.7 0M8 2.3v5M6 4.3 8 2.3l2 2M11 13.4a3 3 0 0 0-6 0"/>'),
-  shield:_svg('<path d="M8 2 3 4v4c0 3 2.2 5.1 5 6 2.8-.9 5-3 5-6V4z"/>'),
-  cal:_svg('<rect x="2.4" y="3" width="11.2" height="10.5" rx="1.3"/><path d="M2.4 6h11.2M5.4 1.8v2.4M10.6 1.8v2.4"/>'),
-  trend:_svg('<path d="M2.5 10.5 6 7l2.4 2.4L13.5 4.4M10.6 4.4h2.9v2.9"/>'),
-  gauge:_svg('<path d="M2.6 11.2a5.5 5.5 0 1 1 10.8 0"/><path d="M8 11.2 10.6 8.6"/>'),
-  org:_svg('<rect x="6" y="1.8" width="4" height="3.1" rx=".6"/><rect x="1.8" y="11.1" width="4" height="3.1" rx=".6"/><rect x="10.2" y="11.1" width="4" height="3.1" rx=".6"/><path d="M8 4.9v2.9M3.8 11.1V9.3h8.4v1.8M8 9.3V7.8"/>'),
-  plug:_svg('<path d="M5.8 2v3M10.2 2v3M4.4 5h7.2v2a3.6 3.6 0 0 1-7.2 0z"/><path d="M8 10.6V14"/>'),
-  card:_svg('<rect x="1.8" y="3.6" width="12.4" height="8.8" rx="1.3"/><path d="M1.8 6.4h12.4"/>'),
-  lock:_svg('<rect x="2.8" y="7" width="10.4" height="6.6" rx="1.3"/><path d="M5.1 7V5.1a2.9 2.9 0 0 1 5.8 0V7"/>'),
-  /* One person, and a door-with-arrow. `users` (a group) and `lock` (a padlock)
-     were the nearest existing shapes and both say the wrong thing here. */
-  user:_svg('<circle cx="8" cy="5.5" r="2.6"/><path d="M3 13.5c0-2.5 2.2-4.4 5-4.4s5 1.9 5 4.4"/>'),
-  logout:_svg('<path d="M9.5 3.2H12a1 1 0 0 1 1 1v7.6a1 1 0 0 1-1 1H9.5"/><path d="M6.6 10.6 4 8l2.6-2.6M4 8h6.2"/>'),
-  mail:_svg('<rect x="2" y="3.6" width="12" height="8.8" rx="1.3"/><path d="M2.5 4.6 8 8.5l5.5-3.9"/>'),
-  phone:_svg('<path d="M3.2 3.4c0 5.4 4 9.4 9.4 9.4l1.2-1.8-2.5-1.2-1.1 1.1c-1.8-.9-3.2-2.3-4.1-4.1l1.1-1.1L6 3.2z"/>'),
-  plus:_svg('<path d="M8 3.2v9.6M3.2 8h9.6"/>','1.6'),
-  sun:_svg('<circle cx="8" cy="8" r="3.1"/><path d="M8 1.4v1.5M8 13.1v1.5M14.6 8h-1.5M2.9 8H1.4M12.7 3.3l-1 1M4.3 11.7l-1 1M12.7 12.7l-1-1M4.3 4.3l-1-1"/>'),
-  moon:_svg('<path d="M13.4 9.6A5.8 5.8 0 0 1 6.4 2.6a5.9 5.9 0 1 0 7 7z"/>'),
+/* ===========================================================================
+   The dashboard shell (docs/mockup/shell.dc.html).
+
+   Rail     Home, then one button per business the person can reach. Ctrl+0 is
+            Home, Ctrl+1..4 the businesses in rail order. With one business the
+            rail is not shown and Home's two task lists sit at the top of that
+            business's sidebar instead, so nothing becomes unreachable.
+   Sidebar  the business's pages in sentence case, Executive board below a
+            divider for owners and admins, the person and the theme switch.
+   Header   a breadcrumb, nothing else.
+
+   Each person's last business, and last page within each business, are kept in
+   this browser (localStorage, keyed by their staff id). The URL fragment wins
+   over that memory, so a shared link still lands where it points.
+   =========================================================================== */
+
+/* ---- icons: one set, 24 grid, 1.75 stroke ------------------------------- */
+const IP={
+  home:'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z',
+  mine:'M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8',
+  all:'M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01',
+  properties:'M3 21h18M5 21V8l7-4 7 4v13M9 21v-6h6v6',
+  team:'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75',
+  departments:'M12 3v6M5 15v-3h14v3M3 21h4v-6H3zM10 21h4v-6h-4zM17 21h4v-6h-4zM9 3h6v6H9z',
+  tools:'M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4z',
+  documents:'M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM14 3v6h6M8 13h8M8 17h5',
+  financials:'M3 3v18h18M7 15l4-4 3 3 5-6',
+  overview:'M3 3h7v7H3zM14 3h7v4h-7zM14 10h7v11h-7zM3 13h7v8H3z',
+  plans:'M4 4h16v16H4zM4 9h16M9 4v16',
+  reports:'M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6M9 9h2',
+  exec:'M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z',
+  sun:'M12 4V2M12 22v-2M4.9 4.9 3.5 3.5M20.5 20.5l-1.4-1.4M4 12H2M22 12h-2M4.9 19.1l-1.4 1.4M20.5 3.5l-1.4 1.4M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
+  moon:'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
+  chev:'M9 6l6 6-6 6',
+  user:'M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8M4 21c0-4 3.6-6.5 8-6.5s8 2.5 8 6.5',
+  logout:'M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 16l-4-4 4-4M6 12h10',
+  mail:'M3 5h18v14H3zM3.5 6 12 12.5 20.5 6',
+  phone:'M5 4c0 8.3 6.7 15 15 15l1-3-4-2-2 2c-2.6-1.3-4.7-3.4-6-6l2-2-2-4z',
+  download:'M12 3v12M7 10l5 5 5-5M4 21h16',
+  external:'M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5',
 };
-/* The section modules (portal-reporting.js and friends) are separate files and
-   cannot see this const, so they used unicode glyphs instead. Exposing it keeps
-   every icon in one stroke weight. */
+const ico=(k,s)=>`<svg width="${s||16}" height="${s||16}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="${IP[k]||''}"></path></svg>`;
+/* Section modules read the icon set through this; keys are names, values markup. */
+const I=new Proxy({},{get:(_,k)=>IP[k]?ico(k):''});
 window.PortalIcons=I;
 
-
+/* ---- businesses -------------------------------------------------------- */
+const LW_MARK=`<svg width="26" height="26" viewBox="0 0 1024 1024" aria-hidden="true"><g transform="rotate(45 512 512) translate(-20 4)"><rect class="lw-c1" x="300" y="282" width="344" height="92" rx="20"></rect><rect x="300" y="402" width="150" height="92" rx="20" fill="#2ECC7A"></rect><rect class="lw-c1" x="478" y="402" width="166" height="92" rx="20"></rect><rect class="lw-c1" x="300" y="522" width="344" height="92" rx="20"></rect><rect x="300" y="642" width="464" height="92" rx="20" fill="#10A87A"></rect><rect x="672" y="282" width="92" height="332" rx="20" fill="#10A87A"></rect></g></svg>`;
+/* Rail order. `gate` is the dashboard_module nav id that decides visibility when it
+   differs from the page id: Folio has a `reports` catalog row and no `financials`
+   one, and Liquid has no `departments` row, so those pages ride on the row that
+   exists instead of needing a migration. */
+const BIZ_ORDER=['leavenwealth','folio','leadli','liquid'];
 const BRANDS={
-  /* `logo` is optional - a brand without one keeps the tinted initials chip, and
-     so does a brand whose file fails to load (see brandMarkFailed). The accent
-     colour stays independent of the mark: it drives the whole workspace theme,
-     not just this chip. Executive Board is the group, so it wears the parent
-     LeavenWealth mark. */
-  all:{name:'Executive Board',short:'EB',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/exec-mark.svg'},
-  leavenwealth:{name:'LeavenWealth',short:'LW',color:'#2a78d6',soft:'#e6effb',line:'#cfe0f6',logo:'/icons/leavenwealth-mark.svg'},
-  leadli:{name:'Leadli AI',short:'AI',color:'#6d5ef0',soft:'#ece9fd',line:'#d3ccf9',logo:'/icons/leadli-mark.svg'},
-  folio:{name:'Folio Excel',short:'FE',color:'#1baf7a',soft:'#e4f5ee',line:'#b9e6d5',logo:'/icons/folio-mark.svg'},
-  liquid:{name:'Liquid Lending',short:'LL',color:'#eda100',soft:'#fdf2da',line:'#f6e2ac',logo:'/icons/liquid-mark.svg'},
+  leavenwealth:{name:'LeavenWealth',mono:'LW',ghl:'r7zMur27ESvHGQpOWI2F'},
+  folio:{name:'Folio Excel',mono:'FE',tint:'fe',ghl:'xvWwoC1KQ1cOtw8Qf3Ez'},
+  leadli:{name:'Leadli AI',mono:'LA',tint:'la',ghl:'sR79W8mCX3gd5pWKG5wU'},
+  liquid:{name:'Liquid Lending Solutions',mono:'LL',tint:'ll',ghl:null},
 };
-/* portal brand id -> Supabase company_id (CLAUDE.md) */
 const BRAND_COMPANY_ID={leadli:'c0000000-0000-4000-8000-000000000001',folio:'c0000000-0000-4000-8000-000000000002',leavenwealth:'c0000000-0000-4000-8000-000000000003',liquid:'c0000000-0000-4000-8000-000000000004'};
 const brandCompanyId=b=>BRAND_COMPANY_ID[b]||null;
-/* Which brands have a Financials SCREEN, as opposed to a Financials nav item.
-   Every brand has the item; the built screen is LeavenWealth's and excludes
-   Leadli and Folio at the API level, so pointing another brand at it would put
-   that brand's name above another brand's money — which is exactly what
-   "Leadli AI / Financials" over $225.42M of LeavenWealth debt looked like.
-
-   Add a brand here the same day its own view ships, not before. */
-/* Which brands have a Financials SCREEN, and WHICH one. Two brands, two data
-   models: LeavenWealth is cash/debt/entities out of account_balance; Folio is
-   Whop billing out of sales_payment. Folio has 0 financial accounts, 0 deals,
-   0 transactions and 0 statements, so pointing it at the LeavenWealth screen
-   would have shown zeros forever — which reads as "no money" rather than
-   "wrong tables".
-
-   A brand absent here gets the placeholder. Add one the day its own view
-   ships, naming the module that serves it. */
-const FINANCIALS_BUILT={all:'lw', leavenwealth:'lw', leadli:'leadli'};
-
-/* ===========================================================================
-   PERMISSION GATE. Everything below reads the single dash_my_access() payload
-   held in `dashAccess`, whose shape is
-     { user, companies:{<id>:name}, access:{ "<company_id>|exec": {<nav_id>:level} } }
-   An absent key means no access. Never call dash_level() per module.
-
-   SCOPE FIRST, ALWAYS. nav ids are unique per scope but NOT across scopes:
-   `team`, `financials` and `investors` all appear under `exec` AND under company
-   scopes, with different meanings and independent grants. So a nav id alone can
-   never answer "may I see this" - it has to be resolved inside a scope. That is
-   why every function here takes, or derives, a scope before it looks at an id.
-
-   brand 'all' is the ONLY thing that maps to the exec scope: BRAND_COMPANY_ID has
-   four keys and no 'all', brandCompanyId('all') is null, and null is what the
-   catalog stores for Executive Board.
-   =========================================================================== */
-function accessScope(b){ return b==='all' ? 'exec' : brandCompanyId(b); }
-
-/* The {nav_id: level} map for a brand, or null when the brand is not held at all.
-   Returns null rather than {} so "no access" and "access to nothing" stay
-   distinguishable - the switcher needs that difference. */
-function scopeAccess(b){
-  if(!dashAccess||!dashAccess.access) return null;
-  const k=accessScope(b);
-  if(!k) return null;
-  return dashAccess.access[k]||null;
-}
-/* 'write' | 'read' | null for one nav id inside one brand's scope. */
-function navLevel(b,navId){ const m=scopeAccess(b); return (m&&m[navId])||null; }
-
-/* Brands the signed-in user can actually reach, in the fixed BRANDS order.
-   Exec is included only when there is an `exec` entry, which is what makes an
-   admin without an Exec grant not see the group view. */
-function allowedBrands(){
-  return Object.keys(BRANDS).filter(function(b){
-    const m=scopeAccess(b);
-    return !!m && Object.keys(m).length>0;
-  });
-}
-
-/* Can the signed-in user write in the CURRENT brand's scope?
-   Deliberately takes a nav id and uses the current brand rather than accepting a
-   company: for an admin holding Exec, dash_level(null, <anything>) resolves to
-   write for any module string at all, so a null-company "am I allowed" check would
-   silently answer yes to everything. Scope comes from `brand`, never from the
-   caller. */
-function canWrite(navId){ return navLevel(brand,navId)==='write'; }
-function canRead(navId){ return navLevel(brand,navId)!==null; }
-
-/* Users & Roles is ROLE-gated, not permission-gated: shown when dash_role() is
-   owner or admin. An admin must not be able to lose the screen that fixes access,
-   which is what requiring a module grant for it would allow.
-
-   THIS IS THE ONE EXCEPTION to "add a nav item, add its catalog row", and it is
-   forced rather than preferred. `access` exists in dashboard_module only under
-   Executive Board; no company has an access row. Requiring the grant would make the
-   per-brand item invisible to everyone INCLUDING the owner, because there would be
-   nothing to resolve against.
-
-   Do NOT seed per-brand access rows to make it symmetrical: a catalog row means
-   grantable, and grantable means an owner could hand Users & Roles to a plain user,
-   which is exactly what requirement 3 forbids. The exec row stays where it is -
-   inert, nothing reads it, but it keeps the exec catalog matching MENUS 8-for-8 so a
-   future nav diff comes back clean. */
-function canSeeAccess(){
-  const r=dashAccess&&dashAccess.user&&dashAccess.user.role;
-  return r==='owner'||r==='admin';
-}
-/* brand -> ClickUp space ids.
-   LeavenWealth = every workspace space EXCEPT the two brand spaces (Leadli, Folio Excel).
-   Includes the Chris Mitch Jay space (per request — it belongs to LeavenWealth), so it
-   shows under LeavenWealth and, because Executive Board is the whole workspace, there too.
-   Liquid Lending has no ClickUp space yet. Verified against the live workspace 9014303262
-   on 2026-08-10. Update when a space is added. */
-const LW_SPACES = [
-  '90145330145', // Task Tracker Dashboard
-  '90141115716', // Acquisitions
-  '90141115773', // Marketing
-  '90141166726', // Training
-  '90141124838', // Company
-  '90141115902', // Asset Management
-  '90142520340', // SOPs & Templates
-  '90142564321', // Pref Equity Brokers
-  '90142742038', // Properties
-  '90144437822', // Chris Mitch Jay (per request: part of LeavenWealth)
-];
-const BRAND_SPACES = {
-  leavenwealth: LW_SPACES,
-  leadli: ['90144463335'],       // Leadli
-  folio:  ['90145986363'],       // Folio Excel
-  liquid: [],                    // no space yet -> empty state
-};
-/* Executive Board = every business space across all brands (LeavenWealth already
-   includes the Chris Mitch Jay space). */
-const EXEC_SPACES = [...LW_SPACES, ...BRAND_SPACES.leadli, ...BRAND_SPACES.folio];
-const brandSpaces = b => (b === 'all' ? EXEC_SPACES : (BRAND_SPACES[b] || []));
-const OPS_URL='/ops';
-
-/* nav menus per brand */
-const CORE=[
-  {id:'tasks',ic:'check',label:'Tasks',badge:'8'},
-  {id:'leads',ic:'target',label:'Leads',badge:'37'},
-  {id:'team',ic:'users',label:'Team'},
-  {id:'departments',ic:'org',label:'Departments'},
-  {id:'tools',ic:'wrench',label:'Tools & Apps'},
-  /* Every brand carries a Financials item. What differs is the SCREEN behind
-     it: the built one is LeavenWealth's (it excludes Leadli and Folio at the
-     API level), so FINANCIALS_BUILT below decides whether a brand gets it or
-     an honest placeholder. A nav item is a promise about structure; the
-     placeholder is what keeps it from being a promise about numbers. */
-  {id:'financials',ic:'dollar',label:'Financials'},
-  {id:'documents',ic:'file',label:'Documents'},
-];
-/* Users & Roles in EVERY workspace, under an Admin heading. Executive Board already
-   carried `access`; the four businesses get it here. It is role-gated, so the whole
-   Admin section disappears for a plain user - see canSeeAccess / itemVisible. */
-/* Users & Roles lives in the Executive Board only (Jay 2026-10-11): access is
-   one model across every business, set per person per company in one place. */
 const MENUS={
-  all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
-  leavenwealth:[{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE],
-  leadli:[{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
-  folio:[{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'}],
-  liquid:[{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+  leavenwealth:[['properties','Properties'],['team','Team'],['departments','Departments'],['tools','Tools & apps'],['documents','Documents']],
+  folio:[['overview','Overview'],['financials','Financials','reports'],['plans','Plans'],['reports','Reports'],['team','Team'],['departments','Departments'],['tools','Tools & apps'],['documents','Documents']],
+  leadli:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments'],['tools','Tools & apps'],['documents','Documents']],
+  liquid:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments','team'],['tools','Tools & apps'],['documents','Documents']],
+};
+/* Executive board tabs, all in the exec scope. Users & roles and the Data tracker
+   are role-gated (owner/admin), the rest by their exec catalog rows. */
+const EXEC_TABS=[['overview','Overview','exec'],['financials','Financials','financials'],['org','Org & departments','orgdept'],['tracker','Data tracker',null],['access','Users & roles',null]];
+const HOME_VIEWS=[['mine','My tasks'],['all','All tasks']];
+
+/* ---- access (dash_my_access payload, one call at boot) ------------------ */
+let dashAccess=null;
+const ROLE_WORD={owner:'Owner',admin:'Admin',user:'User'};
+function scopeAccess(scope){ return (dashAccess&&dashAccess.access&&dashAccess.access[scope])||null; }
+function navLevel(b,navId){ const m=scopeAccess(b==='exec'?'exec':brandCompanyId(b)); return (m&&m[navId])||null; }
+function isAdmin(){ const r=dashAccess&&dashAccess.user&&dashAccess.user.role; return r==='owner'||r==='admin'; }
+function canSeeAccess(){ return isAdmin(); }
+function execTabVisible(t){ return t[2]===null ? isAdmin() : (isAdmin() && !!navLevel('exec',t[2])); }
+function execTabs(){ return EXEC_TABS.filter(execTabVisible); }
+/* Items the person can open in one business. A page they cannot open is never
+   listed, so nothing ever renders "no access". */
+function visibleMenu(b){
+  const items=(MENUS[b]||[]).filter(it=>!!navLevel(b,it[2]||it[0]));
+  if(items.length && execTabs().length) items.push(['exec','Executive board']);
+  return items;
+}
+function itemVisible(b,id){ return visibleMenu(b).some(it=>it[0]===id); }
+function allowedBizz(){ return BIZ_ORDER.filter(b=>(MENUS[b]||[]).some(it=>!!navLevel(b,it[2]||it[0]))); }
+function firstAllowedView(b){ const it=visibleMenu(b)[0]; return it?it[0]:null; }
+
+/* ---- state ---- */
+let brand='home', view='mine', theme=document.documentElement.getAttribute('data-theme')||'dark';
+let execTab='overview', deptTab='list', teamFilter='all';
+const pagesByBrand={};      /* last page per business, for this person */
+
+/* ---- helpers ---- */
+const money=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const money0=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:0});
+const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
+const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kpi=(ic,k,v,d,dc)=>`<div class="kpi"><div class="k">${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;
+const card=(ic,t,badge,body,flush)=>`<div class="card"><div class="card-h">${t}${badge!=null?`<span class="badge">${badge}</span>`:''}</div><div class="card-b ${flush?'flush':''}">${body}</div></div>`;
+const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
+const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
+const pageHead=(t,sub,right)=>`<div class="page-h"><h1 class="page-t">${esc(t)}</h1><div style="display:flex;align-items:center;gap:12px">${sub?`<span class="page-s">${sub}</span>`:''}${right||''}</div></div>`;
+const empty=(title,body)=>`<div class="placeholder"><b>${esc(title)}</b>${body?`<div class="ph-sub">${body}</div>`:''}</div>`;
+const errBox=(msg,retry)=>`<div class="err-box" role="alert">${esc(msg)}${retry?` <button class="link" onclick="${retry}">Try again</button>`:''}</div>`;
+function initialsOf(n){const p=String(n||'').trim().split(/\s+/).filter(Boolean);if(!p.length)return '?';return ((p[0][0]||'?')+(p.length>1?(p[p.length-1][0]||''):'')).toUpperCase();}
+function staffPhoto(p,cls){const i=esc(initialsOf(p.name));if(!p.avatar_url)return `<span class="${cls}">${i}</span>`;return `<span class="${cls} has-photo">${i}<img src="${esc(p.avatar_url)}" alt="" loading="lazy" onerror="staffPhotoFailed(this)"></span>`;}
+function staffPhotoFailed(img){const s=img.parentNode;if(s)s.classList.remove('has-photo');img.remove();}
+
+/* ---- tables: sortable, frozen header, density, CSV export -------------- */
+const TBL={};                      /* id -> {cols, rows, sort:{k,dir}} */
+let density='comfortable';
+try{density=localStorage.getItem('lwDensity')||'comfortable';}catch(e){}
+/* cols: [{k, t, r(ight), fmt(row)->html, val(row)->sortable/export value}] */
+function dataTable(id,cols,rows,opts){
+  opts=opts||{};
+  const st=TBL[id]=TBL[id]||{sort:opts.sort||null};
+  st.cols=cols; st.rows=rows; st.name=opts.name||id;
+  const val=(c,r)=>c.val?c.val(r):r[c.k];
+  let list=rows.slice();
+  if(st.sort){
+    const c=cols.find(x=>x.k===st.sort.k);
+    if(c){
+      const d=st.sort.dir==='desc'?-1:1;
+      list.sort((a,b)=>{const x=val(c,a),y=val(c,b);
+        const xn=x==null||x==='', yn=y==null||y==='';
+        if(xn||yn) return xn&&yn?0:(xn?1:-1);           /* nulls last, both ways */
+        return (typeof x==='number'&&typeof y==='number'?x-y:String(x).localeCompare(String(y)))*d;});
+    }
+  }
+  const head=cols.map(c=>{
+    const on=st.sort&&st.sort.k===c.k;
+    const aria=on?(st.sort.dir==='desc'?'descending':'ascending'):'none';
+    return `<th class="${c.r?'r':''} fin-sortable" aria-sort="${aria}" onclick="sortTable('${id}','${c.k}')">${esc(c.t)}${on?(st.sort.dir==='desc'?' ↓':' ↑'):''}</th>`;}).join('');
+  const body=list.length?list.map(r=>`<tr${opts.onRow?` style="cursor:pointer" onclick="${opts.onRow(r)}"`:''}>${cols.map(c=>`<td class="${c.r?'r':''}">${c.fmt?c.fmt(r):esc(val(c,r)==null?'–':val(c,r))}</td>`).join('')}</tr>`).join('')
+    :`<tr><td colspan="${cols.length}" class="muted" style="padding:18px 14px">${esc(opts.emptyText||'Nothing to show.')}</td></tr>`;
+  const tools=`<div class="tbl-tools">${opts.left||''}<span class="muted">${esc(opts.caption||'')}</span><span style="flex:1"></span>
+    <button class="btn ghost" onclick="toggleDensity()">${density==='compact'?'Comfortable':'Compact'}</button>
+    ${rows.length?`<button class="btn ghost" onclick="exportTable('${id}')">${ico('download',14)} Export</button>`:''}</div>`;
+  return tools+`<div class="frame ${density==='compact'?'compact':''}" style="max-height:${opts.maxH||'calc(100vh - 250px)'}"><table><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table></div>`;
+}
+function sortTable(id,k){const st=TBL[id];if(!st)return;st.sort=(st.sort&&st.sort.k===k)?{k,dir:st.sort.dir==='asc'?'desc':'asc'}:{k,dir:'asc'};render();}
+function toggleDensity(){density=density==='compact'?'comfortable':'compact';try{localStorage.setItem('lwDensity',density);}catch(e){}render();}
+function exportTable(id){
+  const st=TBL[id];if(!st)return;
+  const q=v=>{const s=v==null?'':String(v);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
+  const lines=[st.cols.map(c=>q(c.t)).join(',')].concat(st.rows.map(r=>st.cols.map(c=>q(c.val?c.val(r):r[c.k])).join(',')));
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/csv'}));
+  a.download=st.name.replace(/[^\w-]+/g,'-').toLowerCase()+'.csv';
+  document.body.appendChild(a);a.click();a.remove();
+}
+
+/* ---- data: one cached GET per URL, as the signed-in person -------------- */
+const DATA={};                     /* url -> {data, err, busy} */
+function getData(url){
+  const e=DATA[url]=DATA[url]||{};
+  if(e.data||e.busy||e.err) return e;
+  e.busy=true;
+  PortalLoader.hold(PortalSession.getJson(url))
+    .then(d=>{e.data=d;e.err=null;e.busy=false;render();},err=>{e.err=err.message||String(err);e.busy=false;render();});
+  return e;
+}
+function retryData(url){delete DATA[url];render();}
+function dropData(prefix){Object.keys(DATA).forEach(k=>{if(k.indexOf(prefix)===0)delete DATA[k];});}
+/* loading / error / ready, in one place */
+function withData(url,label,fn){
+  const e=getData(url);
+  if(e.err) return errBox('Could not load '+label+': '+e.err,`retryData('${url}')`);
+  if(!e.data) return PortalLoader.full(label);
+  return fn(e.data);
+}
+
+/* ---- people (Team) ---- */
+function teamFor(b,people){const cid=brandCompanyId(b);return people.filter(p=>(p.businesses||[]).some(x=>x.id===cid));}
+function setTeamFilter(f){teamFilter=f;render();}
+const V={};
+V.team=function(){
+  return withData('/api/shell/team','the team',d=>{
+    const inBiz=teamFor(brand,d.people||[]);
+    const shown=inBiz.filter(p=>teamFilter==='all'||(teamFilter==='emp'?p.type==='Employee':p.type==='Contractor'));
+    const chips=[['all','Everyone'],['emp','Employees'],['con','Contractors']].map(([k,l])=>`<button class="chip press ${teamFilter===k?'on':''}" aria-pressed="${teamFilter===k}" onclick="setTeamFilter('${k}')">${l}</button>`).join('');
+    return pageHead('Team',`${shown.length} of ${inBiz.length} people at ${esc(BRANDS[brand].name)}`)+
+      dataTable('team-'+brand,[
+        {k:'name',t:'Name',fmt:p=>`<span class="namecell">${staffPhoto(p,'ini')}<b>${esc(p.name)}</b></span>`},
+        {k:'title',t:'Title',val:p=>p.title||null,fmt:p=>p.title?esc(p.title):'<span class="muted">No title on file</span>'},
+        {k:'email',t:'Email',fmt:p=>`<span class="muted">${esc(p.email)}</span>`},
+        {k:'biz',t:'Businesses',val:p=>(p.businesses||[]).map(x=>x.name).join(', ')},
+        {k:'type',t:'Type',fmt:p=>`<span class="muted">${esc(p.type)}</span>`},
+      ],shown,{left:`<div class="chips">${chips}</div>`,name:BRANDS[brand].name+' team',onRow:p=>`openStaff('${esc(p.id)}')`,emptyText:'Nobody here matches this filter.'});
+  });
 };
 
-/* ---- data (mirrors seeded Supabase) ---- */
+/* ---- Departments ---- */
 const STAFF=[
-  {id:1,name:'Chris Pomerleau',role:'Co-Founder & Director of Investment Strategy',brand:'leavenwealth',img:'https://static.showit.co/400/IBC54nCgkZafZf0Y6UStUg/328551/chris_pomerleau_headshot.jpg',email:'chris@leavenwealth.com',phone:'—',bio:'Co-founder leading acquisitions, portfolio strategy, and long-term growth. Former U.S. Army and attorney (J.D. plus M.S. in Negotiation from Creighton). Has helped acquire 3,300+ units worth $330M+, and co-founded Point Guard Omaha and Liquid Lending Solutions. Known for disciplined underwriting and a long-term hold philosophy.'},
-  {id:2,name:'Collin Schwartz',role:'Co-Founder & Director of Business Development',brand:'leavenwealth',img:'https://static.showit.co/400/UQt7sNMvf4sQUDEi7F4aeg/328551/collin_schwartz_headshot.jpg',email:'collin@leavenwealth.com',phone:'—',bio:'Co-founder leading growth strategy, investor relations, and operational expansion across a $330M+ multifamily portfolio spanning 3,300+ units in the Midwest. Co-founded Liquid Lending Solutions ($100M+ deployed in hard money loans) and Point Guard Omaha, and created Nebraska’s largest real estate meetup with 6,500+ members.'},
-  {id:3,name:'Jason Belt',role:'Director of Capital Resources',brand:'leavenwealth',img:'https://static.showit.co/400/neN0-2ol9v8xYO6kLl3SNw/328551/jason_belt_headshot.jpg',email:'jason@leavenwealth.com',phone:'—',bio:'Directs capital sourcing and deployment, working with accredited investors to align their goals with the deal pipeline. Holds a Master’s in Public Administration and focuses on transparent, scalable capital raises.'},
-  {id:4,name:'Mitch Hagen',role:'Director of Finance',brand:'leavenwealth',img:'https://static.showit.co/400/or8hIxZr-fNNsicjtuGJiA/shared/mitch_hagen_-_leavenwealth.jpg',email:'mitch@leavenwealth.com',phone:'—',bio:'Oversees financial reporting and strategy. A CPA specializing in real estate finance and tax consulting, and a Creighton graduate in financial analysis and accounting.'},
-  {id:5,name:'Nick Bruhn',role:'Acquisition Specialist',brand:'leavenwealth',img:'https://static.showit.co/400/ofTjBQHqrFoQXpxr29nQAg/shared/nick_bruhn_-_leavenwealth.jpg',email:'nick@leavenwealth.com',phone:'—',bio:'Sources and analyzes multifamily opportunities, with experience across investor relations, asset management, and property development. Marketing and management degree from the University of Nebraska-Lincoln.'},
-  {id:6,name:'Megan Richardson',role:'Risk Management & Investor Relations Advisor',brand:'leavenwealth',img:'https://static.showit.co/400/PolUncD_trDoICQhSl-E5g/shared/megan_richardson_-_leavenwealth.jpg',email:'megan@leavenwealth.com',phone:'—',bio:'Leads insurance, risk management, and investor relations strategy with 10+ years in commercial insurance for major healthcare systems. Based in Denver.'},
-  {id:7,name:'John Younes',role:'Director of Property Management',brand:'leavenwealth',img:'https://static.showit.co/400/PtanfGLIc8gigKNKxl3tWA/shared/john-younes-leavenwealth.jpg',email:'john@leavenwealth.com',phone:'—',bio:'Oversees property management operations, establishing communication systems and KPI frameworks that drive portfolio performance, efficiency, and accountability.'},
-  {id:8,name:'Brian Nelson',role:'Director of Asset Management',brand:'leavenwealth',img:'https://static.showit.co/400/fRxzlQ9skMmfswPunOibZA/shared/brian-nelson-leavenwealth.jpg',email:'brian@leavenwealth.com',phone:'—',bio:'15 years in real estate investing and 11 as a financial advisor, spanning property management, financial strategy, and software product development. Previously managed 1,200 units.'},
+  {id:1,name:'Chris Pomerleau',role:'Co-Founder & Director of Investment Strategy',img:'https://static.showit.co/400/IBC54nCgkZafZf0Y6UStUg/328551/chris_pomerleau_headshot.jpg'},
+  {id:2,name:'Collin Schwartz',role:'Co-Founder & Director of Business Development',img:'https://static.showit.co/400/UQt7sNMvf4sQUDEi7F4aeg/328551/collin_schwartz_headshot.jpg'},
+  {id:3,name:'Jason Belt',role:'Director of Capital Resources',img:'https://static.showit.co/400/neN0-2ol9v8xYO6kLl3SNw/328551/jason_belt_headshot.jpg'},
+  {id:4,name:'Mitch Hagen',role:'Director of Finance',img:'https://static.showit.co/400/or8hIxZr-fNNsicjtuGJiA/shared/mitch_hagen_-_leavenwealth.jpg'},
+  {id:5,name:'Nick Bruhn',role:'Acquisition Specialist',img:'https://static.showit.co/400/ofTjBQHqrFoQXpxr29nQAg/shared/nick_bruhn_-_leavenwealth.jpg'},
+  {id:6,name:'Megan Richardson',role:'Risk Management & Investor Relations Advisor',img:'https://static.showit.co/400/PolUncD_trDoICQhSl-E5g/shared/megan_richardson_-_leavenwealth.jpg'},
+  {id:7,name:'John Younes',role:'Director of Property Management',img:'https://static.showit.co/400/PtanfGLIc8gigKNKxl3tWA/shared/john-younes-leavenwealth.jpg'},
+  {id:8,name:'Brian Nelson',role:'Director of Asset Management',img:'https://static.showit.co/400/fRxzlQ9skMmfswPunOibZA/shared/brian-nelson-leavenwealth.jpg'},
 ];
-/* Team directory reads LIVE from staff via /api/team. STAFF above is now only the
-   org and department charts, which encode reporting lines the database does not hold
-   - so those keep their baked ids and hierarchy until there is a real one to read. */
-let teamRows=null, teamErr=null, teamFetching=false;
-/* Data Tracker. Megan = "this value is wrong or unclear"; Mitch = "this value is
-   absent". Two lists, one screen, deliberately not merged. */
-let trkData=null, trkErr=null, trkFetching=false, trkWho='megan';
-function fetchTracker(force){
-  if(trkFetching) return;
-  if(trkData && !force) return;
-  /* Do not retry after a failure unless asked: fetchTracker() calls render() on error,
-     and anything that re-enters render() from here can spin. */
-  if(trkErr && !force) return;
-  trkFetching=true;
-  PortalLoader.hold(PortalSession.authHeaders().then(h=>fetch('/api/tracker',{headers:h})))
-    .then(r=>r.text().then(t=>{let b=null;try{b=t?JSON.parse(t):null;}catch(e){b={error:t};}
-      if(!r.ok) throw new Error((b&&b.error)||('HTTP '+r.status)); return b;}))
-    .then(d=>{trkData=d;trkErr=null;trkFetching=false;render();})
-    .catch(e=>{trkErr=e.message;trkFetching=false;render();});
+/* The charts encode reporting lines the database does not hold, so they stay baked;
+   the department list beside them is live. */
+const DEPTMEM=[{n:'Leadership',ids:[1,2]},{n:'Capital',ids:[3]},{n:'Finance',ids:[4]},{n:'Acquisitions',ids:[5]},{n:'Investor relations & risk',ids:[6]},{n:'Property management',ids:[7]},{n:'Asset management',ids:[8]}];
+function shortRole(r){return r.replace('Co-Founder & ','').replace('Director of ','Dir. ').replace(' & Investor Relations Advisor','');}
+function orgNode(id){const p=STAFF.find(s=>s.id===id);return `<div class="onode" role="button" tabindex="0" onclick="openStaffByName('${esc(p.name)}')"><img src="${p.img}" alt=""><div><div class="on">${esc(p.name)}</div><div class="or">${esc(shortRole(p.role))}</div></div></div>`;}
+function orgChartHtml(){return `<div class="orgwrap"><div class="org"><div class="org-level">${[1,2].map(orgNode).join('')}</div><div class="org-trunk"></div><div class="org-children">${[3,4,5,6,7,8].map(orgNode).join('')}</div></div></div>`;}
+function deptChartHtml(){return `<div class="deptgrid">${DEPTMEM.map(d=>`<div class="deptcard"><div class="dh">${esc(d.n)}<span class="cnt">${d.ids.length}</span></div>${d.ids.map((id,i)=>{const p=STAFF.find(s=>s.id===id);return `<div class="dm" role="button" tabindex="0" onclick="openStaffByName('${esc(p.name)}')"><img src="${p.img}" alt=""><div><div style="font-weight:500">${esc(p.name)}</div><div class="muted" style="font-size:12px">${esc(shortRole(p.role))}</div></div>${i===0?'<span class="lead">Lead</span>':''}</div>`;}).join('')}</div>`).join('')}</div>`;}
+const tabs=(cur,list,fn)=>`<div class="seg" role="tablist">${list.map(([k,l])=>`<button class="segbtn ${cur===k?'on':''}" role="tab" aria-selected="${cur===k}" onclick="${fn}('${k}')">${esc(l)}</button>`).join('')}</div>`;
+function setDeptTab(t){deptTab=t;render();}
+function deptList(){
+  return withData('/api/shell/departments','departments',d=>dataTable('depts',[
+    {k:'name',t:'Department',fmt:r=>`<b style="font-weight:500">${esc(r.name)}</b>`},
+    {k:'parent',t:'Part of',fmt:r=>r.parent?esc(r.parent):'<span class="muted">–</span>'},
+    {k:'members',t:'Members',r:1},
+  ],d.departments||[],{name:'Departments',sort:{k:'name',dir:'asc'},caption:(d.departments||[]).every(x=>!x.members)?'No one is assigned to a department yet; members are added in the database.':''}));
 }
-function authHeadersPortal(){ return {Accept:'application/json'}; }  /* kept for the PATCH below; reads go through PortalSession */
-function setTrkWho(w){ trkWho=w; render(); }
-/* Status written straight through; the row is patched locally so the list does not
-   jump while somebody is working down it. */
-function trkSetStatus(id,kind,status){
-  PortalSession.authHeaders({'Content-Type':'application/json'}).then(h=>fetch('/api/tracker/'+encodeURIComponent(id),{method:'PATCH',
-    headers:h,credentials:'include',
-    body:JSON.stringify({status:status,kind:kind})}))
-   .then(r=>r.ok?r.json():r.json().then(b=>{throw new Error(b.error||'HTTP '+r.status);}))
-   .then(()=>{ const list=(trkData&&trkData[trkWho])||[];
-     const row=list.find(x=>String(x.id)===String(id)); if(row) row.status=status;
-     fetchTracker(true); })
-   .catch(e=>alert('Could not save: '+e.message));
-}
-function fetchTeam(){
-  if(teamFetching) return; teamFetching=true;
-  PortalLoader.hold(PortalSession.client().then(c=>c.auth.getSession())).then(r=>{
-    const t=r&&r.data&&r.data.session&&r.data.session.access_token;
-    if(!t) throw new Error('Your session has expired. Sign in again.');
-    return fetch('/api/team',{headers:{Authorization:'Bearer '+t}});
-  }).then(r=>r.text().then(txt=>{
-    let b=null; try{b=txt?JSON.parse(txt):null;}catch(e){b={error:txt};}
-    if(!r.ok) throw new Error((b&&b.error)||('HTTP '+r.status));
-    return b;
-  })).then(d=>{teamRows=d.people||[];teamErr=null;teamFetching=false;render();})
-    .catch(e=>{teamErr=e.message;teamFetching=false;render();});
-}
-/* Nav badges: green = Megan's open exceptions, blue = Mitch's open backfill items.
+V.departments=function(){
+  return pageHead('Departments')+tabs(deptTab,[['list','Departments'],['org','Org chart'],['dept','Department chart']],'setDeptTab')+
+    (deptTab==='org'?orgChartHtml():deptTab==='dept'?deptChartHtml():deptList());
+};
 
-   It must NEVER fetch. The nav is painted by render(); anything here that can call
-   render() again closes a loop, and a loop here takes the whole page down including
-   the auth gate - which presents as sign-in bouncing rather than as a broken nav.
-   The Data Tracker screen loads its own data when opened; the badges wait for it.
+/* ---- Tools & apps ---- */
+V.tools=function(){
+  const b=BRANDS[brand];
+  const ghl=b.ghl?`<div class="card" style="margin-bottom:16px"><div class="card-b" style="display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+      <div style="flex:1;min-width:240px"><b style="font-weight:600">GoHighLevel</b><div class="muted">Leads, conversations and pipelines for ${esc(b.name)} live in GoHighLevel.</div></div>
+      <a class="btn" href="https://app.gohighlevel.com/v2/location/${esc(b.ghl)}/contacts/smart_list/All" target="_blank" rel="noopener">Open GoHighLevel ${ico('external',14)}</a></div></div>`:'';
+  return pageHead('Tools & apps')+ghl+withData('/api/shell/tools','tools',d=>dataTable('tools',[
+    {k:'name',t:'Tool',fmt:r=>`<b style="font-weight:500">${esc(r.name)}</b>`},
+    {k:'category',t:'Category',val:r=>r.category?trkWords(r.category):null},
+    {k:'plan_tier',t:'Plan'},
+    {k:'users',t:'Users',r:1},
+    {k:'billing_owner',t:'Billing owner'},
+    {k:'monthly_cost',t:'Cost per month',r:1,fmt:r=>r.monthly_cost==null?'<span class="muted">Not set</span>':money(r.monthly_cost)},
+    {k:'renewal_date',t:'Renews'},
+  ],d.tools||[],{name:'Tools',sort:{k:'name',dir:'asc'},caption:'No logins or passwords are stored here.'}));
+};
 
-   This function is called from the nav template, so deleting it is not a no-op: it is
-   a ReferenceError on every render. That is exactly what happened when the tracker
-   block was rebuilt around it. */
-function trkNavBadges(){
-  if(!trkData) return '';
-  const c=trkData.counts||{};
-  return `<span class="trk-b trk-g" title="Megan — open exceptions">${c.megan||0}</span>`
-       + `<span class="trk-b trk-bl" title="Mitch — open backfill items">${c.mitch||0}</span>`;
-}
+/* ---- Documents ---- */
+V.documents=function(){
+  return pageHead('Documents')+empty('Nothing filed here yet','Statements, reports and uploads for '+esc(BRANDS[brand].name)+' will be listed here, with who uploaded each one and whether it arrived automatically.');
+};
+
+/* ---- Overview pages ---- */
+V.overview=function(){
+  if(brand==='folio') return withData('/api/folio/financials/summary','the overview',s=>{
+    const h=s.history||{};
+    return pageHead('Overview','Folio Excel billing, from Whop')+`<div class="kpis">`+
+      kpi('','Monthly subscriptions',s.monthly_subscription==null?'Not set':money(Number(s.monthly_subscription)),'active subscribers')+
+      kpi('','App users',String(s.active_subscribers||0),'paying subscribers')+
+      kpi('','Units managed',s.units_managed==null?'Not set':Number(s.units_managed).toLocaleString(),s.units_managed==null?'no unit count recorded':'')+
+      kpi('','Collected',h.collected_usd==null?'–':money(Number(h.collected_usd)),(h.payments||0)+((h.payments===1)?' payment':' payments'))+`</div>`+
+      `<p class="note">Details on <button class="link" onclick="setView('financials')">Financials</button>, <button class="link" onclick="setView('plans')">Plans</button> and <button class="link" onclick="setView('reports')">Reports</button>.</p>`;
+  });
+  if(brand==='leadli') return withData('/api/leadli/financials/summary','the overview',s=>
+    pageHead('Overview','Leadli AI payments, from Whop')+`<div class="kpis">`+
+      kpi('','Total collected',money(Number(s.total_amount||0)))+kpi('','Clients',String(s.total_clients||0),'distinct payers')+
+      kpi('','Subscription payments',String(s.subscription_count||0))+kpi('','One-time payments',String(s.one_time_count||0))+`</div>`+
+      (s.empty?empty('No payments recorded yet',`Revenue arrives from the Whop payment webhook. ${s.pipeline&&s.pipeline.total_leads!=null?Number(s.pipeline.total_leads).toLocaleString()+' leads are in the pipeline.':''}`):
+        `<p class="note">Payment detail is on <button class="link" onclick="setView('financials')">Financials</button>.</p>`));
+  return pageHead('Overview')+empty('No lending data yet',esc(BRANDS[brand].name)+' has no loans, applications or payments recorded in the database. This page fills in as they are added.');
+};
+
+/* ---- Financials (per business) ---- */
+V.financials=function(){
+  if(brand==='folio') return '<div id="folioReportsNative"></div>';
+  if(brand==='leadli') return '<div id="leadliFinNative"></div>';
+  return pageHead('Financials')+empty('No financials for '+BRANDS[brand].name+' yet','There is no payment or account data for this business. LeavenWealth cash and debt are on the Executive board.');
+};
+V.reports=function(){return '<div id="folioSubsNative"></div>';};
+V.plans=function(){
+  return pageHead('Plans')+withData('/api/folio/financials/plans','plans',d=>{
+    const price=p=>p.price!=null?money(p.price):p.price_per_unit!=null?money(p.price_per_unit)+' per unit':null;
+    return dataTable('plans',[
+      {k:'name',t:'Plan',fmt:p=>`<b style="font-weight:500">${esc(p.name)}</b>${p.description?`<div class="muted" style="font-size:12px">${esc(p.description)}</div>`:''}`},
+      {k:'price',t:'Price',r:1,val:p=>p.price!=null?p.price:p.price_per_unit,fmt:p=>price(p)||'<span class="muted" style="white-space:nowrap">Not set</span>'},
+      {k:'billing_period',t:'Billed',val:p=>p.billing_period||null,fmt:p=>p.billing_period?esc(p.billing_period):'<span class="muted">Not set</span>'},
+      {k:'units',t:'Units',val:p=>p.unit_range_min,fmt:p=>p.unit_range_min==null&&p.unit_range_max==null?'<span class="muted">Any</span>':esc((p.unit_range_min??0)+' to '+(p.unit_range_max??'no limit'))},
+      {k:'subscribers',t:'Active subscribers',r:1},
+      {k:'is_active',t:'Status',val:p=>p.is_active?'Offered':'Retired',fmt:p=>pill(p.is_active?'Offered':'Retired',p.is_active?'green':'gray')},
+    ],d.plans||[],{name:'Folio plans',caption:d.unassigned?`${d.unassigned} active ${d.unassigned===1?'subscriber has':'subscribers have'} no plan recorded.`:'',emptyText:'No plans are recorded yet.'});
+  });
+};
+
+/* ---- Executive board ---- */
+function setExecTab(t){execTab=t;render();}
+V.exec=function(){
+  const list=execTabs();
+  if(!list.some(t=>t[0]===execTab)) execTab=list[0][0];
+  const head=pageHead('Executive board')+tabs(execTab,list.map(t=>[t[0],t[1]]),'setExecTab');
+  if(execTab==='financials') return head+'<div id="financialsNative"></div>';
+  if(execTab==='access') return head+'<div id="usersNative"></div>';
+  if(execTab==='org') return head+tabs(deptTab==='list'?'org':deptTab,[['org','Org chart'],['dept','Department chart']],'setDeptTab')+(deptTab==='dept'?deptChartHtml():orgChartHtml());
+  if(execTab==='tracker') return head+trackerHtml();
+  return head+`<div class="kpis">${kpi('','Group revenue',moneyk(41950),'sample figure')}${kpi('','Properties','66','sample figure')}${kpi('','Open leads','37','sample figure')}${kpi('','Headcount','8','sample figure')}</div>`+
+    `<p class="note">These four figures are placeholders until the group view reads live data. Live figures: LeavenWealth cash and debt under Financials, properties under LeavenWealth.</p>`;
+};
+
+/* ---- Data tracker (Executive board) ---- */
+let trkWho='megan';
 const TRK_MEGAN_STATUS=['open','in_progress','resolved','wont_fix'];
 const TRK_MITCH_STATUS=['open','in_progress','blocked','waiting_on_doc','done'];
 const TRK_STATUS_PILL={open:'gray',in_progress:'blue',blocked:'rose',waiting_on_doc:'amber',resolved:'green',done:'green',wont_fix:'gray'};
+const trkWords=x=>{const s=String(x||'').replace(/_/g,' ');return s.charAt(0).toUpperCase()+s.slice(1);};
 const trkDate=d=>d?String(d).slice(0,10):'';
-const trkWords=x=>String(x||'').replace(/_/g,' ');
-
-/* The person card doubles as the tab. It shows open OVER total, because those differ
-   and the gap is the work already closed - stating both stops the smaller number
-   reading as a miscount. */
-function trkPersonCard(id,name,question,open,total,tone){
-  return `<button class="trk-person trk-${tone} ${trkWho===id?'on':''}" onclick="setTrkWho('${id}')">
-    <span class="trk-p-n">${esc(name)}</span>
-    <span class="trk-p-q">${esc(question)}</span>
-    <span class="trk-p-v">${open}<span class="trk-p-of"> open of ${total}</span></span>
-  </button>`;
+function setTrkWho(w){trkWho=w;render();}
+function trkSetStatus(id,kind,status){
+  PortalSession.authHeaders({'Content-Type':'application/json'}).then(h=>fetch('/api/tracker/'+encodeURIComponent(id),{method:'PATCH',headers:h,body:JSON.stringify({status,kind})}))
+    .then(r=>r.ok?r.json():r.json().then(b=>{throw new Error(b.error||'HTTP '+r.status);}))
+    .then(()=>{dropData('/api/tracker');render();})
+    .catch(e=>alert('Could not save: '+e.message));
 }
-function trkStatusSel(r,opts){
-  return `<select class="trk-sel" onchange="trkSetStatus('${esc(r.id)}','${esc(r.kind||'')}',this.value)">`
-    + opts.map(o=>`<option value="${o}"${String(r.status||'open')===o?' selected':''}>${trkWords(o)}</option>`).join('')
-    + `</select>`;
-}
-const trkPill=st=>pill(trkWords(st||'open'),TRK_STATUS_PILL[st||'open']||'gray');
-
-/* MEGAN - a value exists but cannot be used as-is. She is answering "should this
-   become that?", so the two values sit side by side and everything else is context. */
-function trkMegan(rows){
-  const body=rows.map(r=>`<tr>
-    <td><div class="trk-t">${esc(r.record||'')}</div><div class="trk-s">${esc(r.field_name||'')} &middot; ${esc(trkWords(r.issue_type))}</div></td>
-    <td><span class="trk-raw">${esc(r.raw_value==null||r.raw_value===''?'\u2014':r.raw_value)}</span><span class="trk-arrow">&rarr;</span><span class="trk-sug">${esc(r.suggested_value==null||r.suggested_value===''?'\u2014':r.suggested_value)}</span>${r.description?`<div class="trk-s">${esc(r.description)}</div>`:''}</td>
-    <td>${esc(r.source_document||'')}<div class="trk-s">${esc(trkDate(r.raised))}</div></td>
-    <td>${trkPill(r.status)}</td>
-    <td class="r">${trkStatusSel(r,TRK_MEGAN_STATUS)}</td>
-  </tr>`).join('');
-  return card('check','Values that need a decision',rows.length,
-    tbl([{t:'Record'},{t:'Current \u2192 suggested'},{t:'Source'},{t:'Status'},{t:'Set',r:1}],body),true);
+function trkSel(r,opts){return `<select class="trk-sel" onclick="event.stopPropagation()" onchange="trkSetStatus('${esc(r.id)}','${esc(r.kind||'')}',this.value)">${opts.map(o=>`<option value="${o}"${String(r.status||'open')===o?' selected':''}>${trkWords(o)}</option>`).join('')}</select>`;}
+function trackerHtml(){
+  return withData('/api/tracker','the tracker',d=>{
+    const c=d.counts||{}, rows=d[trkWho]||[];
+    const person=(id,n,q,open,total)=>`<button class="trk-person ${trkWho===id?'on':''}" onclick="setTrkWho('${id}')"><span class="trk-p-n">${n}</span><span class="trk-p-q">${q}</span><span class="trk-p-v">${open}<span class="trk-p-of"> open of ${total}</span></span></button>`;
+    const who=`<div class="trk-people">${person('megan','Megan','Is this value right?',c.megan||0,c.megan_total||0)}${person('mitch','Mitch','Where is this value?',c.mitch||0,c.mitch_total||0)}</div>`;
+    const st=r=>pill(trkWords(r.status||'open'),TRK_STATUS_PILL[r.status||'open']||'gray');
+    const table=trkWho==='megan'?dataTable('trk-megan',[
+        {k:'record',t:'Record',fmt:r=>`<div class="trk-t">${esc(r.record||'')}</div><div class="trk-s">${esc(r.field_name||'')}, ${esc(trkWords(r.issue_type).toLowerCase())}</div>`},
+        {k:'raw_value',t:'Current to suggested',fmt:r=>`<span class="trk-raw">${esc(r.raw_value==null||r.raw_value===''?'–':r.raw_value)}</span><span class="trk-arrow">→</span><span class="trk-sug">${esc(r.suggested_value==null||r.suggested_value===''?'–':r.suggested_value)}</span>`},
+        {k:'source_document',t:'Source',fmt:r=>`${esc(r.source_document||'')}<div class="trk-s">${esc(trkDate(r.raised))}</div>`},
+        {k:'status',t:'Status',fmt:st},{k:'set',t:'Set',val:()=>null,fmt:r=>trkSel(r,TRK_MEGAN_STATUS)}],rows,{name:'Tracker Megan'})
+      :dataTable('trk-mitch',[
+        {k:'title',t:'What',val:r=>r.title||r.record,fmt:r=>`<div class="trk-t">${esc(r.title||r.record||'')}</div><div class="trk-s">${esc(r.record||'')}</div>`},
+        {k:'area',t:'Area'},
+        {k:'blocked_reason',t:'Blocker or notes',val:r=>r.blocked_reason||r.notes,fmt:r=>r.blocked_reason?`<span class="trk-block">${esc(r.blocked_reason)}</span>`:esc(r.notes||'–')},
+        {k:'source_document',t:'Source'},
+        {k:'status',t:'Status',fmt:st},{k:'set',t:'Set',val:()=>null,fmt:r=>trkSel(r,TRK_MITCH_STATUS)}],rows,{name:'Tracker Mitch'});
+    return who+table;
+  });
 }
 
-/* MITCH - the value is absent. Blocked first: a blocker has to clear before the work
-   can start at all, so it is the only ordering that matches how the list gets used. */
-function trkMitch(rows){
-  const rank={blocked:0,waiting_on_doc:1,open:2,in_progress:3,done:4};
-  const sorted=rows.slice().sort((a,b)=>(rank[a.status]??9)-(rank[b.status]??9));
-  const body=sorted.map(r=>`<tr>
-    <td><div class="trk-t">${esc(r.title||r.record||'')}</div><div class="trk-s">${esc(r.record||'')}</div></td>
-    <td>${esc(r.area||'')}<div class="trk-s">${esc(r.kind||'')}</div></td>
-    <td>${r.blocked_reason?`<span class="trk-block">${esc(r.blocked_reason)}</span>`:(r.notes?esc(r.notes):'<span class="trk-s">\u2014</span>')}</td>
-    <td>${esc(r.source_document||'')}<div class="trk-s">${r.due_date?'due '+esc(trkDate(r.due_date)):esc(trkDate(r.raised))}</div></td>
-    <td>${trkPill(r.status)}</td>
-    <td class="r">${trkStatusSel(r,TRK_MITCH_STATUS)}</td>
-  </tr>`).join('');
-  return card('check','Data that is missing',rows.length,
-    tbl([{t:'What'},{t:'Area'},{t:'Blocker / notes'},{t:'Source'},{t:'Status'},{t:'Set',r:1}],body),true);
-}
-function initialsOf(n){
-  const p=String(n||'').trim().split(/\s+/).filter(Boolean);
-  if(!p.length) return '?';
-  return ((p[0][0]||'?')+(p.length>1?(p[p.length-1][0]||''):'')).toUpperCase();
-}
-/* Same rule as brandMark(): the initials sit UNDER the photo, so dropping a broken
-   image reveals them with nothing to re-render. The headshots are hotlinked from
-   static.showit.co, so a failure here is a live case rather than a theoretical one. */
-function staffPhoto(p,cls){
-  const ini=esc(initialsOf(p.name));
-  if(!p.avatar_url) return `<span class="${cls}">${ini}</span>`;
-  return `<span class="${cls} has-photo">${ini}<img src="${esc(p.avatar_url)}" alt="" loading="lazy" onerror="staffPhotoFailed(this)"></span>`;
-}
-function staffPhotoFailed(img){const s=img.parentNode;if(s)s.classList.remove('has-photo');img.remove();}
-const PROPS=[{n:'Lincoln Portfolio',u:14,o:93,noi:9800},{n:'Midwest Portfolio 1',u:22,o:95,noi:12600},{n:'Midwest Portfolio 2',u:18,o:89,noi:8900},{n:'48 SF Unit Portfolio',u:48,o:91,noi:24100},{n:'Midwest Portfolio 5',u:16,o:97,noi:10200},{n:'Midwest Portfolio 8',u:12,o:83,noi:6400}];
-const INVESTORS=[{n:'Robert Hensley',stake:35,where:'Midwest Portfolio 1'},{n:'Patel Family Trust',stake:20,where:'Fund-level'},{n:'Diane Foster',stake:15,where:'Lincoln Portfolio'},{n:'Kwan Holdings LLC',stake:25,where:'Fund-level'},{n:'Miguel Santos',stake:5,where:'48 SF Portfolio'}];
-const PROV={closers:{n:'Closers.io',c:'#4f6bed'},aia:{n:'AIA',c:'#8b5cf6'},organic:{n:'Organic',c:'#0d9488'},none:{n:'—',c:'#98a0ac'}};
-const LEADS=[{n:'Olivia Bennett',p:'closers',s:'Booked',pc:'blue'},{n:'Ethan Carter',p:'aia',s:'Application',pc:'amber'},{n:'Sophia Nguyen',p:'organic',s:'New',pc:'gray'},{n:'Liam Patel',p:'closers',s:'Won',pc:'green'},{n:'Ava Thompson',p:'aia',s:'No Show',pc:'rose'},{n:'Mia Flores',p:'closers',s:'Booked',pc:'blue'},{n:'Lucas Kim',p:'aia',s:'Lost',pc:'gray'},{n:'james jenet',p:'closers',s:'Application',pc:'amber'}];
-const APPTS=[{n:'Olivia Bennett',c:'Strategy Call',t:'Jul 21, 3:00 PM',s:'confirmed'},{n:'Mia Flores',c:'Strategy Call',t:'Jul 22, 6:00 PM',s:'confirmed'},{n:'Ryan McGuire',c:'Strategy Call',t:'Jul 20, 11:00 AM',s:'confirmed'},{n:'Liam Patel',c:'Strategy Call',t:'Jul 8, 4:00 PM',s:'completed'}];
-const TOOLS=[
-  {n:'ClickUp',cat:'Project mgmt',plan:'Business',cost:228,user:'ops@leavenwealth.com',brand:'all'},
-  {n:'GoHighLevel',cat:'CRM',plan:'Agency Pro',cost:497,user:'admin@leadliai.com',brand:'leadli'},
-  {n:'AppFolio',cat:'Property mgmt',plan:'Plus',cost:1400,user:'pm@leavenwealth.com',brand:'leavenwealth'},
-  {n:'QuickBooks',cat:'Accounting',plan:'Advanced',cost:200,user:'books@folioexcel.com',brand:'folio'},
-  {n:'Supabase',cat:'Database',plan:'Pro',cost:25,user:'dev@leavenwealth.com',brand:'all'},
-  {n:'Meta Ads Manager',cat:'Advertising',plan:'—',cost:0,user:'ads@leadliai.com',brand:'leadli'},
-];
-const TXNS=[{d:'Jul 14',desc:'Bookkeeping retainer - client A',dir:'in',amt:7500},{d:'Jul 12',desc:'Monthly loan interest',dir:'out',amt:3100},{d:'Jul 10',desc:'July rent - Midwest 1',dir:'in',amt:12600},{d:'Jul 06',desc:'Landscaping - monthly',dir:'out',amt:540},{d:'Jul 03',desc:'Meta Ads - Leadli',dir:'out',amt:6100},{d:'Jul 02',desc:'July rent - Lincoln',dir:'in',amt:10150}];
-const TASKS=[
-  {t:'Turn unit 4B - Lincoln',cat:'Maintenance',status:'todo',prio:'high',due:'Jul 25',who:7},
-  {t:'Q2 investor distributions',cat:'Investor Relations',status:'todo',prio:'high',due:'Jul 31',who:6},
-  {t:'June close - client A',cat:'Bookkeeping',status:'todo',prio:'med',due:'Jul 20',who:4},
-  {t:'Loan 7a18 rate review',cat:'Lending',status:'in_progress',prio:'low',due:'Aug 5',who:2},
-  {t:'Ship lead-scoring update',cat:'Leadli Ops',status:'in_progress',prio:'med',due:'Jul 24',who:3},
-  {t:'Roof inspection - Midwest 2',cat:'Maintenance',status:'in_progress',prio:'high',due:'Jul 22',who:8},
-  {t:'Reconcile June statements',cat:'Accounting',status:'done',prio:'med',due:'Jul 10',who:4},
-  {t:'Onboard client B',cat:'Bookkeeping',status:'done',prio:'low',due:'Jul 9',who:4},
-  {t:'Send Q2 investor update',cat:'Investor Relations',status:'done',prio:'high',due:'Jul 5',who:6},
-];
-
-/* Meta ads baked fallback (mirrors the 3 Leadli campaigns in meta_ads_insight) */
-function mkAdDay(spend,imp,clicks,leads,i){return {date:'Jul '+(i+1),spend,imp,clicks,leads};}
-const ADS_CAMPAIGNS=[
-  {id:'120000000000001',name:'B2B - FA $15M AUM',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(180+((i*7)%90),8000+((i*533)%6000),120+((i*13)%100),3+(i%6),i))},
-  {id:'120000000000002',name:'Med-Spa - Prospecting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(95+((i*7)%40),5000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
-  {id:'120000000000003',name:'Med-Spa - Retargeting',brand:'leadli',days:Array.from({length:14},(_,i)=>mkAdDay(60+((i*7)%40),3000+((i*333)%3000),60+((i*11)%60),2+(i%5),i))},
-];
-
-/* ---- helpers ---- */
-const money=n=>(n<0?'-$':'$')+Math.abs(n).toLocaleString('en-US',{maximumFractionDigits:0});
-const moneyk=n=>{const a=Math.abs(n);return (n<0?'-$':'$')+(a>=1000?(a/1000).toFixed(1)+'K':a);};
-const ini=n=>n.split(/\s+/).map(w=>w[0]).join('').slice(0,2).toUpperCase();
-const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const kpi=(ic,k,v,d,dc)=>`<div class="kpi"><div class="k">${I[ic]||''} ${k}</div><div class="v">${v}</div>${d?`<div class="d ${dc||''}">${d}</div>`:''}</div>`;
-const card=(ic,t,badge,body,flush)=>`<div class="card"><div class="card-h">${I[ic]||''} ${t}${badge!=null?`<span class="badge">${badge}</span>`:''}</div><div class="card-b ${flush?'flush':''}">${body}</div></div>`;
-const tbl=(h,rows)=>`<table><thead><tr>${h.map(x=>`<th class="${x.r?'r':''}">${x.t}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`;
-const pill=(t,c)=>`<span class="pill ${c}">${t}</span>`;
-function barChart(rows){const max=Math.max(...rows.map(r=>r[1]),1);return `<div class="bars">${rows.map(r=>`<div class="bar"><div class="fill" style="height:${Math.round(r[1]/max*100)}%;background:${r[2]||'var(--accent)'}"></div><div class="bl">${esc(r[0])}</div></div>`).join('')}</div>`;}
-
-/* Executive Board is the landing workspace: the group view is what everyone
-   should see first, and each brand is a step down from it. readState() overrides
-   both from the fragment, so a reload or a shared link still wins. Keep these two
-   consistent - 'exec' is the first entry in MENUS.all. */
-let brand='all', view='exec', theme='dark', orgTab='org', tasksTab='overview', opsTab='alltasks', loansTab='book';
-let orgSummary=null;   // /api/org/summary result; drives the workspace-switcher subtitle
-/* The held dash_my_access() payload - ONE call at boot, see the gate at the bottom.
-   Declared HERE, with the rest of the state, and not next to the gate that fills it:
-   readState() and the permission helpers read it, and those run during the first
-   render, which happens before the gate block. A `let` further down put it in the
-   temporal dead zone and the whole inline script died on a ReferenceError - which
-   presented as an empty switcher and empty nav rather than as an error. */
-let dashAccess=null;
-/* Executive Board -> "All Tasks" hosts the ops dashboard's top-level views as embeds. */
-const OPS_TABS=[['overview','Overview'],['alltasks','All Tasks'],['todiscuss','Needs Review'],['forreview','For Approval'],['l10','L10']];
-
-/* ---- Supabase browser client ----
-   The url and anon key come from /api/portal-config, not from a literal in this
-   file. The key is publishable and RLS is the boundary, so the browser holding it
-   was never the problem - a key committed to the repo that cannot be rotated
-   without a deploy was.
-
-   portal-session.js owns the client so that the session, the storage adapter and
-   the remember-device window are decided in exactly one place. getSb() is async
-   now; its only caller (loadAds) already awaited a possibly-null client. */
-function getSb(){
-  if(window.__sb) return Promise.resolve(window.__sb);
-  if(!window.PortalSession) return Promise.resolve(null);
-  return PortalSession.client().then(function(c){ window.__sb=c; return c; })
-                      .catch(function(){ return null; });
-}
-
-/* ---- org / dept ---- */
-const DEPTMEM=[
-  {n:'Leadership',ids:[1,2]},
-  {n:'Capital',ids:[3]},
-  {n:'Finance',ids:[4]},
-  {n:'Acquisitions',ids:[5]},
-  {n:'Investor Relations & Risk',ids:[6]},
-  {n:'Property Management',ids:[7]},
-  {n:'Asset Management',ids:[8]},
-];
-function setOrgTab(t){orgTab=t;render();}
-function setTasksTab(t){tasksTab=t;render();}
-function setOpsTab(t){opsTab=t;render();}
-function setLoansTab(t){loansTab=t;render();}
-function shortRole(r){return r.replace('Co-Founder & ','').replace('Director of ','Dir. ').replace(' & Investor Relations Advisor','');}
-function orgNode(id){const p=STAFF.find(s=>s.id===id);return `<div class="onode" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div class="on">${esc(p.name)}</div><div class="or">${esc(shortRole(p.role))}</div></div></div>`;}
-function orgChartHtml(){
-  const tops=[1,2], dirs=[3,4,5,6,7,8];
-  return `<div class="orgwrap"><div class="org">
-    <div class="org-level">${tops.map(orgNode).join('')}</div>
-    <div class="org-trunk"></div>
-    <div class="org-children">${dirs.map(orgNode).join('')}</div>
-  </div></div>`;
-}
-function deptChartHtml(){
-  return `<div class="deptgrid">${DEPTMEM.map(d=>`<div class="deptcard"><div class="dh">${I.org} ${esc(d.n)}<span class="cnt">${d.ids.length}</span></div>${d.ids.map((id,i)=>{const p=STAFF.find(s=>s.id===id);return `<div class="dm" role="button" tabindex="0" onclick="openStaff(${id})" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();openStaff(${id})}"><img src="${p.img}" alt=""><div><div style="font-weight:600">${esc(p.name)}</div><div style="font-size:11px;color:var(--dim)">${esc(shortRole(p.role))}</div></div>${i===0?'<span class="lead">LEAD</span>':''}</div>`;}).join('')}</div>`).join('')}</div>`;
-}
-function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;applyAccent();syncEmbedTheme();}
-/* Show/hide the left menu. State persists across reloads. */
-function toggleSidebar(){const app=document.getElementById('app');const hidden=app.classList.toggle('nav-hidden');const btn=document.getElementById('navToggle');if(btn)btn.title=hidden?'Show menu':'Hide menu';try{localStorage.setItem('portalNavHidden',hidden?'1':'0');}catch(e){}}
-function restoreSidebar(){try{if(localStorage.getItem('portalNavHidden')==='1'){document.getElementById('app').classList.add('nav-hidden');const btn=document.getElementById('navToggle');if(btn)btn.title='Show menu';}}catch(e){}}
-/* Push the current theme into any open /ops embed (same-origin) so it follows dark/light live. */
-function syncEmbedTheme(){document.querySelectorAll('.embedframe').forEach(function(f){try{f.contentWindow.postMessage({type:'theme',theme:theme},location.origin);}catch(e){}});}
-/* Refresh the current view (the ops header/refresh is hidden inside embeds). */
-function refreshCurrent(){
-  if(isEmbedView()){const info=embedInfo();const f=info&&document.querySelector('#embedHost iframe[data-key="'+info.key+'"]');if(f){try{f.contentWindow.location.reload();}catch(e){f.src=f.src;}}return;}
-  if(view==='loans'){loadLoans(true);return;}
-  if(view==='ads'){loadAds(true);return;}
-  render();
-}
-
-/* ---- views ---- */
-const V={
-  /* V.overview() was here and is GONE with the nav items, by instruction.
-     Every brand's version was baked, and three of LeavenWealth's four KPIs
-     were known to be wrong: 66 properties, 92% occupancy, $72K NOI and $2.04M
-     debt across 3 loans, against a real 75 loans totalling roughly $106.5M
-     and an occupancy that is not derivable at all (`unit.occupancy` is free
-     text and empty on all 224 rows, with no lease or tenant table).
-
-     Folio's branch returned V.reports() - the live Financials view - so that
-     brand loses nothing but a second door to the same screen. */
-  exec(){return `<div class="kpis">${kpi('dollar','Group revenue',moneyk(41950),'+3.1% MTD','up')}${kpi('building','Properties','66','224 units')}${kpi('target','Open leads','37','across brands')}${kpi('users','Headcount','8','LeavenWealth core')}</div>`+
-    `<div class="grid g2">${card('trend','Revenue by brand',null,barChart([['LW',42000,'#4f6bed'],['AI',12000,'#8b5cf6'],['FE',7500,'#0d9488'],['LL',5000,'#e08a0b']]))}${card('check','Open tasks','4',tbl([{t:'Task'},{t:'Due'}],[['Q2 investor distributions','Jul 31'],['Turn unit 4B - Lincoln','Jul 25'],['June close - client A','Jul 20'],['Loan 7a18 rate review','Aug 5']].map(t=>`<tr><td>${t[0]}</td><td>${t[1]}</td></tr>`).join('')),true)}</div>`;},
-  /* Reached only when a caller can open NO screen in this workspace, which
-     `firstAllowedView()` reports as null. It used to fall through to
-     'overview' - a screen every brand had - and now names the situation
-     instead of pointing at a nav id that no longer exists. */
-  noaccess(){
-    const b=BRANDS[brand];
-    return `<div class="placeholder">${I.lock}
-      <div><b>No screens available in ${esc(b?b.name:'this workspace')}</b>
-      <div class="ph-sub">Your access does not include any screen here.
-      Ask an owner or admin to grant one on Users &amp; Roles.</div></div></div>`;
-  },
-  /* Properties is the command-center implementation running natively - the
-     /ops iframe is gone. Same arrangement as Tasks and Users & Roles: the view
-     supplies a container and portal-properties.js paints into it from render(),
-     because the module needs the element to exist before it can wire it. */
-  properties(){return '<div id="reportingNative"></div>';},
-  /* Phase 3. One entry, every brand that can see Properties - a view is
-     built against a curated dataset, not a brand. */
-  views(){return '<div id="viewsNative"></div>';},
-  loans(){
-    const seg=`<div class="seg"><button class="segbtn ${loansTab==='book'?'on':''}" onclick="setLoansTab('book')">Loan Book</button><button class="segbtn ${loansTab==='views'?'on':''}" onclick="setLoansTab('views')">Loan Views</button></div>`;
-    if(loansTab==='views') return seg;   // Loan Views iframe rendered in #embedHost (keep-alive)
-    if(!loansCache) setTimeout(function(){loadLoans(false);},0);
-    const body = loansCache ? renderLoans(loansCache) : PortalLoader.full('loans');
-    return seg+`<div id="loansBody">${body}</div>`;
-  },
-  /* Leads is the command-center GHL screen, running natively and scoped to the
-     current brand. It replaced a baked six-row array grouped by lead provider.
-     Same arrangement as Properties and Financials: a container here, painted
-     by the module from render(), because the module needs the element to exist
-     before it can wire it. */
-  leads(){return '<div id="ghlNative"></div>';},
-  appointments(){return card('cal','Appointments',APPTS.length,tbl([{t:'Lead'},{t:'Calendar'},{t:'Start'},{t:'Status'}],APPTS.map(a=>`<tr><td><span class="who"><span class="mo" style="background:#8b5cf6">${ini(a.n)}</span>${esc(a.n)}</span></td><td>${esc(a.c)}</td><td>${esc(a.t)}</td><td>${pill(a.s,a.s==='confirmed'?'blue':'green')}</td></tr>`).join('')),true);},
-  ads(){ setTimeout(function(){loadAds(false);},0); return `<div id="adsBody">${renderAdsBody()}</div>`; },
-  /* App Users, live. For a SaaS the list of app users IS the subscriber list,
-     so this is the §4.1 table from the Folio spec, rendered by the same module
-     as Financials and reading the same endpoint.
-
-     What was here was the page the spec names in §2.1: six invented companies
-     (Bluebird Property Mgmt, Redwood Residential, Cornerstone Realty, Harbor
-     Homes, Prairie Rentals, Elm Street Holdings), invented Starter/Growth/Scale
-     plans, 774 units billed, "$2,369 MRR +8% MoM" and a "Past due 1" tile.
-     None of it was in the database, and with Reports & Financials now queried
-     it would have contradicted it one nav click away. */
-  subscribers(){return '<div id="folioUsersNative"></div>';},
-  /* Folio's Reports & Financials, live. Every figure on it comes from a
-     query against Whop billing - see "Folio Excel financials" in CLAUDE.md.
-
-     What was here ran NO query at all. MRR $2,369, ARR $28.4K, "Active users
-     4" and NRR 104% were all computed from the six invented subscribers in
-     the SUBS array, and the MRR trend charted Apr-Jul at 2600/2900/3100/3308
-     - four made-up months whose bars land ~10px apart, which is why they read
-     as one placeholder shape. The only real payment is dated 17 Aug 2026.
-
-     ARR and NRR are not replaced with real versions: ARR would be MRR x 12
-     off a billing period nobody has confirmed, and NRR needs a prior period
-     to retain. A figure that cannot be computed is not displayed. */
-  reports(){return '<div id="folioReportsNative"></div>';},
-  pipeline(){return `<div class="placeholder">${I.bank}<div>Loan originations pipeline &mdash; from <b>loan</b></div></div>`;},
-  borrowers(){return `<div class="placeholder">${I.users}<div>Borrowers & applications &mdash; from <b>lead</b> + <b>loan</b></div></div>`;},
-  tracker(){
-    if(trkErr) return `<div class="placeholder">${I.check}<div>Could not load the tracker<div class="ph-sub">${esc(trkErr)}</div></div></div>`;
-    if(!trkData){ fetchTracker(); return PortalLoader.full('the tracker'); }
-    const c=trkData.counts||{};
-    const rows=(trkData[trkWho]||[]);
-    const by=k=>rows.filter(r=>String(r.status||'open')===k).length;
-    const openN = trkWho==='megan' ? (c.megan||0) : (c.mitch||0);
-
-    /* The two cards ARE the switch. A segmented control plus a separate pair of
-       counters was two controls saying the same thing; this is one that also
-       explains what each person is being asked. */
-    const who=`<div class="trk-people">
-      ${trkPersonCard('megan','Megan','Is this value right?',c.megan||0,c.megan_total||0,'g')}
-      ${trkPersonCard('mitch','Mitch','Where is this value?',c.mitch||0,c.mitch_total||0,'bl')}
-    </div>`;
-
-    const kpis = trkWho==='megan'
-      ? `<div class="kpis">${kpi('check','Needs a decision',openN,'still open')}${kpi('cal','In progress',by('in_progress'),'')}${kpi('check','Closed',by('resolved')+by('wont_fix'),'resolved or won\u2019t fix')}${kpi('grid','Raised in total',rows.length,'open and closed')}</div>`
-      : `<div class="kpis">${kpi('check','To do',by('open'),'not started')}${kpi('cal','In progress',by('in_progress'),'')}${kpi('shield','Blocked',by('blocked')+by('waiting_on_doc'),'needs something first')}${kpi('check','Done',by('done'),'')}</div>`;
-
-    const body = rows.length
-      ? (trkWho==='megan'?trkMegan(rows):trkMitch(rows))
-      : `<div class="placeholder">${I.check}<div>Nothing here.</div></div>`;
-    return who + kpis + body;
-  },
-  team(){
-    if(teamErr) return `<div class="placeholder">${I.users}<div>Could not load the team<div class="ph-sub">${esc(teamErr)}</div></div></div>`;
-    /* Fetched on first paint rather than at boot: most sessions never open this
-       screen, and fetchTeam() guards against the re-entry this creates. */
-    if(!teamRows){ fetchTeam(); return PortalLoader.full('the team'); }
-    if(!teamRows.length) return `<div class="placeholder">${I.users}<div>No active staff<div class="ph-sub">Nobody in <b>staff</b> is marked active.</div></div></div>`;
-    return `<div class="people">${teamRows.map(p=>{
-      const go=`openStaff('${esc(p.id)}')`;
-      return `<div class="person" role="button" tabindex="0" onclick="${go}" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();${go}}">${staffPhoto(p,'pav')}<div><div class="pn">${esc(p.name)}</div><div class="pr">${esc(p.title||'—')}</div></div></div>`;
-    }).join('')}</div>`;
-  },
-  departments(){return V.orgdept();},
-  orgdept(){
-    const seg=`<div class="seg"><button class="segbtn ${orgTab==='org'?'on':''}" onclick="setOrgTab('org')">Org chart</button><button class="segbtn ${orgTab==='dept'?'on':''}" onclick="setOrgTab('dept')">Department chart</button></div>`;
-    return seg + (orgTab==='org'?orgChartHtml():deptChartHtml());
-  },
-  tools(){
-    return card('wrench','Tools & software',TOOLS.length,tbl([{t:'Tool'},{t:'Category'},{t:'Plan'},{t:'Account'},{t:'Cost / mo',r:1}],TOOLS.map(t=>`<tr><td><b>${esc(t.n)}</b></td><td>${esc(t.cat)}</td><td>${pill(t.plan,'gray')}</td><td>${esc(t.user)}</td><td class="r">${t.cost?money(t.cost):'—'}</td></tr>`).join('')),true)+`<div style="margin-top:10px;font-size:12px;color:var(--faint);display:flex;align-items:center;gap:8px">${I.lock} Credentials are stored server-side (Supabase Vault) and revealed to admins via a secure endpoint &mdash; never sent to the browser here.</div>`;
-  },
-  /* Financials reads live from /api/financials - cash and debt out of Supabase,
-     quarterly. It replaced a baked block whose four KPIs were Cash $770,785
-     across "5 accounts", plus income, expenses and net; the last three could
-     not be made live even in principle, because `transaction` is empty pending
-     the Buildium/AppFolio sync. Same arrangement as Properties and Tasks: a
-     container here, painted by the module from render(). */
-  /* One container, two outcomes. A brand with its own view gets the module
-     mounted into it by render(); a brand without one gets a placeholder that
-     names what is missing rather than borrowing LeavenWealth's figures. */
-  financials(){
-    if (FINANCIALS_BUILT[brand]==='leadli') return '<div id="leadliFinNative"></div>';
-    if (FINANCIALS_BUILT[brand]) return '<div id="financialsNative"></div>';
-    const b=BRANDS[brand];
-    return `<div class="placeholder">${I.dollar}
-      <div><b>${esc(b.name)} financials are not set up yet</b>
-      <p style="max-width:46ch;margin:8px auto 0;line-height:1.6;color:var(--text2)">
-      The built view reads LeavenWealth's accounts, entities and loan balances, and
-      deliberately excludes the other brands &mdash; so showing it here would put
-      ${esc(b.name)}'s name above LeavenWealth's money. ${esc(b.name)} gets its own
-      view, shaped to how this business actually reports.</p></div></div>`;
-  },
-  documents(){return `<div class="placeholder">${I.file}<div>Documents &mdash; statements, reports, uploads (manual vs automated, with uploader)</div></div>`;},
-  tasks(){
-    /* Overview and Property Tasks are still /ops embeds (rendered in #embedHost).
-       "All Tasks" is native: portal-tasks.js paints into #tasksNative, called from
-       render() after the innerHTML assignment. */
-    const tab=(brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;
-    const segdefs=[['overview','Overview'],['all','All Tasks']];
-    if(brand==='leavenwealth') segdefs.push(['ptasks','Property Tasks']);
-    const seg=`<div class="seg">${segdefs.map(([id,label])=>`<button class="segbtn ${tab===id?'on':''}" onclick="setTasksTab('${id}')">${label}</button>`).join('')}</div>`;
-    if(tab==='all')    return seg+`<div id="tasksNative"></div>`;   /* portal-tasks.js paints its own gate */
-    if(clickUpGated()) return seg+clickUpGateHtml();
-    if(tab==='ptasks') return seg;                     /* Property Tasks iframe in #embedHost */
-    if(brandSpaces(brand).length) return seg;          /* Overview iframe in #embedHost */
-    return seg+`<div class="placeholder">${I.check}<div>No ClickUp tasks for <b>${esc(BRANDS[brand].name)}</b> yet. Once this business has a ClickUp space, its overview and counters will appear here.</div></div>`;
-  },
-  alltasks(){
-    const seg=`<div class="seg">${OPS_TABS.map(([id,label])=>`<button class="segbtn ${opsTab===id?'on':''}" onclick="setOpsTab('${id}')">${label}</button>`).join('')}</div>`;
-    if(clickUpGated()) return seg+clickUpGateHtml();
-    return seg;   /* ops iframe lives in #embedHost (keep-alive) */
-  },
-  /* Users & Roles. portal-users.js paints into this container from render(), after
-     innerHTML has replaced it - same arrangement as the native Tasks screen. */
-  access(){return `<div id="usersNative"></div>`;},
-};
-
-/* ---- Loans (live from Supabase via /api/loans) ---- */
-let loansCache=null;   // cached loans; only refetched when force=true (Refresh button)
-async function loadLoans(force){
-  const el=document.getElementById('loansBody'); if(!el) return;
-  if(loansCache && !force){ el.innerHTML=renderLoans(loansCache); return; }
-  try{
-    const r=await PortalLoader.hold(PortalSession.authHeaders().then(h=>fetch('/api/loans',{headers:h})));
-    let data=null; try{ data=await r.json(); }catch(_){}
-    if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
-    if(data && data.error) throw new Error(data.error);
-    loansCache=(data&&data.loans)||[];
-    el.innerHTML=renderLoans(loansCache);
-  }catch(e){
-    el.innerHTML=`<div class="muted" style="color:var(--rose);padding:10px 2px">Couldn't load loans (${esc(e.message)}). Needs DATA_SOURCE=supabase + a valid SUPABASE_DB_URL on the server. <a href="/api/loans" target="_blank" style="color:var(--accent)">/api/loans</a></div>`;
-  }
-}
-function loanPillClass(s){const x=String(s||'').toLowerCase();if(x==='active'||x==='current')return 'green';if(x==='pending')return 'amber';return 'gray';}
-function renderLoans(loans){
-  if(!loans.length) return `<div class="placeholder">${I.bank}<div>No loans found in Supabase.</div></div>`;
-  const num=v=>(v==null||v==='')?null:Number(v);
-  const total=loans.reduce((a,l)=>a+(num(l.currentDebt)||0),0);
-  const rated=loans.filter(l=>num(l.interestRatePct)!=null);
-  const avg=rated.length?(rated.reduce((a,l)=>a+num(l.interestRatePct),0)/rated.length).toFixed(2)+'%':'—';
-  const mats=loans.map(l=>l.maturityDate).filter(Boolean).sort();
-  const active=loans.filter(l=>String(l.status||'').toLowerCase()==='active').length;
-  const kpis=`<div class="kpis">${kpi('bank','Total debt',moneyk(total),loans.length+' loans')}${kpi('gauge','Avg rate',avg,'')}${kpi('cal','Next maturity',mats.length?mats[0]:'—','')}${kpi('check','Active',active,'of '+loans.length)}</div>`;
-  const rows=loans.slice().sort((a,b)=>(num(b.currentDebt)||0)-(num(a.currentDebt)||0)).map(l=>{
-    const nm=l.name||l.lender||l.loanNumber||('Loan '+String(l.id).slice(0,8));
-    const sub=[l.lender,l.positionLabel].filter(Boolean).map(esc).join(' &middot; ');
-    const debt=num(l.currentDebt)!=null?money(num(l.currentDebt)):'—';
-    const rate=num(l.interestRatePct)!=null?num(l.interestRatePct)+'%':'—';
-    return `<tr><td>${esc(nm)}${sub?`<div style="font-size:11px;color:var(--faint)">${sub}</div>`:''}</td><td class="r">${debt}</td><td class="r">${rate}</td><td>${l.maturityDate||'—'}</td><td>${pill(l.status||'None',loanPillClass(l.status))}</td></tr>`;
-  }).join('');
-  return kpis+card('bank','Loan book',loans.length,tbl([{t:'Loan'},{t:'Current debt',r:1},{t:'Rate',r:1},{t:'Maturity'},{t:'Status'}],rows),true);
-}
-
-/* ---- Marketing / Ads (live meta_ads_insight via Supabase; baked fallback) ---- */
-let adsCampaign='all', adsRows=null, adsMode='baked', adsFetched=false, adsBrandKey=null;
-function setAdsCampaign(v){adsCampaign=v;const el=document.getElementById('adsBody');if(el)el.innerHTML=renderAdsBody();}
-function adShortDay(d){const m=/^(\d{4})-(\d{2})-(\d{2})$/.exec(String(d||''));if(!m)return String(d||'');return ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][+m[2]-1]+' '+(+m[3]);}
-function adsScopedRows(){
-  if(adsMode==='live'&&adsRows){
-    /* campaign_id is null on every live row - n8n writes the NAME and not the id - so
-       keying on it collapsed every campaign into one bucket labelled "Campaign null".
-       The name is what the feed actually provides, so it is the fallback key. */
-    return {source:'live',rows:adsRows.map(r=>({date:String(r.date_start),spend:+r.spend||0,imp:+r.impressions||0,clicks:+r.clicks||0,leads:+r.leads||0,cid:String(r.campaign_id||r.campaign_name||'unknown'),cname:r.campaign_name||('Campaign '+(r.campaign_id||'unnamed'))}))};
-  }
-  const camps=ADS_CAMPAIGNS.filter(c=>brand==='all'||c.brand===brand);
-  const rows=[];
-  camps.forEach(c=>c.days.forEach(d=>rows.push({date:d.date,spend:d.spend,imp:d.imp,clicks:d.clicks,leads:d.leads,cid:c.id,cname:c.name})));
-  return {source:'baked',rows};
-}
-async function loadAds(force){
-  const el=document.getElementById('adsBody'); if(!el) return;
-  if(adsFetched && adsBrandKey===brand && !force){ el.innerHTML=renderAdsBody(); return; }  // cached
-  const sb=await getSb(); let session=null;   /* async now: config comes from /api/portal-config */
-  if(sb){ try{ session=(await sb.auth.getSession()).data.session; }catch(e){} }
-  if(!sb||!session){ adsRows=null; adsMode='baked'; adsFetched=true; adsBrandKey=brand; el.innerHTML=renderAdsBody(); return; }
-  el.innerHTML=PortalLoader.full('ad data');
-  try{
-    const since=new Date(Date.now()-13*864e5).toISOString().slice(0,10);
-    let q=sb.from('meta_ads_insight').select('date_start,spend,impressions,clicks,inline_link_clicks,leads,cost_per_lead,cpm,cpc,ctr,campaign_id,campaign_name').gte('date_start',since);
-    /* MIRROR THE RLS RULE, do not narrow past it. meta_ads_insight rows carry a
-       company_id only if whatever wrote them set one, and n8n does not - every live
-       row is untagged. An .eq(company_id) filter therefore matched nothing, so the
-       screen went empty the moment portal auth existed: before that there was no
-       session, it fell back to baked demo data, and the gap was invisible.
-
-       The SELECT policy already allows "company_id = mine OR (company_id is null and
-       my tenant)", so asking for the same shape cannot return a row the database
-       would have withheld. */
-    const cid=brandCompanyId(brand);
-    if(cid) q=q.or(`company_id.eq.${cid},company_id.is.null`);
-    const {data,error}=await PortalLoader.hold(q);
-    if(error) throw error;
-    adsRows=data||[]; adsMode='live';
-  }catch(e){ adsRows=null; adsMode='baked'; }
-  adsFetched=true; adsBrandKey=brand;
-  el.innerHTML=renderAdsBody();
-}
-function renderAdsBody(){
-  const {source,rows}=adsScopedRows();
-  /* "No data yet" reads as a broken screen. When the query DID run, the honest
-     statement is that the feed has written nothing into the window - that is a data
-     problem to chase in n8n, not something to look for in here. */
-  if(!rows.length) return `<div class="placeholder">${I.trend}<div>${source==='live'
-    ? 'No ad data in the last 14 days.<div class="ph-sub">The query ran and returned nothing &mdash; Meta ads land in <b>meta_ads_insight</b> via n8n, so nothing has been written for this window.</div>'
-    : 'No ad data for '+(brand==='all'?'this date range':esc(BRANDS[brand].name))+' yet'}</div></div>`;
-  const campMap=new Map(); rows.forEach(r=>{if(!campMap.has(r.cid))campMap.set(r.cid,r.cname);});
-  if(adsCampaign!=='all'&&!campMap.has(adsCampaign)) adsCampaign='all';
-  const scoped=adsCampaign==='all'?rows:rows.filter(r=>r.cid===adsCampaign);
-  const spend=scoped.reduce((a,r)=>a+r.spend,0), leads=scoped.reduce((a,r)=>a+r.leads,0);
-  const imp=scoped.reduce((a,r)=>a+r.imp,0), clicks=scoped.reduce((a,r)=>a+r.clicks,0);
-  const cpl=leads?spend/leads:0, ctr=imp?(clicks/imp)*100:0;
-  const kpis=`<div class="kpis">${kpi('dollar','Spend (14d)',money(spend),source==='live'?'live':'sample')}${kpi('target','Leads (14d)',leads,'','up')}${kpi('trend','Avg CPL',leads?money(cpl):'—','','down')}${kpi('gauge','Avg CTR',imp?ctr.toFixed(2)+'%':'—','')}</div>`;
-  const opts=['<option value="all">All campaigns</option>'].concat([...campMap.entries()].map(([id,nm])=>`<option value="${esc(id)}"${adsCampaign===id?' selected':''}>${esc(nm)}</option>`)).join('');
-  const srcLabel=source==='live'?'Live &middot; meta_ads_insight <span class="livedot" title="Live from Supabase"></span>':'Sample data';
-  const controls=`<div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap"><select class="selectbox" onchange="setAdsCampaign(this.value)">${opts}</select><span class="muted" style="display:inline-flex;align-items:center;gap:6px">${srcLabel}</span></div>`;
-  const byDate=new Map(); scoped.forEach(r=>byDate.set(r.date,(byDate.get(r.date)||0)+r.spend));
-  const dates=[...byDate.keys()].sort();
-  const bars=barChart(dates.map(d=>[adShortDay(d).replace(/^\w+ /,''),byDate.get(d),'var(--accent)']));
-  let tblHtml;
-  if(adsCampaign==='all'){
-    const per=new Map();
-    rows.forEach(r=>{const p=per.get(r.cid)||{name:r.cname,spend:0,imp:0,clicks:0,leads:0};p.spend+=r.spend;p.imp+=r.imp;p.clicks+=r.clicks;p.leads+=r.leads;per.set(r.cid,p);});
-    const trs=[...per.entries()].map(([id,p])=>`<tr onclick="setAdsCampaign('${esc(id)}')" style="cursor:pointer"><td>${esc(p.name)}</td><td class="r">${money(p.spend)}</td><td class="r">${p.imp.toLocaleString()}</td><td class="r">${p.clicks.toLocaleString()}</td><td class="r">${p.leads}</td><td class="r">${p.leads?money(p.spend/p.leads):'—'}</td></tr>`).join('');
-    tblHtml=card('grid','By campaign',per.size,tbl([{t:'Campaign'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
-  }else{
-    const trs=scoped.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(r=>`<tr><td>${esc(adShortDay(r.date))}</td><td class="r">${money(r.spend)}</td><td class="r">${r.imp.toLocaleString()}</td><td class="r">${r.clicks.toLocaleString()}</td><td class="r">${r.leads}</td><td class="r">${r.leads?money(r.spend/r.leads):'—'}</td></tr>`).join('');
-    tblHtml=card('grid','Campaign: '+esc(campMap.get(adsCampaign)||'Campaign'),scoped.length,tbl([{t:'Date'},{t:'Spend',r:1},{t:'Impr.',r:1},{t:'Clicks',r:1},{t:'Leads',r:1},{t:'CPL',r:1}],trs),true);
-  }
-  return kpis+controls+card('trend','Daily spend',null,bars)+`<div style="height:16px"></div>`+tblHtml;
-}
+/* ---- Properties: exactly as built ---- */
+V.properties=function(){return '<div id="reportingNative"></div>';};
 
 /* ---- profile drawer ---- */
-/* Opens for BOTH sources: a live staff uuid from Team directory, and a baked numeric
-   id from the org and department charts. Live is checked first, so once someone is in
-   staff their real record wins over any baked copy of them. */
+function openStaffByName(n){const d=DATA['/api/shell/team'];const p=d&&d.data&&(d.data.people||[]).find(x=>x.name===n);if(p)return openStaff(p.id);const b=STAFF.find(s=>s.name===n);if(b)drawStaff({name:b.name,role:b.role,avatar_url:b.img});}
 function openStaff(id){
-  const live=(teamRows||[]).find(s=>s.id===id);
-  const baked=live?null:STAFF.find(s=>s.id===id);
-  if(!live&&!baked)return;
-  const p=live
-    ? {name:live.name,role:live.title,avatar_url:live.avatar_url,email:live.email,
-       phone:live.phone,bio:live.bio,brand:null,type:live.staff_type}
-    : {name:baked.name,role:baked.role,avatar_url:baked.img,email:baked.email,
-       phone:baked.phone,bio:baked.bio,brand:baked.brand,type:''};
-  /* Five staff rows currently carry no title, bio, photo or phone. An empty About
-     with a dead "See more" reads as broken, so the section is dropped and the gap is
-     stated instead - that is the data being incomplete, not the screen failing. */
-  const hasBio=!!(p.bio&&p.bio.trim());
-  document.getElementById('drawer').innerHTML=`
-    <div class="dr-hero"><button class="dr-x" onclick="closeDrawer()">&times;</button>
-      ${staffPhoto(p,'dr-av')}<div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role||'No title recorded')}</div>${
-        p.brand&&BRANDS[p.brand]?`<div class="dr-tag">${esc(BRANDS[p.brand].name)}</div>`
-        :p.type?`<div class="dr-tag">${esc(p.type)}</div>`:''}</div>
-    <div class="dr-b">
-      <div class="dr-sec">About</div>
-      ${hasBio
-        ?`<div class="bio clamp" id="bioText">${esc(p.bio)}</div>
-          <button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>`
-        :`<div class="bio-none">No bio recorded yet.</div>`}
-      <div style="height:8px"></div>
-      <div class="dr-field">${I.mail}<div><div class="fk">Email</div><div>${esc(p.email||'—')}</div></div></div>
-      <div class="dr-field">${I.phone}<div><div class="fk">Phone</div><div>${esc(p.phone||'—')}</div></div></div>
-    </div>`;
-  document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');
-  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b){t.classList.add('clamp');b.textContent='See more';b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';}});
+  const d=DATA['/api/shell/team'];const p=d&&d.data&&(d.data.people||[]).find(x=>x.id===id);if(!p)return;
+  drawStaff({name:p.name,role:p.title,avatar_url:p.avatar_url,email:p.email,phone:p.phone,bio:p.bio,type:p.type,biz:(p.businesses||[]).map(x=>x.name).join(', ')});
 }
-function toggleBio(){const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(!t||!b)return;const clamped=t.classList.toggle('clamp');b.textContent=clamped?'See more':'See less';}
+function drawStaff(p){
+  const hasBio=!!(p.bio&&p.bio.trim());
+  document.getElementById('drawer').innerHTML=`<div class="dr-hero"><button class="dr-x" onclick="closeDrawer()" aria-label="Close">&times;</button>
+    ${staffPhoto(p,'dr-av')}<div class="dr-nm">${esc(p.name)}</div><div class="dr-rl">${esc(p.role||'No title on file')}</div>${p.type?`<div class="dr-tag">${esc(p.type)}</div>`:''}</div>
+    <div class="dr-b"><div class="dr-sec">About</div>
+    ${hasBio?`<div class="bio clamp" id="bioText">${esc(p.bio)}</div><button class="bio-toggle" id="bioToggle" onclick="toggleBio()">See more</button>`:`<div class="bio-none">No bio on file yet.</div>`}
+    <div style="height:8px"></div>
+    ${p.biz?`<div class="dr-field">${ico('properties')}<div><div class="fk">Businesses</div><div>${esc(p.biz)}</div></div></div>`:''}
+    <div class="dr-field">${ico('mail')}<div><div class="fk">Email</div><div>${esc(p.email||'–')}</div></div></div>
+    <div class="dr-field">${ico('phone')}<div><div class="fk">Phone</div><div>${esc(p.phone||'–')}</div></div></div></div>`;
+  document.getElementById('drawer').classList.add('open');document.getElementById('scrim').classList.add('open');
+  requestAnimationFrame(()=>{const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(t&&b)b.style.display=(t.scrollHeight<=t.clientHeight+2)?'none':'';});
+}
+function toggleBio(){const t=document.getElementById('bioText'),b=document.getElementById('bioToggle');if(!t||!b)return;b.textContent=t.classList.toggle('clamp')?'See more':'See less';}
 function closeDrawer(){document.getElementById('drawer').classList.remove('open');document.getElementById('scrim').classList.remove('open');}
 
-/* ---- nav / render ---- */
-function applyAccent(){const b=BRANDS[brand];const soft=theme==='dark'?b.color+'26':b.soft;const line=theme==='dark'?b.color+'59':b.line;document.documentElement.style.setProperty('--accent',b.color);document.documentElement.style.setProperty('--accent-soft',soft);document.documentElement.style.setProperty('--accent-line',line);}
-/* Switcher subtitle. Counts come from /api/org/summary — never hard-coded.
-   Until the fetch lands (or if it fails) the subtitle is blank rather than a guess. */
-function switcherSub(){
-  if(!orgSummary) return '';
-  const t = orgSummary.tenants && orgSummary.tenants[0];
-  if(brand === 'all'){
-    const c = orgSummary.company_count, n = orgSummary.tenant_count;
-    return `${c} ${c === 1 ? 'company' : 'companies'} · ${n} ${n === 1 ? 'tenant' : 'tenants'}`;
-  }
-  return `1 company · ${t ? t.name : ''}`;
+/* ---- theme ---- */
+function paintThemeBtn(){document.getElementById('themeBtn').innerHTML=ico(theme==='dark'?'sun':'moon');}
+function toggleTheme(){theme=theme==='light'?'dark':'light';document.documentElement.setAttribute('data-theme',theme);try{localStorage.setItem('lwTheme',theme);}catch(e){}paintThemeBtn();}
+
+/* ---- per-person memory ---- */
+function memKey(){const u=dashAccess&&dashAccess.user;return u?'lwShell:'+u.id:null;}
+function readMem(){try{const k=memKey();return k?JSON.parse(localStorage.getItem(k)||'null'):null;}catch(e){return null;}}
+function writeMem(){
+  const k=memKey();if(!k)return;
+  if(brand==='home') pagesByBrand.home=view; else pagesByBrand[brand]=view;
+  try{localStorage.setItem(k,JSON.stringify({last:brand,pages:pagesByBrand}));}catch(e){/* storage blocked */}
 }
-/* The brand mark: artwork when the brand has one, the tinted initials chip
-   otherwise. Both call sites share this so the switcher button and the menu can
-   never drift apart. */
-function brandMark(id,cls,domId){
-  const b=BRANDS[id],at=domId?` id="${domId}"`:'';
-  if(b.logo) return `<span${at} class="${cls} has-logo" data-brand="${id}"><img src="${esc(b.logo)}" alt="" onerror="brandMarkFailed(this)"></span>`;
-  return `<span${at} class="${cls}" data-brand="${id}" style="background:${b.color}">${b.short}</span>`;
-}
-/* A missing or broken logo file must still leave a legible mark, not an empty
-   white square - fall back to the initials the brand would have had. */
-function brandMarkFailed(img){
-  const host=img.parentNode; if(!host) return;
-  const b=BRANDS[host.getAttribute('data-brand')]; if(!b) return;
-  host.classList.remove('has-logo');
-  host.style.background=b.color;host.style.color='#fff';
-  host.textContent=b.short;
-}
-/* Only brands the user holds. With exactly one, the switcher still renders - the
-   workspace name is orientation, not just a control - but the dropdown is
-   suppressed, because a menu that cannot go anywhere invites a pointless click. */
-function buildBrandMenu(){
-  const allowed=allowedBrands();
-  document.getElementById('bpMenu').innerHTML=allowed.map(function(id){
-    const b=BRANDS[id];
-    return `<div class="bp-item ${id===brand?'active':''}" onclick="setBrand('${id}')">${brandMark(id,'bp-dot')}${b.name}</div>`;
+
+/* ---- rail + sidebar ---- */
+const singleBiz=()=>allowedBizz().length<=1;
+function railHtml(){
+  const keys=allowedBizz();
+  const home=`<button class="biz press ${brand==='home'?'on':''}" onclick="goHome()" aria-label="Home" aria-current="${brand==='home'}">${ico('home',20)}<span class="tip">Home: your tasks<i>Ctrl 0</i></span></button>`;
+  return home+`<div class="sh-rail-div"></div>`+keys.map((b,i)=>{
+    const x=BRANDS[b], on=brand===b;
+    const mark=b==='leavenwealth'?LW_MARK:`<span class="biz-mono ${x.tint}">${x.mono}</span>`;
+    return `<button class="biz press ${on?'on':''}" onclick="setBrand('${b}')" aria-label="${esc(x.name)}" aria-current="${on}">${mark}<span class="tip">${esc(x.name)}<i>Ctrl ${i+1}</i></span></button>`;
   }).join('');
-  const btn=document.querySelector('.bp-btn');
-  if(btn){
-    const single=allowed.length<2;
-    btn.classList.toggle('bp-single',single);
-    btn.style.cursor=single?'default':'';
-  }
+}
+function navBtn(id,label,icon,active,go,count){
+  return `<button class="nav-item press ${active?'active':''}" aria-current="${active?'page':'false'}" onclick="${go}">${ico(icon)}<span>${esc(label)}</span>${count!=null?`<span class="nav-count">${count}</span>`:''}</button>`;
+}
+function homeNavHtml(){
+  const c=window.PortalHome?PortalHome.counts():null;
+  return HOME_VIEWS.map(([k,l])=>navBtn(k,l,k,brand==='home'&&view===k,`goHome('${k}')`,c?c[k]:null)).join('');
+}
+function navHtml(){
+  if(brand==='home') return homeNavHtml();
+  const items=visibleMenu(brand);
+  const main=items.filter(it=>it[0]!=='exec'), ex=items.find(it=>it[0]==='exec');
+  return (singleBiz()?homeNavHtml()+`<div class="nav-div"></div>`:'')+
+    main.map(it=>navBtn(it[0],it[1],it[0],view===it[0],`setView('${it[0]}')`)).join('')+
+    (ex?`<div class="nav-div"></div>`+navBtn('exec','Executive board','exec',view==='exec',`setView('exec')`):'');
+}
+function pageLabel(){
+  if(brand==='home') return (HOME_VIEWS.find(x=>x[0]===view)||HOME_VIEWS[0])[1];
+  const it=visibleMenu(brand).find(x=>x[0]===view);return it?it[1]:'';
+}
+function crumbHtml(){
+  const sep=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="c-muted" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>`;
+  const parts=[brand==='home'?'Home':BRANDS[brand].name,pageLabel()];
+  if(brand!=='home'&&view==='exec'){const t=EXEC_TABS.find(x=>x[0]===execTab);if(t&&execTab!=='overview')parts.push(t[1]);}
+  return parts.map((p,i)=>i<parts.length-1?`<span class="c-muted">${esc(p)}</span>${sep}`:`<span aria-current="page">${esc(p)}</span>`).join('');
 }
 
-/* MENUS filtered by the access payload for the CURRENT brand's scope.
-   Section labels (items with .lbl and no .id) are dropped when nothing survives
-   beneath them - a heading with an empty body reads as a bug, not as a permission. */
-/* `access` is the ONE id exempt from the permission check - see canSeeAccess for
-   why it has to be, and why the missing per-brand catalog rows must not be added. */
-/* `access` and `tracker` are ROLE-gated, not permission-gated: neither has a row in
-   dashboard_module, so navLevel() returns null and the generic test would hide them
-   from everyone including the owner. Both sit under Admin and both are screens that
-   fix data rather than read it, so owner/admin is the right gate.
-
-   This is the ONLY place that exception lives. Adding a catalog row instead would make
-   them grantable, and "grantable" for the screen that fixes everyone's access is a
-   different decision - see the Users & Roles notes in CLAUDE.md. */
-function itemVisible(b,id){ return (id==='access'||id==='tracker') ? canSeeAccess() : !!navLevel(b,id); }
-function visibleMenu(b){
-  const items=MENUS[b]||[];
-  const out=[];
-  for(let i=0;i<items.length;i++){
-    const it=items[i];
-    if(it.lbl){
-      /* Look ahead to the next label: keep this one only if something between
-         here and there is visible. */
-      let any=false;
-      for(let j=i+1;j<items.length&&!items[j].lbl;j++){
-        if(itemVisible(b,items[j].id)){ any=true; break; }
-      }
-      if(any) out.push(it);
-      continue;
-    }
-    if(itemVisible(b,it.id)) out.push(it);
-  }
-  return out;
-}
-function buildNav(){
-  document.getElementById('nav').innerHTML=visibleMenu(brand).map(it=>it.lbl
-    ?`<div class="nav-lbl">${it.lbl}</div>`
-    :`<div class="nav-item ${it.id===view?'active':''}" onclick="setView('${it.id}')">${I[it.ic]}<span>${it.label}</span>${it.id==='tracker'?trkNavBadges():(it.badge?`<span class="badge">${it.badge}</span>`:'')}</div>`
-  ).join('');
-}
-/* The first nav id the user can actually open in a brand, or null. */
-function firstAllowedView(b){
-  const it=visibleMenu(b).find(x=>x.id);
-  return it?it.id:null;
-}
-function currentItem(){return (MENUS[brand]||[]).find(x=>x.id===view)||null;}
-function currentLabel(){const it=currentItem();return it?it.label:view;}
-function tasksSub(){return (brand!=='leavenwealth'&&tasksTab==='ptasks')?'overview':tasksTab;}
-/* Every Tasks screen reads ClickUp — Property Tasks and Tasks > Overview are
-   /ops embeds rather than native, but the data behind them is the same ClickUp
-   workspace the native All Tasks screen already gates. Without this the embeds
-   render off the server's shared token, so an unauthenticated visitor sees (and
-   can edit) ClickUp tasks attributed to nobody. portal-auth.js still gates only
-   the Tasks screens; the rest of the portal is untouched. */
-function needsClickUp(){return view==='tasks'||view==='alltasks';}
-function clickUpGated(){return needsClickUp()&&!!window.PortalAuth&&!PortalAuth.isSignedIn();}
-function clickUpGateHtml(){
-  return PortalAuth.gateHtml({note:'You only need this for Tasks. The rest of the portal works without it.'});
-}
-function isEmbedView(){
-  if(clickUpGated()) return false;
-  if(view==='alltasks') return true;   /* properties is native - see V.properties */
-  if(view==='loans'&&loansTab==='views') return true;
-  if(view==='tasks'){const s=tasksSub();if(s==='ptasks')return true;if(s==='overview'&&brandSpaces(brand).length)return true;}
-  return false;
-}
-/* Persistent iframes (kept alive across navigation so switching views never reloads/refetches the ops). */
-function embedInfo(){
-  const th=`&theme=${theme}`;
-  if(view==='tasks'){
-    const s=tasksSub();
-    if(s==='ptasks') return {key:'ptasks',src:`${OPS_URL}#tab=properties&sub=tasks&embed=1&bare=1${th}`,title:'Property Tasks'};
-    if(s==='overview'&&brandSpaces(brand).length){
-      const sp=brandSpaces(brand).join(',');
-      return {key:`btasks-overview-${brand}`,src:`${OPS_URL}#tab=overview&embed=1&spaces=${sp}${th}`,title:'Tasks Overview'};
-    }
-  }
-  if(view==='loans'&&loansTab==='views') return {key:'loanviews',src:`${OPS_URL}#tab=loanviews&embed=1${th}`,title:'Loan Views'};
-  if(view==='alltasks'){
-    const cur=OPS_TABS.find(t=>t[0]===opsTab)||OPS_TABS[1];
-    const sp=EXEC_SPACES.join(',');
-    return {key:'ops-'+cur[0],src:`${OPS_URL}#tab=${cur[0]}&embed=1&spaces=${sp}${th}`,title:cur[1]};
-  }
-  return null;
-}
-function showEmbed(info){
-  const host=document.getElementById('embedHost');
-  let f=host.querySelector('iframe[data-key="'+info.key+'"]');
-  if(!f){f=document.createElement('iframe');f.className='embedframe';f.setAttribute('data-key',info.key);f.title=info.title;f.loading='lazy';f.src=info.src;host.appendChild(f);}
-  Array.prototype.forEach.call(host.children,function(c){c.style.display=(c===f)?'':'none';});
-}
-function hideAllEmbeds(){const host=document.getElementById('embedHost');if(host)Array.prototype.forEach.call(host.children,function(c){c.style.display='none';});}
-/* ---- URL state ---------------------------------------------------------
-   The screen you are on lives in the hash, so a reload lands where you left off
-   instead of bouncing back to Overview, and a screen can be linked to. Written
-   with replaceState: navigating the portal is not browser history, and pushState
-   here would make Back walk backwards through every tab you touched.
-
-   portal-auth.js parses this same hash for its #auth=<token> hand-back and
-   preserves the params it does not own, so the two coexist. It also runs first
-   (script order in <head>), which means the token is already stripped by the
-   time readState() looks. */
-const SUBOF={tasks:()=>tasksTab,alltasks:()=>opsTab,loans:()=>loansTab,orgdept:()=>orgTab,departments:()=>orgTab};
-const SUBOK={tasks:['overview','all','ptasks'],alltasks:OPS_TABS.map(t=>t[0]),loans:['book','views'],orgdept:['org','dept'],departments:['org','dept']};
+/* ---- URL state: brand, view, sub, plus Properties' own params ---------- */
+function subOf(){ return view==='exec'?execTab:view==='departments'?deptTab:null; }
 function writeState(){
-  /* The fragment IS the incoming deep link until the access payload arrives. The
-     boot sequence renders once behind the gate before dashAccess exists, and that
-     render would otherwise rewrite the fragment to whatever the pre-permission
-     defaults were - so a shared link to Loans became a link to Overview before
-     anyone could act on it. Nothing is user-visible while the gate is up, so there
-     is nothing to lose by not writing yet. */
   if(!dashAccess) return;
   try{
     const p=new URLSearchParams();
     p.set('brand',brand);p.set('view',view);
-    const sub=SUBOF[view]&&SUBOF[view]();
-    if(sub)p.set('sub',sub);
-    /* A section can contribute its own deep-link params. writeState rebuilds
-       the fragment from scratch, so anything a section wrote directly would be
-       stripped on the next render - Properties needs level, entity, property,
-       tab and period in the URL for a property page to be shareable. */
-    if(view==='properties' && window.PortalProps && PortalProps.urlParams){
-      const extra=PortalProps.urlParams()||{};
-      Object.keys(extra).forEach(k=>{ if(extra[k]!==null&&extra[k]!==undefined&&extra[k]!=='') p.set(k,extra[k]); });
+    const s=subOf(); if(s) p.set('sub',s);
+    if(view==='properties'&&window.PortalProps&&PortalProps.urlParams){
+      const x=PortalProps.urlParams()||{};
+      Object.keys(x).forEach(k=>{if(x[k]!==null&&x[k]!==undefined&&x[k]!=='')p.set(k,x[k]);});
     }
-    /* ?v= is the one-shot hand-back from the ClickUp round trip (see
-       defaultReturnPath in portal-auth.js). It has been consumed by now, so drop
-       it - leaving it would pin the URL to a screen you have since navigated off. */
+    if(view==='team'&&teamFilter!=='all') p.set('who',teamFilter);
     const q=new URLSearchParams(location.search);q.delete('v');
     const qs=q.toString();
     history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#'+p.toString());
   }catch(e){/* a hash we cannot write is not worth breaking a render over */}
 }
-/* Anything unrecognised falls back to the default rather than throwing: the hash
-   is user-editable, and a stale link (a renamed view, a brand you lost access to)
-   must not leave the portal on a blank screen. */
+/* Returns true when the fragment named a place. Anything not permitted falls back
+   to a page the person can open, never to a "no access" screen. */
 function readState(){
   let p;
-  try{
-    /* Straight from the fragment on a reload; from ?v= when we have just come
-       back through ClickUp OAuth, which consumed the fragment for its token. */
-    const v=new URLSearchParams(location.search).get('v');
-    p=new URLSearchParams(v||(location.hash||'').replace(/^#/,''));
-  }catch(e){return;}
-  /* PERMISSION, not just existence. Filtering buildNav() gates the MENU; it does
-     not gate the ROUTE. Before this, #brand=leadli&view=leads reached Leadli
-     whether or not the user held it, and #brand=leavenwealth&view=loans reached
-     Loans for someone granted only Properties - the item was missing from the
-     sidebar while the screen rendered anyway.
-
-     A denied request falls back to something they do hold rather than being
-     honoured. RLS is still the real boundary; this is so the UI never shows a
-     screen the person was not granted. */
-  const b=p.get('brand');
-  if(b&&BRANDS[b]&&MENUS[b]&&scopeAccess(b))brand=b;
-  const v=p.get('view');
-  if(v&&(MENUS[brand]||[]).some(x=>x.id===v)&&itemVisible(brand,v))view=v;
-  else{const first=firstAllowedView(brand);view=first||'noaccess';}
-  const s=p.get('sub');
-  if(s&&SUBOK[view]&&SUBOK[view].indexOf(s)!==-1){
-    if(view==='tasks')tasksTab=s;
-    else if(view==='alltasks')opsTab=s;
-    else if(view==='loans')loansTab=s;
-    else orgTab=s;
-  }
+  try{const v=new URLSearchParams(location.search).get('v');p=new URLSearchParams(v||(location.hash||'').replace(/^#/,''));}catch(e){return false;}
+  const b=p.get('brand'), v=p.get('view'), s=p.get('sub');
+  if(!b) return false;
+  if(b==='home'){brand='home';view=HOME_VIEWS.some(x=>x[0]===v)?v:'mine';return true;}
+  if(!allowedBizz().includes(b)) return false;
+  brand=b; view=v&&itemVisible(b,v)?v:firstAllowedView(b);
+  if(view==='exec'&&s&&execTabs().some(t=>t[0]===s)) execTab=s;
+  if(view==='departments'&&s&&['list','org','dept'].includes(s)) deptTab=s;
+  if(view==='exec'&&s==='org'){const d=p.get('dsub');if(d)deptTab=d;}
+  const w=p.get('who'); teamFilter=['emp','con'].includes(w)?w:'all';
+  return true;
 }
+
+/* ---- render ---- */
 function render(){
   writeState();
-  /* Route change closes the account menu: leaving it open over a screen the user has
-     navigated away from is disorienting, and it contains a destructive action. */
+  if(dashAccess) writeMem();
   closeIdMenu(false);
-  applyAccent();buildBrandMenu();buildNav();
-  const b=BRANDS[brand];
-  /* outerHTML, so the mark can switch between an <img> and an initials chip as
-     the brand changes - setting textContent alone would leave a stale <img>. */
-  document.getElementById('bpGlyph').outerHTML=brandMark(brand,'bp-glyph','bpGlyph');
-  document.getElementById('bpName').textContent=b.name;
-  document.querySelector('.bp-sub').textContent = switcherSub();
-  document.getElementById('cbBrand').textContent=b.name;
-  document.getElementById('cbView').textContent=' / '+currentLabel();
+  const app=document.getElementById('app');
+  app.classList.toggle('solo',singleBiz());
+  document.getElementById('rail').hidden=singleBiz();
+  document.getElementById('rail').innerHTML=dashAccess?railHtml():'';
+  document.getElementById('sideTitle').textContent=brand==='home'?'Home':BRANDS[brand].name;
+  document.getElementById('nav').innerHTML=dashAccess?navHtml():'';
+  document.getElementById('crumb').innerHTML=dashAccess?crumbHtml():'';
   const content=document.getElementById('content');
-  const host=document.getElementById('embedHost');
-  const embed=isEmbedView();
-  /* Whether Financials renders the BUILT screen (which brings its own header
-     and wants the wide grid) or the not-set-up placeholder (which keeps the
-     generic header naming the brand). Declared here because both the class
-     line below and pageH read it. */
-  const finNative = view==='financials' && FINANCIALS_BUILT[brand];
-  /* Folio's Reports & Financials, which is also its Overview. Like the built
-     Financials screen it renders its own header, so the generic one is
-     suppressed - one screen carries one title. */
-  /* `reports` is Folio's Financials screen - see the mount below for why the
-     id and the label differ. */
-  const folioReports = brand==='folio' && view==='reports';
-  const folioUsers = brand==='folio' && view==='subscribers';
-  const info=embed?embedInfo():null;
-  content.className='content'+(embed?' wide embed-lean':((view==='properties'||finNative||folioReports||folioUsers||view==='leads')?' wide':''));
-  /* Read-only means read-only: no New button where the level is 'read'. The
-     database refuses the write anyway, but a button that always fails is worse
-     than no button. canWrite() resolves inside the current brand's scope.
-
-     Users & Roles names its action instead: "New" on an access screen is ambiguous -
-     new what - and this is the only thing it creates. It is the single control for
-     it; portal-users.js deliberately does not render its own, or there would be two
-     buttons doing the same job. Shown on the same role gate as the screen itself. */
-  const newBtn = view==='access'
-    ? (canSeeAccess()?`<button class="btn" onclick="PortalAccess.openInvite()">${I.plus} Invite person</button>`:'')
-    : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
-  /* The built Financials screen renders its own header; the placeholder does
-     not, so it keeps the generic one that names the brand. */
-  const pageH=(embed||view==='properties'||finNative||folioReports||folioUsers||view==='leads')?'':`<div class="page-h"><div><div class="page-t">${currentLabel()}</div><div class="page-s">${b.name}</div></div>${newBtn}</div>`;
-  content.innerHTML=pageH+(V[view]?V[view]():`<div class="placeholder">${I.grid}<div>${currentLabel()}</div></div>`);
-  /* The native Tasks screen must be painted after innerHTML replaces the
-     container, not from inside the template string. brandSpaces and BRANDS are
-     script-scoped consts, so portal-tasks.js cannot read them - pass them in. */
-  if(view==='tasks' && tasksSub()==='all' && window.PortalTasks){
-    /* readOnly hides the Tasks screen's write affordances - the status, assignee,
-       due and priority popovers - for someone holding Tasks at 'read'. */
-    PortalTasks.render(brand,'tasksNative',{spaces:brandSpaces(brand),brandName:BRANDS[brand].name,
-                                            readOnly:!canWrite('tasks')});
+  if(!dashAccess){content.innerHTML='';return;}
+  content.className='content view-in'+(view==='properties'?' props':(view==='financials'||view==='reports'||(view==='exec'&&execTab==='financials'))?' wide':'');
+  if(brand==='home'){
+    content.innerHTML='<div id="homeNative"></div>';
+    if(window.PortalHome) PortalHome.mount(document.getElementById('homeNative'),{view,onCounts:()=>{document.getElementById('nav').innerHTML=navHtml();}});
+    return;
   }
-  /* Users & Roles, same arrangement. `scope` is what makes one component serve both
-     views: 'exec' lists everyone with the businesses they reach, a company id lists
-     only people who can reach that business. */
-  if(view==='leads' && window.PortalGHL){
-    PortalGHL.mount(document.getElementById('ghlNative'),
-                    {companyId:brandCompanyId(brand), brandName:BRANDS[brand].name});
-  }
-  /* Folio's Financials.
-
-     The nav id is `reports` and the LABEL is "Financials": Folio has exactly
-     one Financials item, and `reports` is the id that can carry it because it
-     is the one with a `dashboard_module` row. Folio has no `financials` row
-     (verified live), so an item on that id could never appear - which is why
-     the duplicate entry was removed from Folio's menu rather than this one. */
-  if(brand==='folio' && view==='reports' && window.PortalFolioFin){
-    PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
-  }
-  /* App Users is the same table without the cards, from the same module and
-     the same endpoint - so it cannot disagree with Financials about how many
-     subscribers there are. */
-  if(brand==='folio' && view==='subscribers' && window.PortalFolioFin){
-    PortalFolioFin.mountUsers(document.getElementById('folioUsersNative'));
-  }
-  /* Leadli reads the payment stream; LeavenWealth reads balance snapshots.
-     Same nav id, different module - FINANCIALS_BUILT names which. */
-  if(view==='financials' && FINANCIALS_BUILT[brand]==='leadli' && window.PortalLeadliFin){
-    PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
-  }
-  else if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
-    PortalFinancials.mount(document.getElementById('financialsNative'));
-  }
-  /* Properties is v2 (docs/PROPERTIES_SPEC.md): portal-props.js, the port of
-     the approved mockup. portal-reporting.js (Phase 2) and portal-properties.js
-     are still loaded but nothing routes to them; delete both once v2 has been
-     live a while. */
-  if(view==='properties' && window.PortalProps){
-    PortalProps.mount(document.getElementById('reportingNative'));
-  }
-  if(view==='views' && window.PortalViews){
-    PortalViews.mount(document.getElementById('viewsNative'));
-  }
-  if(view==='access' && window.PortalAccess && canSeeAccess()){
-    PortalAccess.mount(document.getElementById('usersNative'), { me: dashAccess&&dashAccess.user });
-  }
-  if(embed && info){ showEmbed(info); host.hidden=false; }
-  else { host.hidden=true; hideAllEmbeds(); }
+  content.innerHTML=V[view]?V[view]():'';
+  if(view==='properties'&&window.PortalProps) PortalProps.mount(document.getElementById('reportingNative'));
+  if(brand==='folio'&&view==='financials'&&window.PortalFolioFin) PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
+  if(brand==='folio'&&view==='reports'&&window.PortalFolioFin) PortalFolioFin.mount(document.getElementById('folioSubsNative'));
+  if(brand==='leadli'&&view==='financials'&&window.PortalLeadliFin) PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
+  if(view==='exec'&&execTab==='financials'&&window.PortalFinancials) PortalFinancials.mount(document.getElementById('financialsNative'));
+  if(view==='exec'&&execTab==='access'&&window.PortalAccess&&isAdmin()) PortalAccess.mount(document.getElementById('usersNative'),{me:dashAccess.user});
 }
-/* Both setters refuse anything the access payload does not carry, so a stale
-   onclick, a console call or a race cannot land somewhere ungranted. */
-function setBrand(id){
-  if(!BRANDS[id]||!MENUS[id]||!scopeAccess(id)) return;
-  brand=id;
-  view=firstAllowedView(id)||'noaccess';
-  tasksTab='overview';
-  document.getElementById('bpMenu').classList.remove('open');
+function goHome(v){brand='home';view=v||pagesByBrand.home||'mine';render();}
+function setBrand(b){
+  if(!allowedBizz().includes(b)) return;
+  brand=b;
+  const last=pagesByBrand[b];
+  view=last&&itemVisible(b,last)?last:firstAllowedView(b);
+  document.getElementById('scroll').scrollTop=0;
   render();
 }
 function setView(id){
-  if(!itemVisible(brand,id)) return;   /* itemVisible, not navLevel: `access` is role-gated */
-  view=id;
-  if(id!=='tasks')tasksTab='overview';
-  render();
+  if(brand==='home'||!itemVisible(brand,id)) return;
+  view=id;document.getElementById('scroll').scrollTop=0;render();
 }
-document.documentElement.setAttribute('data-theme',theme);
-document.getElementById('themeBtn').innerHTML=theme==='dark'?I.sun:I.moon;
-/* ClickUp sign-in state. init() reads localStorage synchronously so the first
-   paint is right, then verifies against /auth/me in the background.
-   portal-tasks.js subscribes to PortalAuth.onChange itself, so a correction
-   re-renders the Tasks view without portal.html doing anything. */
-if(window.PortalAuth){
-  PortalAuth.init();
-  /* A sign-out, or a 401 from a revoked token, has to put the gate back on the
-     embedded Tasks screens too - portal-tasks.js only owns #tasksNative. */
-  PortalAuth.onChange(function(){render();});
-}
-
-/* Live sync. The server sends table names only; portal-realtime.js decides which
-   views are stale. Only the visible view refetches - the rest are marked dirty
-   and refetch when next opened. */
-if(window.PortalRealtime) PortalRealtime.start({
-  currentView: function(){ return view; },
-  rerender:    function(){ render(); },
-  indicator:   'rtStamp',
-  invalidate:  function(v){
-    if(v==='*' || v==='loans'){ loansCache=null; }
-    if(v==='*' || v==='ads'){ adsFetched=false; adsRows=null; adsBrandKey=null; }
-    if((v==='*' || v==='tasks') && window.PortalTasks){ PortalTasks.invalidate(); }
-    /* Users & Roles caches its list, so rerender() alone would repaint the SAME rows
-       it already had. Dropping the cache is what makes the refresh a refetch. */
-    if((v==='*' || v==='access') && window.PortalAccess){ PortalAccess.invalidate(); }
-    /* Properties caches the payload in the module AND the server caches it for
-       five minutes, so this has to force past both. property, unit, loan,
-       ownership and entity are all already bound to the 'properties' view in
-       TABLE_VIEWS - a stale read on this screen is a wrong debt figure, not a
-       slow one. */
-    if((v==='*' || v==='properties') && window.PortalProperties){ PortalProperties.invalidate(); }
-    /* The curated section caches its summary, its fee year and each property's
-       tabs, so rerender() alone repaints the identical rows off the same
-       cache - the same half-measure the Users screen hit. Both halves are
-       required: drop the cache AND repaint. */
-    if((v==='*' || v==='properties') && window.PortalProps){ PortalProps.invalidate(); }
-    if((v==='*' || v==='views') && window.PortalViews){ PortalViews.invalidate(); }
-    /* Financials caches its filter option lists and its summary, so rerender()
-       alone would repaint the same rows off the same cache. */
-    if((v==='*' || v==='financials') && window.PortalFinancials){ PortalFinancials.invalidate(); }
-    if((v==='*' || v==='financials') && window.PortalFolioFin){ PortalFolioFin.invalidate(); }
-  if((v==='*' || v==='financials') && window.PortalLeadliFin){ PortalLeadliFin.invalidate(); }
-    /* Leads caches its list per brand, so rerender() alone would repaint the
-       same rows off the same cache. */
-    if((v==='*' || v==='leads') && window.PortalGHL){ PortalGHL.invalidate(); }
-    /* Team directory caches its list the same way, so the staff binding in
-       TABLE_VIEWS only refreshes it if the cache is dropped first. */
-    if(v==='*' || v==='team'){ teamRows=null; teamErr=null; }
-  },
+/* Ctrl+0 Home, Ctrl+1..4 the businesses in rail order. */
+document.addEventListener('keydown',function(e){
+  if(!(e.ctrlKey||e.metaKey)||e.altKey||e.shiftKey||!dashAccess) return;
+  if(!/^[0-4]$/.test(e.key)) return;
+  if(e.key==='0'){e.preventDefault();goHome();return;}
+  const b=allowedBizz()[Number(e.key)-1];
+  if(b&&!singleBiz()){e.preventDefault();setBrand(b);}
 });
 
-/* Workspace-switcher counts: fetch once on boot, re-render when they land. */
-fetch('/api/org/summary').then(r => r.ok ? r.json() : null).then(d => {
-  if (d && !d.error) { orgSummary = d; render(); }
-}).catch(() => {});
-readState();   /* before the first render, so a reload paints the right screen once */
-/* Someone pasting a portal link into the tab they already have open changes only
-   the fragment, which is not a navigation - without this the URL would say one
-   screen and the app would show another. writeState() uses replaceState, which
-   never fires hashchange, so this cannot loop. */
-window.addEventListener('hashchange',function(){readState();render();});
+paintThemeBtn();
+if(window.PortalAuth){
+  PortalAuth.init();
+  /* Signing in or out of ClickUp changes what Home can show. */
+  PortalAuth.onChange(function(){ if(window.PortalHome) PortalHome.reset(); if(brand==='home') render(); });
+}
+if(window.PortalRealtime) PortalRealtime.start({
+  currentView:function(){ return view==='exec'?(execTab==='access'?'access':execTab==='financials'?'financials':'exec'):view; },
+  rerender:function(){ render(); },
+  invalidate:function(v){
+    if(v==='*'||v==='access'){ if(window.PortalAccess) PortalAccess.invalidate(); }
+    if((v==='*'||v==='properties')&&window.PortalProps) PortalProps.invalidate();
+    if((v==='*'||v==='financials')&&window.PortalFinancials) PortalFinancials.invalidate();
+    if((v==='*'||v==='financials')&&window.PortalFolioFin) PortalFolioFin.invalidate();
+    if((v==='*'||v==='financials')&&window.PortalLeadliFin) PortalLeadliFin.invalidate();
+    if(v==='*'||v==='financials'){ dropData('/api/folio/'); dropData('/api/leadli/'); }
+    if(v==='*'||v==='team'){ dropData('/api/shell/team'); dropData('/api/shell/departments'); }
+    if(v==='*'||v==='tracker') dropData('/api/tracker');
+  },
+});
+window.addEventListener('hashchange',function(){ if(readState()) render(); });
 render();
 
 /* ===========================================================================
-   AUTH GATE, part 2 of 2. The style tag in <head> hides the body; this decides
-   whether to reveal it or leave for /login.
-
-   The shell above has already rendered behind the curtain. That is deliberate:
-   building first and revealing second means no layout jump, and a signed-out
-   visitor still never sees a frame of it because visibility:hidden applies from
-   before the first paint.
-
-   `access` is dash_my_access(), fetched ONCE and held. Step 3 gates the switcher
-   and the nav off it.
-   =========================================================================== */
-/* ===========================================================================
    Identity: the sidebar chip, its menu, and the read-only profile panel.
-
-   Everything here reads the dash_my_access() payload already held in dashAccess -
-   no extra round trip. The module LABELS come from GET /api/access/modules, so the
-   panel reads "Properties: Read & Write" rather than "properties: write"; the
-   labels are fetched once, only when the panel is first opened.
    =========================================================================== */
-const ROLE_WORD={owner:'Owner',admin:'Administrator',user:'User'};
-let moduleLabels=null;      /* "<scope>::<nav_id>" -> label */
-
-function idInitials(u){
-  const n=(u&&u.full_name||'').trim();
-  if(n){const p=n.split(/\s+/);return ((p[0]||'')[0]||'')+(p.length>1?(p[p.length-1][0]||''):'');}
-  return ((u&&u.email||'?')[0]||'?').toUpperCase();
-}
-
+let moduleLabels=null;
 function renderIdentity(){
   const u=dashAccess&&dashAccess.user; if(!u) return;
-  /* The signed-in person's headshot, layered over their initials exactly like every
-     other avatar here - so a photo that fails to load leaves the chip rather than an
-     empty circle. dash_my_access() already returns avatar_url; only this was ignoring
-     it, which is why the chip stayed initials while the lists showed photos. */
   const av=document.getElementById('idAvatar');
-  av.innerHTML=esc(idInitials(u).toUpperCase())+
-    (u.avatar_url?`<img src="${esc(u.avatar_url)}" alt="" onerror="staffPhotoFailed(this)">`:'');
+  av.innerHTML=esc(initialsOf(u.full_name||u.email))+(u.avatar_url?`<img src="${esc(u.avatar_url)}" alt="" onerror="staffPhotoFailed(this)">`:'');
   av.classList.toggle('has-photo',!!u.avatar_url);
   document.getElementById('idName').textContent=u.full_name||u.email;
   document.getElementById('idRole').textContent=ROLE_WORD[u.role]||u.role||'';
 }
-
 function closeIdMenu(returnFocus){
   const m=document.getElementById('idMenu'); if(!m||m.hidden) return;
-  m.hidden=true;
-  document.getElementById('idChip').setAttribute('aria-expanded','false');
-  /* Focus goes back to the control that opened it, or keyboard users are dropped
-     at the top of the document. */
+  m.hidden=true;document.getElementById('idChip').setAttribute('aria-expanded','false');
   if(returnFocus) document.getElementById('idChip').focus();
 }
-
 function toggleIdMenu(ev){
   if(ev) ev.stopPropagation();
   const m=document.getElementById('idMenu');
   if(!m.hidden) return closeIdMenu(true);
   const u=(dashAccess&&dashAccess.user)||{};
-  m.innerHTML=
-    `<div class="idmenu-h">
-       <div class="idmenu-n">${esc(u.full_name||'')}</div>
-       <div class="idmenu-e">${esc(u.email||'')}</div>
-       <div class="idmenu-r">Role: ${esc(ROLE_WORD[u.role]||u.role||'')}</div>
-     </div>
-     <button class="idmenu-i" role="menuitem" onclick="openProfile()">${I.user||I.users}<span>Profile settings</span></button>
-     <button class="idmenu-i danger" role="menuitem" onclick="portalSignOut()">${I.logout||I.lock}<span>Log out</span></button>`;
-  m.hidden=false;
-  document.getElementById('idChip').setAttribute('aria-expanded','true');
+  m.innerHTML=`<div class="idmenu-h"><div class="idmenu-n">${esc(u.full_name||'')}</div><div class="idmenu-e">${esc(u.email||'')}</div><div class="idmenu-r">Role: ${esc(ROLE_WORD[u.role]||u.role||'')}</div></div>
+    <button class="idmenu-i" role="menuitem" onclick="openProfile()">${ico('user')}<span>Profile settings</span></button>
+    <button class="idmenu-i danger" role="menuitem" onclick="portalSignOut()">${ico('logout')}<span>Log out</span></button>`;
+  m.hidden=false;document.getElementById('idChip').setAttribute('aria-expanded','true');
   const first=m.querySelector('.idmenu-i'); if(first) first.focus();
 }
-
-/* Outside click and Escape. Bound once, at parse time, rather than per open. */
 document.addEventListener('click',function(ev){
   const m=document.getElementById('idMenu');
   if(!m||m.hidden) return;
@@ -1695,26 +622,18 @@ document.addEventListener('keydown',function(ev){
   if(ev.key!=='Escape') return;
   const m=document.getElementById('idMenu');
   if(m&&!m.hidden) closeIdMenu(true);
+  closeDrawer();
 });
-
-/* PROFILE PANEL - read-only by decision. Name, email and role are changed on Users
-   & Roles by an administrator, not here, so this states that rather than offering
-   inputs that do nothing. */
 function openProfile(){
   closeIdMenu(false);
   if(!moduleLabels){
-    moduleLabels={};   /* set before the fetch so a second click cannot double-fire */
-    PortalSession.client().then(c=>c.auth.getSession()).then(r=>{
-      const t=r&&r.data&&r.data.session&&r.data.session.access_token;
-      return fetch('/api/access/modules',{headers:{Authorization:'Bearer '+t}});
-    }).then(r=>r.ok?r.json():{modules:[]}).then(d=>{
+    moduleLabels={};
+    const get=PortalSession.getJson?PortalSession.getJson('/api/access/modules'):PortalSession.client().then(c=>c.auth.getSession()).then(r=>fetch('/api/access/modules',{headers:{Authorization:'Bearer '+(r&&r.data&&r.data.session&&r.data.session.access_token)}})).then(r=>r.json());
+    get.then(d=>{
       (d.modules||[]).forEach(m=>{moduleLabels[(m.company_id||'exec')+'::'+m.nav_id]=m.label;});
-      /* Repaint only if it is still open - the labels can land after a close. */
       if(document.getElementById('profileDrawer').classList.contains('open')) paintProfile();
     }).catch(()=>{});
   }
-  /* .open, not the hidden attribute: .scrim and .drawer animate on that class, and
-     display:none would kill the transition. */
   document.getElementById('profileScrim').classList.add('open');
   document.getElementById('profileDrawer').classList.add('open');
   paintProfile();
@@ -1724,127 +643,69 @@ function closeProfile(){
   document.getElementById('profileDrawer').classList.remove('open');
   document.getElementById('idChip').focus();
 }
-function levelWord(l){ return l==='write'?'Read & Write':'Read'; }
-
 function paintProfile(){
-  const u=(dashAccess&&dashAccess.user)||{};
-  const acc=(dashAccess&&dashAccess.access)||{};
-  const companies=(dashAccess&&dashAccess.companies)||{};
+  const u=(dashAccess&&dashAccess.user)||{}, acc=(dashAccess&&dashAccess.access)||{}, companies=(dashAccess&&dashAccess.companies)||{};
   let accessHtml;
-  if(u.role==='owner'){
-    /* 49 rows that always say the same thing tell nobody anything. */
-    accessHtml='<div class="pf-full">Full access to all workspaces.</div>';
-  }else{
+  if(u.role==='owner') accessHtml='<div class="pf-full">Full access to all workspaces.</div>';
+  else{
     const scopes=Object.keys(acc);
     accessHtml=scopes.length?scopes.map(s=>{
-      const name=s==='exec'?'Executive Board':(companies[s]||'A business');
-      const mods=acc[s]||{};
-      const rows=Object.keys(mods).map(nav=>{
-        const label=(moduleLabels&&moduleLabels[s+'::'+nav])||nav;
-        return `<li>${esc(label)}: ${esc(levelWord(mods[nav]))}</li>`;
-      }).join('');
-      return `<div class="pf-scope"><div class="pf-scope-n">${esc(name)}</div><ul>${rows}</ul></div>`;
+      const name=s==='exec'?'Executive board':(companies[s]||'A business'), mods=acc[s]||{};
+      return `<div class="pf-scope"><div class="pf-scope-n">${esc(name)}</div><ul>${Object.keys(mods).map(n=>`<li>${esc((moduleLabels&&moduleLabels[s+'::'+n])||n)}: ${mods[n]==='write'?'Read & Write':'Read'}</li>`).join('')}</ul></div>`;
     }).join(''):'<div class="pf-full">No access has been granted yet.</div>';
   }
-  document.getElementById('profileDrawer').innerHTML=
-    `<div class="pf-head">
-       <div><div class="pf-t">Profile settings</div><div class="pf-s">Your account and what it can reach</div></div>
-       <button class="pf-x" onclick="closeProfile()" aria-label="Close">&#10005;</button>
-     </div>
-     <div class="pf-body">
-       <div class="pf-row"><span class="pf-k">Name</span><span class="pf-v">${esc(u.full_name||'—')}</span></div>
-       <div class="pf-row"><span class="pf-k">Email</span><span class="pf-v">${esc(u.email||'—')}</span></div>
-       <div class="pf-row"><span class="pf-k">Role</span><span class="pf-v">${esc(ROLE_WORD[u.role]||u.role||'—')}</span></div>
-       <div class="pf-note">These are managed for you. To change your name, email or
-         role, contact an administrator &mdash; they can update them on Users &amp; Roles.</div>
-       <div class="pf-sec">Your access</div>
-       ${accessHtml}
-     </div>`;
+  document.getElementById('profileDrawer').innerHTML=`<div class="pf-head"><div><div class="pf-t">Profile settings</div><div class="pf-s">Your account and what it can reach</div></div><button class="pf-x" onclick="closeProfile()" aria-label="Close">&#10005;</button></div>
+    <div class="pf-body"><div class="pf-row"><span class="pf-k">Name</span><span class="pf-v">${esc(u.full_name||'–')}</span></div>
+    <div class="pf-row"><span class="pf-k">Email</span><span class="pf-v">${esc(u.email||'–')}</span></div>
+    <div class="pf-row"><span class="pf-k">Role</span><span class="pf-v">${esc(ROLE_WORD[u.role]||u.role||'–')}</span></div>
+    <div class="pf-note">These are managed for you. To change your name, email or role, contact an administrator.</div>
+    <div class="pf-sec">Your access</div>${accessHtml}</div>`;
 }
 
+/* ===========================================================================
+   AUTH GATE, part 2 of 2: reveal for a confirmed session, otherwise /login.
+   =========================================================================== */
 function reveal(){ const g=document.getElementById('authGate'); if(g) g.remove(); }
 function toLogin(){ location.replace('/login'); }
-
-/* A plain page rather than the shell. Someone with a valid Supabase session but no
-   staff row, or dashboard_access = false, has authenticated but has been granted
-   nothing - rendering the empty shell would look broken. Step 3 replaces this with
-   the full "no access" treatment and the filtered switcher. */
 function showNoAccess(msg){
-  document.querySelector('.app').innerHTML =
-    `<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;padding:32px">
-       <div style="max-width:420px;text-align:center">
-         <div style="font-size:15px;font-weight:650;margin-bottom:8px">No access yet</div>
-         <div style="font-size:13px;color:var(--text2);line-height:1.6">${esc(msg)}</div>
-         <button class="btn" style="margin-top:18px" onclick="portalSignOut()">Sign out</button>
-       </div>
-     </div>`;
+  document.getElementById('app').innerHTML=`<div style="grid-column:1/-1;display:flex;align-items:center;justify-content:center;padding:32px"><div style="max-width:420px;text-align:center">
+    <div style="font-size:15px;font-weight:600;margin-bottom:8px">No access yet</div><div class="muted" style="line-height:1.6">${esc(msg)}</div>
+    <button class="btn" style="margin-top:18px" onclick="portalSignOut()">Sign out</button></div></div>`;
   reveal();
 }
-
-/* One teardown, used by the menu, by an expired remember-window and by a
-   SIGNED_OUT event, so the three cannot drift. PortalSession.signOut() clears the
-   remember stamp first, then Supabase, then the ClickUp token. */
-function portalSignOut(){
-  if(!window.PortalSession) return toLogin();
-  PortalSession.signOut().then(toLogin, toLogin);
-}
+function portalSignOut(){ if(!window.PortalSession) return toLogin(); PortalSession.signOut().then(toLogin,toLogin); }
 
 if(window.PortalSession){
-  /* enforceRememberWindow FIRST: past the 30-day stamp the session is torn down
-     before we even look at it, because Supabase would otherwise refresh forever. */
   PortalSession.enforceRememberWindow()
-    .then(function(expired){ if(expired) { toLogin(); return null; } return PortalSession.getSession(); })
+    .then(function(expired){ if(expired){ toLogin(); return null; } return PortalSession.getSession(); })
     .then(function(session){
       if(!session){ toLogin(); return null; }
       return PortalSession.access().catch(function(err){
-        showNoAccess('Your access could not be loaded: '+(err&&err.message||err)+
-                     ' If this persists, contact an administrator.');
+        showNoAccess('Your access could not be loaded: '+(err&&err.message||err)+' If this persists, contact an administrator.');
         return undefined;
       });
     })
     .then(function(a){
-      if(a===undefined||a===null) return;          /* already redirected or handled */
+      if(a===undefined||a===null) return;
       dashAccess=a;
-      if(!a.user){
-        showNoAccess('Your account can sign in, but no dashboard access has been granted to it yet. '+
-                     'Contact an administrator to be given access.');
-        return;
+      if(!a.user){ showNoAccess('Your account can sign in, but no dashboard access has been granted to it yet. Contact an administrator to be given access.'); return; }
+      if(!allowedBizz().length){ showNoAccess('No business access has been granted to your account yet. Contact an administrator to be given access to a business.'); return; }
+      /* Memory first, the URL over it: a shared link still lands where it points. */
+      const mem=readMem();
+      if(mem&&mem.pages) Object.assign(pagesByBrand,mem.pages);
+      if(!readState()){
+        if(mem&&mem.last&&mem.last!=='home'&&allowedBizz().includes(mem.last)) setBrandQuiet(mem.last);
+        else { brand='home'; view=pagesByBrand.home||'mine'; }
       }
-      /* A staff row with dashboard_access but no grants at all: authenticated,
-         recognised, and holding nothing. Distinct from the case above, and it
-         reaches the same page rather than an empty shell. */
-      if(allowedBrands().length===0){
-        showNoAccess('No workspace access has been granted to your account yet. '+
-                     'Contact an administrator to be given access to a business.');
-        return;
-      }
-      /* Pick the landing screen from what they hold. Exec first, because the group
-         view is the intended default, then the first workspace they do hold - a
-         user without an Exec grant used to land on an empty Executive Board because
-         `brand` and `view` were initialised to 'all'/'exec' unconditionally. */
-      if(!scopeAccess(brand)) brand=allowedBrands()[0];
-      if(!navLevel(brand,view)) view=firstAllowedView(brand)||'noaccess';
-      /* Re-apply the fragment now that the payload exists, so a deep link is
-         honoured when it is allowed and dropped when it is not. readState() ran
-         before the payload landed, when every permission check was a no-op. */
-      readState();
-      renderIdentity();     /* the sidebar chip, from the same payload */
+      renderIdentity();
       render();
       reveal();
     })
     .catch(function(){ toLogin(); });
-
-  /* Involuntary sign-out - a revoked session, a refresh that fails - runs the same
-     teardown as the menu rather than leaving a dead shell on screen. */
-  PortalSession.client().then(function(c){
-    c.auth.onAuthStateChange(function(event){
-      if(event==='SIGNED_OUT') portalSignOut();
-    });
-  }).catch(function(){});
+  PortalSession.client().then(function(c){ c.auth.onAuthStateChange(function(ev){ if(ev==='SIGNED_OUT') portalSignOut(); }); }).catch(function(){});
 }else{
-  /* portal-session.js failed to load. Fail closed: this is the gate. */
   toLogin();
 }
-restoreSidebar();
+function setBrandQuiet(b){ brand=b; const last=pagesByBrand[b]; view=last&&itemVisible(b,last)?last:firstAllowedView(b); }
 </script>
 </body></html>

@@ -193,9 +193,13 @@ function rowsSql(isTest) {
            sp.raw->>'receipt_number' as receipt_number,
            sp.raw->>'failure_message' as failure_message,
            ${isTest} as is_test,
+           /* $3 must appear: Postgres refuses a bound parameter a statement
+              never uses ("could not determine data type of parameter $3"),
+              which 500'd /payments on every request. */
            case
              when sp.billing_reason = any($4::text[]) then 'One-time'
              when sp.billing_reason is null           then 'Unknown'
+             when sp.billing_reason = any($3::text[]) then 'Subscription'
              else 'Subscription'
            end as service_type
       from public.sales_payment sp
