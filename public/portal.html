@@ -7,7 +7,7 @@
      ever see the portal at "/". See portal-sw-cleanup.js. -->
 <script src="/portal-sw-cleanup.js"></script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Instrument+Sans:ital,wght@0,400;0,500;0,600;1,400&family=JetBrains+Mono:wght@400;500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <!-- Supabase browser client (live reads; RLS-gated). Deferred + optional: if it fails
      to load, the app falls back to baked data and never breaks. -->
 <script defer src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -24,6 +24,7 @@
 <link rel="stylesheet" href="/tokens.css">
 <link rel="stylesheet" href="/portal-properties.css">
 <link rel="stylesheet" href="/portal-reporting.css">
+<link rel="stylesheet" href="/portal-props.css">
 <link rel="stylesheet" href="/portal-financials.css">
 <link rel="stylesheet" href="/portal-ghl.css">
 <style>
@@ -433,6 +434,7 @@ tbody tr:hover{background:var(--panel-2)}
 <script src="/portal-setup.js"></script>
 <script src="/portal-reporting.js"></script>
 <script src="/portal-saved-views.js"></script>
+<script src="/portal-props.js"></script>
 <script src="/portal-financials.js"></script>
 <script src="/portal-folio-fin.js"></script>
 <script src="/portal-leadli-fin.js"></script>
@@ -1382,8 +1384,8 @@ function writeState(){
        the fragment from scratch, so anything a section wrote directly would be
        stripped on the next render - Properties needs level, entity, property,
        tab and period in the URL for a property page to be shareable. */
-    if(view==='properties' && window.PortalReporting && PortalReporting.urlParams){
-      const extra=PortalReporting.urlParams()||{};
+    if(view==='properties' && window.PortalProps && PortalProps.urlParams){
+      const extra=PortalProps.urlParams()||{};
       Object.keys(extra).forEach(k=>{ if(extra[k]!==null&&extra[k]!==undefined&&extra[k]!=='') p.set(k,extra[k]); });
     }
     /* ?v= is the one-shot hand-back from the ClickUp round trip (see
@@ -1513,12 +1515,12 @@ function render(){
   else if(view==='financials' && FINANCIALS_BUILT[brand]==='lw' && window.PortalFinancials){
     PortalFinancials.mount(document.getElementById('financialsNative'));
   }
-  /* Properties is the curated-dataset section now (Phase 2), READ-ONLY.
-     portal-properties.js is still loaded and still exports PortalProperties;
-     nothing routes to it, and it is the next thing to delete once this has
-     been live a while. */
-  if(view==='properties' && window.PortalReporting){
-    PortalReporting.mount(document.getElementById('reportingNative'));
+  /* Properties is v2 (docs/PROPERTIES_SPEC.md): portal-props.js, the port of
+     the approved mockup. portal-reporting.js (Phase 2) and portal-properties.js
+     are still loaded but nothing routes to them; delete both once v2 has been
+     live a while. */
+  if(view==='properties' && window.PortalProps){
+    PortalProps.mount(document.getElementById('reportingNative'));
   }
   if(view==='views' && window.PortalViews){
     PortalViews.mount(document.getElementById('viewsNative'));
@@ -1587,7 +1589,7 @@ if(window.PortalRealtime) PortalRealtime.start({
        tabs, so rerender() alone repaints the identical rows off the same
        cache - the same half-measure the Users screen hit. Both halves are
        required: drop the cache AND repaint. */
-    if((v==='*' || v==='properties') && window.PortalReporting){ PortalReporting.invalidate(); }
+    if((v==='*' || v==='properties') && window.PortalProps){ PortalProps.invalidate(); }
     if((v==='*' || v==='views') && window.PortalViews){ PortalViews.invalidate(); }
     /* Financials caches its filter option lists and its summary, so rerender()
        alone would repaint the same rows off the same cache. */
