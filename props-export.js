@@ -174,6 +174,7 @@ function pdf(x) {
     const range = doc.bufferedPageRange();
     for (let i = 0; i < range.count; i++) {
       doc.switchToPage(i);
+      doc.page.margins.bottom = 0;   /* the footer sits below the margin; without this pdfkit adds a blank page */
       doc.fillColor(MUTED).font('Helvetica').fontSize(7).text((x.title || x.base) + '   ' + (i + 1) + ' of ' + range.count,
         X0, doc.page.height - 26, { width: W, align: 'right', lineBreak: false });
     }

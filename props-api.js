@@ -360,7 +360,13 @@ async function monthly(req, res, who) {
   const p = await propRow(who.tenantId, id);
   if (!p) return res.status(404).json({ error: 'No such property.' });
   const per = period(req.query, await dataThrough(who.tenantId));
-  const args = [who.tenantId, id, per.from + '-01', per.to + '-01'];
+  res.json(Object.assign({ ok: true, property: p }, await monthlyData(who.tenantId, id, per)));
+}
+
+/* the monthly figures and both statements for one property and period; the
+   Monthly financials tab and the Reports tab read the same thing */
+async function monthlyData(tenantId, id, per) {
+  const args = [tenantId, id, per.from + '-01', per.to + '-01'];
 
   const pm = await q(`
     select to_char(month, 'YYYY-MM') m, has_data, total_operating_income inc, total_operating_expense opx, noi,
@@ -404,8 +410,8 @@ async function monthly(req, res, who) {
   const st = pivot(lines, 'section');
   const cf = pivot(cash, 'activity');
   const src = pm.find(r => r.debt_service_source);
-  res.json({
-    ok: true, property: p, from: per.from, to: per.to, months: per.months, labels: per.months.map(ymShort),
+  return {
+    from: per.from, to: per.to, months: per.months, labels: per.months.map(ymShort),
     series: {
       inc: col('inc'), opx: col('opx'), noi: col('noi'), rent: col('rent_income'),
       recurringFee: col('recurring_fee_income'), nonRecurringFee: col('non_recurring_fee_income'),
@@ -419,7 +425,7 @@ async function monthly(req, res, who) {
       nonopIncome: st.non_operating_income || [], nonopExpense: st.non_operating_expense || [],
       operating: cf.operating || [], financing: cf.financing || [], investing: cf.investing || [],
     },
-  });
+  };
 }
 
 function dsSourceText(s) {
@@ -436,21 +442,27 @@ async function optimized(req, res, who) {
   if (!id) return res.status(400).json({ error: 'A property id is required.' });
   const p = await propRow(who.tenantId, id);
   if (!p) return res.status(404).json({ error: 'No such property.' });
-  const through = await dataThrough(who.tenantId);
+  res.json(Object.assign({ ok: true, property: p }, await optimizedData(who.tenantId, id, p)));
+}
+
+/* twelve months of NOI ending at the latest loaded month, and the standard
+   debt service; shared with the Reports tab */
+async function optimizedData(tenantId, id, p, knownThrough) {
+  const through = knownThrough || await dataThrough(tenantId);
   const months = ymSpan(ymAdd(through, -11), through);
   const rows = await q(`
     select to_char(month, 'YYYY-MM') m, noi from public.rpt_property_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash' and has_data
-       and month between $3::date and $4::date`, [who.tenantId, id, months[0] + '-01', through + '-01']);
+       and month between $3::date and $4::date`, [tenantId, id, months[0] + '-01', through + '-01']);
   const byM = Object.fromEntries(rows.map(r => [r.m, num(r.noi)]));
   const s = (await q(`select annual_debt_service, annual_debt_service_paid from public.rpt_property_summary
-                       where tenant_id = $1 and id = $2::uuid`, [who.tenantId, id]))[0];
+                       where tenant_id = $1 and id = $2::uuid`, [tenantId, id]))[0] || {};
   /* the loan record first, then the books, as the mockup's standard values */
   let ds = null, dsSrc = 'Not on file';
   if (num(s.annual_debt_service) > 0) { ds = num(s.annual_debt_service); dsSrc = 'Loan record'; }
   else if (num(s.annual_debt_service_paid) > 0) { ds = num(s.annual_debt_service_paid); dsSrc = 'Paid in the books, annualized'; }
-  res.json({ ok: true, property: p, months, labels: months.map(ymShort), noi: months.map(m => (m in byM ? byM[m] : null)),
-             debtService: ds, debtServiceSource: dsSrc, loan: p.debt });
+  return { months, labels: months.map(ymShort), noi: months.map(m => (m in byM ? byM[m] : null)),
+           debtService: ds, debtServiceSource: dsSrc, loan: p.debt };
 }
 
 /* ---------------------------------------------------------------------------
@@ -822,4 +834,6 @@ function propsRoutes() {
   return r;
 }
 
-module.exports = { propsRoutes, cleanAddr, _internal: { nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
+module.exports = { propsRoutes, cleanAddr,
+  data: { q, LIST_SQL, shapeProp, propRow, dataThrough, monthlyData, optimizedData, rentRollAgg, ymAdd, ymSpan, ymShort, ymLong, money },
+  _internal: { nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };

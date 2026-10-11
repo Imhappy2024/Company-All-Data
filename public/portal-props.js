@@ -8,7 +8,7 @@
    for every property.
 
      Portfolio  ->  Managing entity  ->  Property (8 tabs)
-     Portfolio tabs: Entities | Custom view
+     Portfolio tabs: Entities | Custom view | Reports (portal-reports.js)
 
    One TABLE MODEL drives both the screen and the exports: a table is a list
    of rows, each a label plus raw values with a format. tableHtml() renders
@@ -209,7 +209,7 @@
     if (p.get('view') !== 'properties') return;
     var lvl = p.get('lvl');
     if (['portfolio', 'entity', 'property'].indexOf(lvl) >= 0) S.level = lvl;
-    if (p.get('l1') === 'custom') S.l1 = 'custom';
+    if (p.get('l1') === 'custom' || p.get('l1') === 'reports') S.l1 = p.get('l1');
     if (p.get('cv')) S.cv.sel = p.get('cv');
     if (p.has('ent')) S.ent = p.get('ent') || null;
     if (p.get('prop')) S.prop = p.get('prop');
@@ -341,10 +341,10 @@
       '<h1 class="h1">Portfolio</h1><p class="note">' + P.length + ' held properties with reports, ' + units.toLocaleString('en-US') +
       ' units, income through ' + ymLong(L.dataThrough) + '</p></div>' +
       '<div role="tablist" aria-label="Portfolio views" class="lw-tabs">' +
-      [['entities', 'Entities'], ['custom', 'Custom view']].map(function (x) {
+      [['entities', 'Entities'], ['custom', 'Custom view'], ['reports', 'Reports']].map(function (x) {
         return '<button role="tab" aria-selected="' + (S.l1 === x[0]) + '" class="tab press' + (S.l1 === x[0] ? ' on' : '') + '" data-a="l1:' + x[0] + '">' + x[1] + '</button>';
       }).join('') + '</div>';
-    h += S.l1 === 'custom' ? customHtml() : entitiesHtml(P);
+    h += S.l1 === 'custom' ? customHtml() : S.l1 === 'reports' && window.PortalReports ? window.PortalReports.html() : entitiesHtml(P);
     return h + '</main>';
   }
 
@@ -1447,6 +1447,10 @@
     if (!el || !S.host.contains(el)) return;
     var a = el.getAttribute('data-a'), parts = a.split(':'), d = D();
     var cmd = parts[0];
+    if (cmd.indexOf('rp') === 0 && window.PortalReports) {
+      if (el.tagName !== 'INPUT') ev.preventDefault();
+      window.PortalReports.act(cmd, parts, el); return;
+    }
     if (el.tagName === 'INPUT') {
       /* checkboxes act on click; let the box tick first */
     } else ev.preventDefault();
@@ -1525,6 +1529,7 @@
 
   function setIn(key, value, isChange) {
     var parts = key.split(':'), d = D();
+    if (parts[0].indexOf('rp') === 0 && window.PortalReports) return window.PortalReports.input(key, value);
     switch (parts[0]) {
       case 'q': S.q = value; return true;
       case 'fm': case 'tm': case 'fy': case 'ty': S[parts[0]] = +value; pushUrl(); return true;
@@ -1597,11 +1602,13 @@
   function bindDoc() {
     if (docBound) return; docBound = true;
     document.addEventListener('click', function (ev) {
+      if (S.host && window.PortalReports && window.PortalReports.clickOutside(ev.target)) { paint(); return; }
       if (!S.host || !S.exportOpen && !S.cv.exportOpen) return;
       if (ev.target.closest && (ev.target.closest('.lw-menu') || ev.target.closest('[data-a="export"]') || ev.target.closest('[data-a="cvexport"]'))) return;
       S.exportOpen = false; S.cv.exportOpen = false; paint();
     });
     document.addEventListener('keydown', function (ev) {
+      if (ev.key === 'Escape' && S.host && document.body.contains(S.host) && window.PortalReports && window.PortalReports.escape()) { paint(); return; }
       if (ev.key === 'Escape' && (S.exportOpen || S.cv.exportOpen)) { S.exportOpen = false; S.cv.exportOpen = false; paint(); }
     });
   }
@@ -1610,6 +1617,7 @@
     if (!host) return;
     ensureUrlRead();
     S.host = host;
+    if (window.PortalReports) window.PortalReports.init({ api: api, authHeaders: authHeaders, paint: paint, esc: esc, fmt: fmt });
     host.onclick = onClick; host.oninput = onInput; host.onchange = onChange;
     host.ondragstart = onDragStart; host.ondragover = onDragOver; host.ondrop = onDrop;
     bindDoc();
