@@ -155,6 +155,9 @@ function ptask(id, name, status, sync) {
       signOut: function(){ return Promise.resolve(); },
       isRemembered: function(){ return false; },
       config: function(){ return Promise.resolve({ url: 'http://stub', anonKey: 'stub' }); },
+      authHeaders: function(x){ return Promise.resolve(Object.assign({ Accept: 'application/json' }, x || {})); },
+      getJson: function(u){ return fetch(u).then(function(r){ return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status)); return j; }); }); },
+      download: function(){ return Promise.resolve('x'); },
     };`,
   }));
 

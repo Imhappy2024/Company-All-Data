@@ -105,8 +105,71 @@ Added for this project:
   (maturities). All expose `property_name` + `management_company` (the PM filter). All six
   are surfaced in the ops **Loan Views** tab.
 
+## Access: ONE model, shared with the Claude connector (2026-10-11)
+
+Supersedes everything below about granting access. The Users & Roles details
+further down (dashboard_permission written by the screen, `/api/access/*`,
+portal-users.js) are history: those write routes now answer 410 and the file
+is gone.
+
+- **Source of truth: `mcp.access_grant`** (+ `mcp.app_user` for active,
+  principal, owner) - the rows the LeavenWealth Database Connector reads and
+  its admin tools write. Levels and their meaning: `mcp.access_level`; where a
+  level may be given: `mcp.level_scope` (admin cannot be given on
+  `leavenwealth` alone - only on `all` or another company).
+- **Screens follow the level**: `mcp.level_module` (one table: level x screen x
+  can_write), `mcp.module_restriction` narrows per person (never widens),
+  `mcp.custom_module` picks screens for the Custom level. `mcp.sync_dashboard()`
+  rewrites `public.dashboard_permission` and `staff.dashboard_access/role`;
+  triggers on grants, restrictions, custom screens and app_user call it, so a
+  change made with the connector's own tools moves the dashboard too.
+  `dash_my_access()` is unchanged - it reads the derived rows.
+  A person is only synced once `app_user.dashboard_synced` is true (set when
+  an admin saves them in Users & Roles, or by migration part 4 for the four
+  approved people). Owner is a person (`dashboard_owner`, Chris), not a level;
+  admin on `all` = dashboard admin.
+- **Same enforcement**: data APIs run as the caller's connector role.
+  `portal-identity.js` `guard()` / `asCaller()` look up `mcp.app_user.db_role`
+  for the staff row and `supabase-db.js` runs every `q()`/`tx()` in that request
+  on a per-role pool whose connections are proven (`SET ROLE` + `current_user`
+  check, destroyed on failure) - so Postgres applies the connector's grants and
+  row rules. No connector account = 403, no data. `adminOnly()` keeps Users &
+  Roles, setup forms and the unrouted legacy APIs on the privileged connection.
+  `/api/loans` and `/api/tracker` run as the caller only when a portal session
+  is present: `/ops` still calls them with a ClickUp token, unchanged, until
+  `/ops` is retired.
+- **reporting.\* through `public.rpt_*` views**: materialised views cannot hold
+  row rules, so each reporting relation has a security_barrier view filtered
+  by the connector's own generated rule (`mcp.class_expr`) for `current_user`
+  (postgres passes). Classified in `mcp.table_class`, granted by
+  `mcp.sync_user_access`. props-api / props-views read only `rpt_*`.
+  `rpt_am_fee_month` reads through `mcp_rls.am_fee_month_rows()` (definer)
+  because `reporting.am_fee_month` is security_invoker over an unclassified
+  table and a matview. Row rules cost real time under a role (Franklin Court's
+  monthly lines ~0.5 s as an lw_user, ~1 ms as postgres) - the same cost Claude
+  pays for the same question.
+- **One person, several emails**: `mcp.app_user_email` (alias list; an address
+  owned by another account is refused), `app_user.staff_id` links the dashboard
+  person. **Audit**: `mcp.access_change` (who - from `mcp.actor`, person,
+  company, old, new) for levels, active, principal, screens.
+- **Users & Roles** (Executive Board only): `people-api.js` at `/api/people` +
+  `public/portal-access.js`. Invite = one transaction (staff, `mcp.add_user`,
+  `mcp.provision_user_role` with the connector's password rule
+  HMAC-SHA256(`MCP_ROLE_SECRET`, role), grants, `sync_user_access`), then the
+  Supabase sign-in invite, then the n8n workflow **"Connector access email
+  (dashboard invites)"** (G6O73UaJOyKNjpMG, Outlook "Jay") emails the token.
+  The token is never returned to the browser; the workflow saves no execution
+  data. **Invites need `MCP_ROLE_SECRET` on this service (same value as
+  lw-data-mcp)**; without it they refuse rather than give the role a password
+  the connector cannot use. Deactivate = `app_user.active=false` +
+  `sync_user_access` (nologin) + dashboard off + Supabase ban.
+- Migrations `20261011_access_1..7_*.sql`; `tools/dry-run-access.js` applies
+  1-4 in a transaction, checks, rolls back. Tests: `test/test-access-parity.js`
+  (same rows via dashboard API and connector role, live), `test/test-access-ui.js`.
+
 ## Dashboard access: staff, dashboard_module, dashboard_permission
 Applied 2026-08-12; the ten migrations are in `migrations/2026081219*.sql`.
+**Historical: see "Access: ONE model" above for how access is set now.**
 
 **`staff` IS the dashboard user.** There is no separate user table.
 `staff.dashboard_access` + `staff.dashboard_role` (owner | admin | user), paired by

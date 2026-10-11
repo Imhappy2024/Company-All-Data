@@ -259,6 +259,13 @@ app.get('/api/team', async (req, res) => {
 
 /* The grantable module catalog. Read from the database, never hard-coded in the
    UI: a constant would drift the first time a module is added. */
+/* Users & Roles moved to /api/people (people-api.js), on the Claude connector's
+   access model (mcp.access_grant). These routes wrote public.dashboard_permission
+   directly - a second permission model - so they now refuse, and nothing can
+   write the old way. Their handlers below are unreachable and can be deleted. */
+app.all(['/api/access/users', '/api/access/candidates', '/api/access/invite', '/api/access/grants/:id', '/api/access/user/:id'], (_req, res) =>
+  res.status(410).json({ error: 'Users & Roles moved to the Executive Board. Access is now set on the Claude connector model (/api/people).' }));
+
 app.get('/api/access/modules', async (req, res) => {
   if (!requireSupabaseConfig(res)) return;
   const token = requireUserToken(req, res); if (!token) return;
@@ -2086,8 +2093,12 @@ function patchCachedPropertyField(taskId, fieldId, value) {
    showing zeros forever. Folio's money is Whop subscription billing, and it
    has exactly ONE paying customer — which is why that screen has no KPI
    tiles. Read-only. */
+/* Every data API below runs as the signed-in person's Claude connector role
+   (portal-identity.js asCaller / guard), so Postgres applies the connector's
+   grants and row rules: one model for the dashboard and for Claude. */
+const identityMw = require('./portal-identity');
 const folioFinApi = require('./folio-financials-api');
-app.use('/api/folio/financials', folioFinApi.folioFinancialsRoutes());
+app.use('/api/folio/financials', identityMw.asCaller(), folioFinApi.folioFinancialsRoutes());
 
 /* Leadli AI financials. A third money model: the payment STREAM
    (sales_payment), where LeavenWealth reads balance snapshots and Folio reads
@@ -2095,16 +2106,20 @@ app.use('/api/folio/financials', folioFinApi.folioFinancialsRoutes());
    honest empty state that names where revenue will arrive from - not a
    placeholder, and not zeros pretending to be a dashboard. Read-only. */
 const leadliFinApi = require('./leadli-financials-api');
-app.use('/api/leadli/financials', leadliFinApi.leadliFinancialsRoutes());
+app.use('/api/leadli/financials', identityMw.asCaller(), leadliFinApi.leadliFinancialsRoutes());
 
 const ghlApi = require('./ghl-api');
-app.use('/api/ghl', ghlApi.ghlRoutes());
+app.use('/api/ghl', identityMw.asCaller(), ghlApi.ghlRoutes());
 
 const financialsApi = require('./financials-api');
-app.use('/api/financials', financialsApi.financialsRoutes());
+app.use('/api/financials', identityMw.asCaller(), financialsApi.financialsRoutes());
 
 const portfolioList = require('./portfolio-list');
 const portfolioDetail = require('./portfolio-detail');
+/* the pre-v2 Properties APIs: nothing routes to them any more; owners and
+   admins only, on the privileged connection (portfolio-detail opens its own
+   transactions) */
+app.use('/api/portfolio', identityMw.adminOnly());
 app.use('/api/portfolio', portfolioList.propertyRoutes());
 app.use('/api/portfolio', portfolioDetail.propertyDetailRoutes({ invalidate: portfolioList.invalidate }));
 
@@ -2119,7 +2134,7 @@ app.use('/api/portfolio', portfolioDetail.propertyDetailRoutes({ invalidate: por
    them. See portal-identity.js. */
 const reportingApi = require('./reporting-api');
 app.use('/api/portfolio', reportingApi.reportingRoutes());
-app.use('/api/am-fees', reportingApi.amFeeRoutes());
+app.use('/api/am-fees', identityMw.adminOnly(), reportingApi.amFeeRoutes());
 
 /* noi-analysis.js lives at the repo root because the SERVER uses it too, and
    the browser needs the SAME file: the what-if inputs recompute client-side,
@@ -2130,12 +2145,23 @@ app.get('/noi-analysis.js', (_req, res) => {
 });
 
 const viewsApi = require('./views-api');
-app.use('/api/datasets', viewsApi.datasetRoutes());
-app.use('/api/views', viewsApi.viewRoutes());
+app.use('/api/datasets', identityMw.adminOnly(), viewsApi.datasetRoutes());
+/* Saved views (Phase 3, no longer in any menu) share the /api/views prefix
+   with the /ops Loan Views (/api/views/capex, /escrows, ...). Only saved-view
+   paths go to that router; a loan view key falls through to its own route
+   below instead of being answered 401 by the saved-view guard. */
+const savedViewsRouter = express.Router();
+savedViewsRouter.use(identityMw.adminOnly(), viewsApi.viewRoutes());
+const SAVED_VIEW_PATH = /^\/(?:$|preview$|formula$|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\/|$))/i;
+app.use('/api/views', (req, res, next) => (SAVED_VIEW_PATH.test(req.path) ? savedViewsRouter(req, res, next) : next()));
 
 /* Section H: admins adding entities, properties and buildings. Insert-only;
    nothing existing becomes editable. See portfolio-setup-api.js. */
-app.use('/api/portfolio-setup', require('./portfolio-setup-api').setupRoutes());
+app.use('/api/portfolio-setup', identityMw.adminOnly(), require('./portfolio-setup-api').setupRoutes());
+
+/* Users & Roles: people, their level per company, screens, emails, invites,
+   deactivation - all on the connector's tables. Owners and admins only. */
+app.use('/api/people', identityMw.adminOnly(), require('./people-api').peopleRoutes());
 
 /* Properties v2 (docs/PROPERTIES_SPEC.md): one endpoint per data method of the
    approved mockup, plus custom views, property groups and exports. Property
@@ -2224,7 +2250,7 @@ app.get('/api/org/summary', async (req, res) => {
   }
 });
 
-app.get('/api/loans', async (req, res) => {
+app.get('/api/loans', identityMw.asCallerIfSession(), async (req, res) => {
   if (supaProps.enabled) {
     try { return res.json(await supaProps.getLoansPayload()); }
     catch (err) { console.error('supabase loans read failed:', err.message); return res.status(500).json({ error: err.message }); }
@@ -2357,13 +2383,13 @@ app.delete('/api/properties/:id/owners/:entityId', async (req, res) => {
    The WRITE path is gated behind requireAuth: setting a status is a real edit with a
    name attached, and resolved_by is only meaningful if we know who resolved it.
    --------------------------------------------------------------------------- */
-app.get('/api/tracker', async (req, res) => {
+app.get('/api/tracker', identityMw.asCallerIfSession(), async (req, res) => {
   if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
   try { res.json(await supaProps.getTrackerPayload()); }
   catch (err) { console.error('tracker read:', err.message); res.status(500).json({ error: err.message }); }
 });
 
-app.patch('/api/tracker/:id', async (req, res) => {
+app.patch('/api/tracker/:id', identityMw.asCallerIfSession(), async (req, res) => {
   if (!supaProps.enabled) return res.status(400).json({ error: 'Supabase mode required.' });
   const auth = requireAuth(req, res); if (!auth) return;
   try {

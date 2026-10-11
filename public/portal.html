@@ -427,7 +427,7 @@ tbody tr:hover{background:var(--panel-2)}
 <script src="/portal-morph.js"></script>
 <script src="/props-views-core.js"></script>
 <script src="/portal-session.js"></script>
-<script src="/portal-users.js"></script>
+<script src="/portal-access.js"></script>
 <script src="/portal-auth.js"></script>
 <script src="/portal-tasks.js"></script>
 <script src="/portal-properties.js"></script>
@@ -635,13 +635,14 @@ const CORE=[
 /* Users & Roles in EVERY workspace, under an Admin heading. Executive Board already
    carried `access`; the four businesses get it here. It is role-gated, so the whole
    Admin section disappears for a plain user - see canSeeAccess / itemVisible. */
-const ADMIN_SECTION=[{lbl:'Admin'},{id:'access',ic:'lock',label:'Users & Roles'}];
+/* Users & Roles lives in the Executive Board only (Jay 2026-10-11): access is
+   one model across every business, set per person per company in one place. */
 const MENUS={
   all:[{lbl:'Group'},{id:'exec',ic:'gauge',label:'Executive'},{id:'orgdept',ic:'org',label:'Org & Departments'},{id:'team',ic:'users',label:'Team directory'},{id:'alltasks',ic:'check',label:'All Tasks'},{id:'financials',ic:'dollar',label:'Financials'},{lbl:'Admin'},{id:'tracker',ic:'check',label:'Data Tracker'},{id:'access',ic:'lock',label:'Users & Roles'}],
-  leavenwealth:[{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE,...ADMIN_SECTION],
-  leadli:[{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  folio:[{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
-  liquid:[{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'},...ADMIN_SECTION],
+  leavenwealth:[{lbl:'Real estate'},{id:'properties',ic:'building',label:'Properties'},{id:'loans',ic:'bank',label:'Loans'},{lbl:'Workspace'},...CORE],
+  leadli:[{lbl:'Growth'},{id:'leads',ic:'target',label:'Leads',badge:'37'},{id:'appointments',ic:'cal',label:'Appointments',badge:'4'},{id:'ads',ic:'trend',label:'Marketing / Ads'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
+  folio:[{lbl:'App / SaaS'},{id:'subscribers',ic:'users',label:'App Users',badge:'6'},{id:'reports',ic:'dollar',label:'Financials'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'departments',ic:'org',label:'Departments'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'documents',ic:'file',label:'Documents'}],
+  liquid:[{lbl:'Lending'},{id:'pipeline',ic:'bank',label:'Loan Pipeline'},{id:'borrowers',ic:'users',label:'Borrowers / Apps'},{lbl:'Workspace'},{id:'tasks',ic:'check',label:'Tasks'},{id:'leads',ic:'target',label:'Leads'},{id:'team',ic:'users',label:'Team'},{id:'tools',ic:'wrench',label:'Tools & Apps'},{id:'financials',ic:'dollar',label:'Financials'},{id:'documents',ic:'file',label:'Documents'}],
 };
 
 /* ---- data (mirrors seeded Supabase) ---- */
@@ -669,20 +670,20 @@ function fetchTracker(force){
      and anything that re-enters render() from here can spin. */
   if(trkErr && !force) return;
   trkFetching=true;
-  PortalLoader.hold(fetch('/api/tracker',{headers:authHeadersPortal()}))
+  PortalLoader.hold(PortalSession.authHeaders().then(h=>fetch('/api/tracker',{headers:h})))
     .then(r=>r.text().then(t=>{let b=null;try{b=t?JSON.parse(t):null;}catch(e){b={error:t};}
       if(!r.ok) throw new Error((b&&b.error)||('HTTP '+r.status)); return b;}))
     .then(d=>{trkData=d;trkErr=null;trkFetching=false;render();})
     .catch(e=>{trkErr=e.message;trkFetching=false;render();});
 }
-function authHeadersPortal(){ return {Accept:'application/json'}; }
+function authHeadersPortal(){ return {Accept:'application/json'}; }  /* kept for the PATCH below; reads go through PortalSession */
 function setTrkWho(w){ trkWho=w; render(); }
 /* Status written straight through; the row is patched locally so the list does not
    jump while somebody is working down it. */
 function trkSetStatus(id,kind,status){
-  fetch('/api/tracker/'+encodeURIComponent(id),{method:'PATCH',
-    headers:{'Content-Type':'application/json'},credentials:'include',
-    body:JSON.stringify({status:status,kind:kind})})
+  PortalSession.authHeaders({'Content-Type':'application/json'}).then(h=>fetch('/api/tracker/'+encodeURIComponent(id),{method:'PATCH',
+    headers:h,credentials:'include',
+    body:JSON.stringify({status:status,kind:kind})}))
    .then(r=>r.ok?r.json():r.json().then(b=>{throw new Error(b.error||'HTTP '+r.status);}))
    .then(()=>{ const list=(trkData&&trkData[trkWho])||[];
      const row=list.find(x=>String(x.id)===String(id)); if(row) row.status=status;
@@ -1072,7 +1073,7 @@ async function loadLoans(force){
   const el=document.getElementById('loansBody'); if(!el) return;
   if(loansCache && !force){ el.innerHTML=renderLoans(loansCache); return; }
   try{
-    const r=await PortalLoader.hold(fetch('/api/loans',{headers:{'Accept':'application/json'}}));
+    const r=await PortalLoader.hold(PortalSession.authHeaders().then(h=>fetch('/api/loans',{headers:h})));
     let data=null; try{ data=await r.json(); }catch(_){}
     if(!r.ok) throw new Error((data&&data.error)?data.error:('HTTP '+r.status));
     if(data && data.error) throw new Error(data.error);
@@ -1470,7 +1471,7 @@ function render(){
      it; portal-users.js deliberately does not render its own, or there would be two
      buttons doing the same job. Shown on the same role gate as the screen itself. */
   const newBtn = view==='access'
-    ? (canSeeAccess()?`<button class="btn" onclick="PortalUsers.openAdd()">${I.plus} Invite user</button>`:'')
+    ? (canSeeAccess()?`<button class="btn" onclick="PortalAccess.openInvite()">${I.plus} Invite person</button>`:'')
     : (canWrite(view)?`<button class="btn">${I.plus} New</button>`:'');
   /* The built Financials screen renders its own header; the placeholder does
      not, so it keeps the generic one that names the brand. */
@@ -1526,13 +1527,8 @@ function render(){
   if(view==='views' && window.PortalViews){
     PortalViews.mount(document.getElementById('viewsNative'));
   }
-  if(view==='access' && window.PortalUsers && canSeeAccess()){
-    PortalUsers.render(brand,'usersNative',{
-      scope:accessScope(brand),
-      me:dashAccess&&dashAccess.user,
-      access:dashAccess&&dashAccess.access,
-      companies:(dashAccess&&dashAccess.companies)||{},
-    });
+  if(view==='access' && window.PortalAccess && canSeeAccess()){
+    PortalAccess.mount(document.getElementById('usersNative'), { me: dashAccess&&dashAccess.user });
   }
   if(embed && info){ showEmbed(info); host.hidden=false; }
   else { host.hidden=true; hideAllEmbeds(); }
@@ -1579,7 +1575,7 @@ if(window.PortalRealtime) PortalRealtime.start({
     if((v==='*' || v==='tasks') && window.PortalTasks){ PortalTasks.invalidate(); }
     /* Users & Roles caches its list, so rerender() alone would repaint the SAME rows
        it already had. Dropping the cache is what makes the refresh a refetch. */
-    if((v==='*' || v==='access') && window.PortalUsers){ PortalUsers.invalidate(); }
+    if((v==='*' || v==='access') && window.PortalAccess){ PortalAccess.invalidate(); }
     /* Properties caches the payload in the module AND the server caches it for
        five minutes, so this has to force past both. property, unit, loan,
        ownership and entity are all already bound to the 'properties' view in

@@ -157,10 +157,11 @@ const CURRENCY_HINT = /(amount|price|value|debt|balance|loc|escrow|reserve|budge
 let _colTypes = null;
 async function colTypes() {
   if (_colTypes) return _colTypes;
-  const rows = (await q(
+  /* schema shape: privileged, so the first caller's role cannot narrow it */
+  const rows = (await db.privileged(() => q(
     `select table_name, column_name, data_type from information_schema.columns
      where table_schema='public' and table_name = any($1)`,
-    [['property', 'unit', 'loan', 'insurance_policy']])).rows;
+    [['property', 'unit', 'loan', 'insurance_policy']]))).rows;
   const m = { property: {}, unit: {}, loan: {}, insurance_policy: {} };
   rows.forEach(r => { (m[r.table_name] || (m[r.table_name] = {}))[r.column_name] = r.data_type; });
   _colTypes = m;

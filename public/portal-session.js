@@ -195,10 +195,51 @@
     return accessPromise;
   }
 
+  /* Headers for a data request: the signed-in person's token. Every data
+     route now runs as that person's connector role (portal-identity.js), so a
+     request without it is refused rather than answered as nobody. */
+  function authHeaders(extra) {
+    return getSession().then(function (s) {
+      var h = Object.assign({ Accept: 'application/json' }, extra || {});
+      if (s && s.access_token) h.Authorization = 'Bearer ' + s.access_token;
+      return h;
+    });
+  }
+
+  /* GET JSON as the signed-in person; a non-2xx answer throws its error text */
+  function getJson(url) {
+    return authHeaders().then(function (h) { return fetch(url, { headers: h, cache: 'no-store' }); }).then(function (r) {
+      return r.json().then(function (j) {
+        if (!r.ok) throw new Error((j && j.error) || ('HTTP ' + r.status));
+        return j;
+      }, function () { throw new Error('HTTP ' + r.status); });
+    });
+  }
+  /* A file download as the signed-in person. A plain link cannot carry the
+     token, so the file is fetched and handed to the browser as a blob. */
+  function download(url) {
+    return authHeaders({ Accept: '*/*' }).then(function (h) { return fetch(url, { headers: h }); }).then(function (r) {
+      if (!r.ok) return r.json().then(function (j) { throw new Error(j.error || ('HTTP ' + r.status)); }, function () { throw new Error('HTTP ' + r.status); });
+      var cd = r.headers.get('Content-Disposition') || '';
+      var m = /filename\*=UTF-8''([^;]+)/i.exec(cd) || /filename="?([^";]+)"?/i.exec(cd);
+      var name = m ? decodeURIComponent(m[1]) : 'export';
+      return r.blob().then(function (b) {
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(b); a.download = name; a.rel = 'noopener';
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+        return name;
+      });
+    });
+  }
+
   window.PortalSession = {
     config: config,
     client: getClient,
     getSession: getSession,
+    authHeaders: authHeaders,
+    getJson: getJson,
+    download: download,
     signIn: signIn,
     sendReset: sendReset,
     signOut: signOut,

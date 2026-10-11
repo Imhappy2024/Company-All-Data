@@ -153,7 +153,9 @@ async function loadCaps() {
 function caps() {
   if (capsCache) return Promise.resolve(capsCache);
   if (!capsInFlight) {
-    capsInFlight = loadCaps()
+    /* schema shape, not anyone's data: read once on the privileged connection,
+       so it never depends on which person happened to ask first */
+    capsInFlight = (db.privileged ? db.privileged(() => loadCaps()) : loadCaps())
       .then(c => { capsCache = c; return c; })
       .finally(() => { capsInFlight = null; });
   }
@@ -559,7 +561,9 @@ const ACCOUNT_ELIGIBLE = `
   and not exists (select 1 from public.entity e3 where e3.id = fa.owner_entity_id and e3.name ~* $3)
   and not exists (select 1 from public.deal   d3 where d3.id = fa.deal_id          and d3.name ~* $3)`;
 
-let filtersCache = null;
+/* per connector role: the option lists are DATA (entity, deal, institution
+   names), so one person's lists must never be served to another */
+const filtersCache = new Map();
 
 async function buildFilterOptions() {
   const c = await caps();
@@ -1028,11 +1032,14 @@ function financialsRoutes() {
 
   r.get('/filters', async (req, res) => {
     try {
-      if (!filtersCache || Date.now() - filtersCache.at > FILTERS_TTL_MS || req.query.force === '1') {
-        filtersCache = { payload: await buildFilterOptions(), at: Date.now() };
+      const fkey = (db.currentRole && db.currentRole()) || 'postgres';
+      let fc = filtersCache.get(fkey);
+      if (!fc || Date.now() - fc.at > FILTERS_TTL_MS || req.query.force === '1') {
+        fc = { payload: await buildFilterOptions(), at: Date.now() };
+        filtersCache.set(fkey, fc);
       }
       res.set('Cache-Control', 'private, max-age=300');
-      res.json(filtersCache.payload);
+      res.json(fc.payload);
     } catch (err) { fail(res, err); }
   });
 

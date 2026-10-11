@@ -129,7 +129,7 @@ const LIST_SQL = `
          s.value_on_file, to_char(s.value_as_of, 'YYYY-MM-DD') as value_as_of,
          s.pm_company, s.managing_entity_id, s.managing_entity_name,
          s.street, s.city, s.state, s.zip, s.entity_name
-    from reporting.property_summary_mv s
+    from public.rpt_property_summary s
     join public.property p on p.id = s.id
    where s.tenant_id = $1 and s.ownership_status = 'held' and s.t12_income is not null`;
 
@@ -174,7 +174,7 @@ async function rentRollAgg(tenantId, propertyId, asOf) {
   const base = `
     with l as (
       select u.*, coalesce(u.unit, u.unit_id::text) as ukey
-        from reporting.rent_roll_unit u
+        from public.rpt_rent_roll_unit u
        where u.tenant_id = $1 and u.property_id = $2::uuid and u.is_current
          and (case when $3::date is null then u.is_latest else u.as_of_date = $3::date end)),
     per_unit as (
@@ -234,7 +234,7 @@ async function rentRollAgg(tenantId, propertyId, asOf) {
 
 /* the twelve months ending at the property's latest month with data */
 async function trailingWindow(tenantId, propertyId) {
-  const r = await q(`select to_char(month, 'YYYY-MM') m from reporting.property_month_mv
+  const r = await q(`select to_char(month, 'YYYY-MM') m from public.rpt_property_month
                       where tenant_id = $1 and property_id = $2::uuid and has_data
                       order by month desc limit 12`, [tenantId, propertyId]);
   if (!r.length) return null;
@@ -367,7 +367,7 @@ async function monthly(req, res, who) {
            rent_income, recurring_fee_income, non_recurring_fee_income, total_expected_income,
            capex, am_fee_booked, debt_service, debt_service_source, delinquency, loss_to_lease,
            physical_occupancy, economic_occupancy, units, cash_flow
-      from reporting.property_month_mv
+      from public.rpt_property_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash'
        and month between $3::date and $4::date`, args);
   const byM = Object.fromEntries(pm.map(r => [r.m, r]));
@@ -375,13 +375,13 @@ async function monthly(req, res, who) {
 
   const lines = await q(`
     select section, line_label, to_char(month, 'YYYY-MM') m, sum(amount) amount, min(sort_order) so
-      from reporting.income_statement_month
+      from public.rpt_income_statement_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash'
        and month between $3::date and $4::date
      group by 1, 2, 3`, args);
   const cash = await q(`
     select activity, line_label, to_char(month, 'YYYY-MM') m, sum(amount) amount, min(sort_order) so
-      from reporting.cash_flow_line
+      from public.rpt_cash_flow_line
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash'
        and month between $3::date and $4::date
      group by 1, 2, 3`, args);
@@ -439,11 +439,11 @@ async function optimized(req, res, who) {
   const through = await dataThrough(who.tenantId);
   const months = ymSpan(ymAdd(through, -11), through);
   const rows = await q(`
-    select to_char(month, 'YYYY-MM') m, noi from reporting.property_month_mv
+    select to_char(month, 'YYYY-MM') m, noi from public.rpt_property_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash' and has_data
        and month between $3::date and $4::date`, [who.tenantId, id, months[0] + '-01', through + '-01']);
   const byM = Object.fromEntries(rows.map(r => [r.m, num(r.noi)]));
-  const s = (await q(`select annual_debt_service, annual_debt_service_paid from reporting.property_summary_mv
+  const s = (await q(`select annual_debt_service, annual_debt_service_paid from public.rpt_property_summary
                        where tenant_id = $1 and id = $2::uuid`, [who.tenantId, id]))[0];
   /* the loan record first, then the books, as the mockup's standard values */
   let ds = null, dsSrc = 'Not on file';
@@ -455,7 +455,7 @@ async function optimized(req, res, who) {
 
 /* ---------------------------------------------------------------------------
    feeGroups() + receivedSeed() for one property: Expected / Received /
-   Variance by month, from reporting.am_fee_month (which already applies each
+   Variance by month, from public.rpt_am_fee_month (which already applies each
    manager's same-month or following-month timing).
 --------------------------------------------------------------------------- */
 async function fee(req, res, who) {
@@ -472,7 +472,7 @@ async function fee(req, res, who) {
   const sc = sched[0];
   const rows = await q(`
     select extract(month from fee_month)::int mo, expected, received, received_source, variance
-      from reporting.am_fee_month
+      from public.rpt_am_fee_month
      where tenant_id = $1 and schedule_id = $2::uuid
        and fee_month >= make_date($3, 1, 1) and fee_month < make_date($3 + 1, 1, 1)`, [who.tenantId, sc.id, year]);
   const byMo = Object.fromEntries(rows.map(r => [r.mo, r]));
@@ -495,7 +495,7 @@ async function fee(req, res, who) {
 async function rentRoll(req, res, who) {
   const id = uuidOrNull(req.params.id);
   if (!id) return res.status(400).json({ error: 'A property id is required.' });
-  const dates = (await q(`select distinct to_char(as_of_date, 'YYYY-MM-DD') d from reporting.rent_roll_unit
+  const dates = (await q(`select distinct to_char(as_of_date, 'YYYY-MM-DD') d from public.rpt_rent_roll_unit
                            where tenant_id = $1 and property_id = $2::uuid order by 1 desc`, [who.tenantId, id])).map(r => r.d);
   const asked = /^\d{4}-\d{2}-\d{2}$/.test(String(req.query.as_of || '')) && dates.includes(String(req.query.as_of)) ? String(req.query.as_of) : null;
   const rr = await rentRollAgg(who.tenantId, id, asked);
@@ -503,7 +503,7 @@ async function rentRoll(req, res, who) {
   const units = await q(`
     select coalesce(unit, '–') unit, beds, baths, tenant, occupancy_status, status, rent, market_rent, balance_due,
            to_char(lease_end, 'YYYY-MM-DD') lease_end
-      from reporting.rent_roll_unit
+      from public.rpt_rent_roll_unit
      where tenant_id = $1 and property_id = $2::uuid and is_current
        and (case when $3::date is null then is_latest else as_of_date = $3::date end)
      order by sort_order nulls last, unit`, [who.tenantId, id, asked]);
@@ -542,7 +542,7 @@ async function buildings(req, res, who) {
 
 /* ---------------------------------------------------------------------------
    capexData(): monthly totals and categories for the selected period.
-   Categories come from public.capex_category_map via reporting.capex_line.
+   Categories come from public.capex_category_map via public.rpt_capex_line.
 --------------------------------------------------------------------------- */
 async function capex(req, res, who) {
   const id = uuidOrNull(req.params.id);
@@ -553,11 +553,11 @@ async function capex(req, res, who) {
   const args = [who.tenantId, id, per.from + '-01', per.to + '-01'];
   const pm = await q(`
     select to_char(month, 'YYYY-MM') m, capex, total_operating_income inc, noi
-      from reporting.property_month_mv
+      from public.rpt_property_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash' and has_data
        and month between $3::date and $4::date order by month`, args);
   const cats = await q(`
-    select category, sum(amount) total from reporting.capex_line
+    select category, sum(amount) total from public.rpt_capex_line
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash'
        and month between $3::date and $4::date
      group by 1 having sum(amount) <> 0 order by 2 desc`, args);
