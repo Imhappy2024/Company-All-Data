@@ -71,6 +71,21 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   Connect ClickUp button. Every page of every workspace is read, tasks are
   de-duplicated by id, cached per token (fresh 60s, then served stale while it
   refreshes) and per browser session (`sessionStorage.lwHomeTasks`).
+- **The task panel** (portal-home.js `openPanel`): a row click opens it in the
+  dashboard (ctrl/cmd/middle click on the name still opens ClickUp). Ported from
+  the /ops task detail (`openTaskDetail`, `openStatusEditor`, `openDuePicker`,
+  `openAssigneePicker`/`saveAssignees`, `renderComments`/`submitComment` in
+  index.html): status from the list's own statuses with ClickUp colours, editable
+  due date (5 pm, as /ops sets it), assign dialog limited to the list's members,
+  priority, tags, created, updated, comments newest first with attachments as
+  links, Ctrl+Enter posts. Writes are optimistic: the row and its group move at
+  once, and a ClickUp refusal puts the row back and shows ClickUp's own message.
+  Every call is `/api/home/{task,list}/...` in home-tasks.js with the person's
+  own token (`act()`); a ClickUp 401 on a task is returned as 403 so the person
+  stays signed in. The /ops routes (`/api/task/:id`, `/api/list/:id/...`) read
+  with the shared token and are NOT used here. The panel frame is built once per
+  opening and its contents are morphed, so the slide-in plays once and a field
+  being typed in keeps its caret. `test/test-home-panel.js` drives all of it.
 - **Team / Departments / Tools** read `/api/shell/*` (`shell-api.js`) as the
   person's connector role. Folio Plans reads `/api/folio/financials/plans`.
 - **Tables** (`dataTable()` in portal.html): sortable headers (nulls last), frozen
@@ -3074,6 +3089,7 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
     node test/test-shell.js      # the shell: rail, menus, gates, memory, shortcuts
     node test/test-home.js       # Home tasks: one row per task, own ClickUp sign-in only
+    node test/test-home-panel.js # the task panel: status, due, assign, comments, refusals
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
