@@ -2560,6 +2560,50 @@ against the 8,080,000 current balance, and the 4,474.54 / 4,474.99 / +0.45
 fee row - plus that no screen issues a write, that nothing overflows, and
 that a what-if input recomputes and marks itself unsaved.
 
+## Properties v2: the mockup port (docs/PROPERTIES_SPEC.md)
+
+Supersedes the Phase 2 screens for `view=properties`. `public/portal-props.{js,css}`
+(window.PortalProps) is mounted at `#reportingNative`; `portal-reporting.js` and
+`portal-properties.js` still load but nothing routes to them. The approved
+design and reference implementation is `docs/mockup/properties-mockup.dc.html`
+(readable source) and `docs/mockup/properties-mockup-standalone.html` (renders
+on its own, for side-by-side screenshots).
+
+Server: `props-api.js` at `/api/props`, one endpoint per mockup data method
+(list, :id, monthly, optimized, fee, rent-roll, buildings, capex), plus custom
+views, property groups, people, and `POST /export`. `props-views.js` is the
+custom-view engine (FIELDS whitelist, periods, formula terms with standard
+precedence; no eval, no SQL from config). `props-export.js` turns the table
+model the browser sends into xlsx (exceljs), pdf (pdfkit) or zipped csv
+(archiver). Exports read nothing from the database, so a file can never show
+more than its screen.
+
+Rules worth knowing before changing anything here:
+- **Debt service for DSCR and every Needs-attention sentence is what the books
+  paid, annualised** (`property_summary.annual_debt_service_paid`), else the loan
+  record. Optimized NOI's standard value is the loan record first, as the mockup.
+- **Gaps in sentences are taken between ROUNDED figures** ("rise by $113,621 to
+  $890,895"), so the printed numbers add up. Exact: 113,620.38.
+- **Months travel as 'YYYY-MM' text** from SQL (`to_char`), never as Date.
+- Units: rent roll first, then verified, then buildings. Occupied = current + notice.
+- `property_summary.t12_net_income` is a TRANSITIONAL alias of
+  `cash_flow_after_debt_and_capex` so the deployed Phase 2 app keeps working
+  until v2 deploys. Drop it in the migration after that deploy.
+- Sharing is people (`user`) or roles (`role`, shown as teams). Departments as
+  teams need `saved_view_share_principal_type_check` widened - Jay's call.
+- portal.html styles `.btn`, `.chip`, `th` and `table` globally (uppercase mono);
+  portal-props.css undoes that under `.lw`. Keep new class names under `.lw`/`lw-`.
+
+Tests and tools:
+
+    node test/test-props-ui.js [--shots]   # 36 checks, live data, acceptance figures on screen
+    node tools/side-by-side.js             # docs/screenshots/compare/*.png, live vs mockup
+    node tools/dry-run-migrations.js <files>   # apply inside a transaction, check, roll back
+    node tools/apply-migrations.js <files>     # apply for real, one transaction per file
+
+test-reporting-ui.js, test-views-ui.js and test-setup-ui.js drive the replaced
+Phase 2 screens and now fail by design; retire them with portal-reporting.js.
+
 ## Railway variables: what belongs, and what takes the app down
 
 **`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one

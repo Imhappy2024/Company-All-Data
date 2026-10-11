@@ -2137,6 +2137,12 @@ app.use('/api/views', viewsApi.viewRoutes());
    nothing existing becomes editable. See portfolio-setup-api.js. */
 app.use('/api/portfolio-setup', require('./portfolio-setup-api').setupRoutes());
 
+/* Properties v2 (docs/PROPERTIES_SPEC.md): one endpoint per data method of the
+   approved mockup, plus custom views, property groups and exports. Property
+   data is read-only; the only writes are a person's own groups and views.
+   See props-api.js. */
+app.use('/api/props', require('./props-api').propsRoutes());
+
 /* Phase 2 ships READ-ONLY: the new Properties screens call no write
    endpoint. The existing write endpoints are untouched and still mounted;
    this flag is what the browser reads to know not to offer an edit. */
