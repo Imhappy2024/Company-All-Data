@@ -60,8 +60,12 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   per company and the screens it gives, with Update (the edit drawer) and Revoke
   access (deactivate: dashboard login and Claude connector off together; the owner
   and yourself cannot be revoked here). Invite user is two steps: name and email,
-  then permissions; it is the same invite as before (staff + connector account +
-  n8n setup email) and stays disabled until `MCP_ROLE_SECRET` is set. Businesses no longer carry an Executive board item; an old
+  then permissions. **The invite sends ONE email: Supabase's dashboard invitation**
+  (the pre-redesign process), whose link lands on `/invite` to set a password. The
+  Claude connector account is created with the same access but its setup email
+  (n8n "Connector access email") is NOT sent on invite; an admin sends it from
+  Update ("Email Claude connector setup") when the person needs Claude. Invites
+  stay disabled until `MCP_ROLE_SECRET` is set (it is, as of 2026-10-11). Businesses no longer carry an Executive board item; an old
   `view=exec` link lands on the new one. Leads,
   Loans, Tasks are gone (GHL is a link on Tools & apps). The old Exec tabs
   (sample Overview, LeavenWealth cash/debt Financials, Org & departments, Data

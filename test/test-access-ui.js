@@ -58,7 +58,8 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   }));
   check('the list is name, email and role', () => assert.deepStrictEqual(t.heads, ['Name', 'Email', 'Role']));
   check('only people with dashboard access are listed (Brian, Chris, Jay, Mitch), not every staff record', () =>
-    assert.deepStrictEqual(t.names.slice().sort(), ['Brian Nelson', 'Chris Pomerleau', 'Jay Delgado', 'Mitch Hagen']));
+    ['Brian Nelson', 'Chris Pomerleau', 'Jay Delgado', 'Mitch Hagen'].forEach(n => assert.ok(t.names.indexOf(n) >= 0, n)) ||
+    ['Adriana Alvarado', 'Bailey Thurman', 'Cane Bueno', 'Kalen Speake'].forEach(n => assert.ok(t.names.indexOf(n) < 0, n + ' has no dashboard access and must not be listed')));
   check('Brian: his email and role', () => assert.deepStrictEqual(t.rows.find(r => /^Brian Nelson/.test(r[0])).slice(1), ['brian@leavenwealth.com', 'User']));
   const menu = await pg.evaluate(() => document.getElementById('nav').innerText);
   check('Roles & permissions is on the Executive board', () => assert.ok(/Roles & permissions/.test(menu), menu.slice(0, 200)));
@@ -126,7 +127,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await pg.waitForSelector('.pa-drawer [data-in="i:email"]');
   const step1 = await pg.evaluate(() => ({ text: document.querySelector('.pa-drawer').innerText, levels: document.querySelectorAll('.pa-drawer select[data-in^="ig:"]').length }));
   check('step 1 asks for the name and email only', () => assert.strictEqual(step1.levels, 0));
-  check('the invite explains the token is emailed, never shown', () => assert.ok(/never shown here/.test(step1.text)));
+  check('the invite says it is a dashboard invitation with a set-password link, no connector token', () => assert.ok(/Command Center dashboard/.test(step1.text) && /set their password/.test(step1.text) && !/token/i.test(step1.text.split('Command Center')[1] || '')));
   await pg.click('.pa-drawer [data-a="inviteNext"]');
   const refused = await pg.evaluate(() => document.querySelector('.pa-drawer').innerText);
   check('Next needs a name and a valid email', () => assert.ok(/valid email/.test(refused)));

@@ -357,10 +357,14 @@ async function invite(req, res) {
       login = 'invitation not sent: ' + e.message;
     }
   }
-  /* the connector email, only for a new account: an existing one already has a
-     token, and replacing it would silently break whatever uses it */
-  const connector = created ? await emailToken({ email, full_name: name }, token, who, lines) : 'existing connector account kept';
-  token = null;
+  /* The invitation is the dashboard one above and nothing else (the process
+     from before the redesign). The Claude connector account is created with
+     the same access, but its setup email is NOT sent here: an admin sends it
+     later with "Email Claude connector setup" in Update, when the person
+     needs Claude. The token minted by mcp.add_user is dropped unseen; that
+     send mints a fresh one. */
+  const connector = created ? 'connector account created, setup email not sent' : 'existing connector account kept';
+  token = null; void lines;
   res.status(201).json({ ok: true, userId, staffId, login, connector });
 }
 
