@@ -135,7 +135,7 @@ function validateConfig(raw) {
    Data for a set of properties, read once per evaluation.
 --------------------------------------------------------------------------- */
 async function through(tenantId) {
-  const r = await db.q(`select to_char(max(month), 'YYYY-MM') m from reporting.property_month_mv where tenant_id = $1 and has_data`, [tenantId]);
+  const r = await db.q(`select to_char(max(period_end), 'YYYY-MM') m from public.t12_report where tenant_id = $1`, [tenantId]);
   return r.rows[0].m;
 }
 
@@ -191,10 +191,11 @@ async function loadData(ids, tenantId) {
   const t = await through(tenantId);
   if (!ids.length) return { props: [], through: t };
   const ps = (await db.q(`
-    select s.id::text id, s.name, s.units, s.latest_occupancy, s.t12_income, s.t12_expense, s.t12_noi,
+    select s.id::text id, coalesce(p.display_name, s.name) as name, s.units, s.latest_occupancy, s.t12_income, s.t12_expense, s.t12_noi,
            s.cash_flow_after_debt_and_capex, s.optimized_noi, s.annual_debt_service, s.annual_debt_service_paid,
            s.debt, s.value_on_file, s.pm_company, s.managing_entity_name, s.street, s.city, s.state, s.zip
-      from reporting.property_summary_mv s where s.tenant_id = $1 and s.id = any($2::uuid[])`, [tenantId, ids])).rows;
+      from reporting.property_summary_mv s join public.property p on p.id = s.id
+     where s.tenant_id = $1 and s.id = any($2::uuid[])`, [tenantId, ids])).rows;
   const from = ymAdd(t, -23);
   const pm = (await db.q(`
     select property_id::text pid, to_char(month, 'YYYY-MM') m, total_operating_income inc, total_operating_expense opx,

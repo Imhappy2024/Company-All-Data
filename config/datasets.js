@@ -196,7 +196,8 @@ const DATASETS = {
       F('t12_income', 'Total income, trailing 12 mo', 'currency'),
       F('t12_expense', 'Total expenses, trailing 12 mo', 'currency'),
       F('t12_noi', 'NOI, trailing 12 mo', 'currency'),
-      F('t12_net_income', 'Net income, trailing 12 mo', 'currency'),
+      /* key kept so saved configs still resolve; the column was renamed */
+      F('t12_net_income', 'Cash flow after debt and capex, trailing 12 mo', 'currency', { column: 'cash_flow_after_debt_and_capex' }),
       F('optimized_noi', 'Optimized NOI', 'currency'),
       F('expense_ratio', 'Expense ratio', 'percent'),
       F('debt', 'Debt', 'currency'),

@@ -2543,11 +2543,7 @@ Rent roll tab filters on it rather than listing every expired lease.
     node test/test-am-fees.js           # 17, the fee arithmetic
     node test/test-datasets.js          # 10, the allowlist boundary
     node test/test-acceptance-math.js   # 16, section 2.10's arithmetic
-    node test/test-reporting-ui.js      # 44, the screens against LIVE data
-                                        #     --shots writes the screenshots
-    node test/test-views-ui.js          # 24, G2 styling + G3 formulas, live, nothing saved
     node test/test-portfolio-setup.js   # 26, section H server, every write rolled back
-    node test/test-setup-ui.js          # 18, section H screens + rent roll As-of
 
 `test-reporting-ui.js` is the opposite of the usual fake: the SQL, the views
 and every figure are the live database, and only the doorman is stubbed.
@@ -2586,23 +2582,29 @@ Rules worth knowing before changing anything here:
   $890,895"), so the printed numbers add up. Exact: 113,620.38.
 - **Months travel as 'YYYY-MM' text** from SQL (`to_char`), never as Date.
 - Units: rent roll first, then verified, then buildings. Occupied = current + notice.
-- `property_summary.t12_net_income` is a TRANSITIONAL alias of
-  `cash_flow_after_debt_and_capex` so the deployed Phase 2 app keeps working
-  until v2 deploys. Drop it in the migration after that deploy.
-- Sharing is people (`user`) or roles (`role`, shown as teams). Departments as
-  teams need `saved_view_share_principal_type_check` widened - Jay's call.
+- `property_summary.t12_net_income` was a TRANSITIONAL alias, dropped by
+  `20261014_drop_t12_net_income_alias.sql` once v2 was live. The old dataset
+  field KEY `t12_net_income` stays (saved configs) and reads the new column.
+- Names: `property.display_name` where set (seeded from the mockup's DISPLAY
+  map), otherwise the property's name. Applied in props-api and props-views.
+- Header: "Data through" = latest `t12_report.period_end`; "next sync" = next
+  third Thursday 9:00 AM America/Chicago (`nextSync()` in props-api.js).
+- Sharing: a person (`user`), a role (`role`), or a department (`department`,
+  current `department_member` rows). The share check allows all three.
+- The left menu's old "Views" item is gone (its saved views stay in the
+  database; `/api/views` still serves them).
 - portal.html styles `.btn`, `.chip`, `th` and `table` globally (uppercase mono);
   portal-props.css undoes that under `.lw`. Keep new class names under `.lw`/`lw-`.
 
 Tests and tools:
 
-    node test/test-props-ui.js [--shots]   # 36 checks, live data, acceptance figures on screen
+    node test/test-props-ui.js [--shots]   # 38 checks, live data, acceptance figures on screen
     node tools/side-by-side.js             # docs/screenshots/compare/*.png, live vs mockup
     node tools/dry-run-migrations.js <files>   # apply inside a transaction, check, roll back
     node tools/apply-migrations.js <files>     # apply for real, one transaction per file
 
-test-reporting-ui.js, test-views-ui.js and test-setup-ui.js drive the replaced
-Phase 2 screens and now fail by design; retire them with portal-reporting.js.
+test-reporting-ui.js, test-views-ui.js and test-setup-ui.js were retired with
+the Phase 2 screens they drove.
 
 ## Railway variables: what belongs, and what takes the app down
 

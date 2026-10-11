@@ -126,6 +126,8 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     ['Managing entity', 'Properties', 'Units', 'Occupancy', 'NOI', 'Market value', 'Cash flow after debt and capex', 'Debt']));
   check('"No managing entity" is the last row', () => assert.strictEqual(ent.rows[ent.rows.length - 1], 'No managing entity'));
   check('IBM Plex Sans', () => assert.ok(/IBM Plex Sans/.test(ent.font), ent.font));
+  const head = await pg.evaluate(() => document.querySelector('.lw-through').textContent);
+  check('header: data through the latest T12, next sync on the third Thursday', () => assert.ok(/^Data through [A-Z][a-z]{2} \d{4}, next sync [A-Z][a-z]{2} \d{1,2}$/.test(head), head));
   check('frozen header row', () => assert.strictEqual(ent.sticky, 'sticky'));
   const entTxt = await text();
   check('market value shows Outdated and a partial count', () => { assert.ok(/Outdated/.test(entTxt)); assert.ok(/\(\d+ of \d+\)/.test(entTxt)); });
@@ -143,6 +145,12 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   check('entity page lists its properties', async () => {});
   const eTxt = await text();
   check('entity page has a properties table', () => assert.ok(/sorted by NOI/.test(eTxt)));
+
+  /* display_name where set */
+  await pg.click('[data-a="crumb:portfolio"]'); await settle();
+  await pg.click('[data-a="ent:none"]'); await settle();
+  const names = await text();
+  check('display_name shown where set (The Cass, not Sonesta The Cass Apartments)', () => assert.ok(/The Cass/.test(names) && !/Sonesta/.test(names), names.slice(0, 600)));
 
   /* ---- Champion Villas: badge 2 and the DSCR sentence ------------------- */
   await open('lvl=property&prop=' + ID['Champion Villas'] + '&ptab=attention');
