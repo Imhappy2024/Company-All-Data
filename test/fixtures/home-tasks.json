@@ -1,0 +1,932 @@
+{
+ "me": {
+  "id": "u-jay-delgado",
+  "name": "Jay Delgado",
+  "initials": "JD"
+ },
+ "workspaces": 1,
+ "tasks": [
+  {
+   "id": "86b8p1agh",
+   "name": "Annual Send BG Champion Budget to Heidi",
+   "url": "https://app.clickup.com/t/86b8p1agh",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "annual recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1801476000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bcfmzyf",
+   "name": "Move Quarterly Report and Monthly Report tool Supabase and github to Leavenwealth’s account",
+   "url": "https://app.clickup.com/t/86bcfmzyf",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1796032800000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    },
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bba0e3d",
+   "name": "VestMint distro tool",
+   "url": "https://app.clickup.com/t/86bba0e3d",
+   "list": "Chris Mitch List",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1795514400000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    },
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bce80dn",
+   "name": "BRENT VILLAGE: Quarterly Loan Report Requirements",
+   "url": "https://app.clickup.com/t/86bce80dn",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1794564000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bamw5jp",
+   "name": "Building task test",
+   "url": "https://app.clickup.com/t/86bamw5jp",
+   "list": "All Tasks",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1793649600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bb050g2",
+   "name": "List of all applications used and usernames and passwords and SOPs",
+   "url": "https://app.clickup.com/t/86bb050g2",
+   "list": "Chris Mitch List",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1792400400000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bak2a6w",
+   "name": "SREO",
+   "url": "https://app.clickup.com/t/86bak2a6w",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "quarterly recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792054800000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86b9eveey",
+   "name": "Semi Annual TIF/TIF Loans",
+   "url": "https://app.clickup.com/t/86b9eveey",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "semi-annual recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792054800000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bbxge3t",
+   "name": "Monthly Property Financials Spreadsheet",
+   "url": "https://app.clickup.com/t/86bbxge3t",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "monthly recurring",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1791795600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86b7tuavj",
+   "name": "Monthly AM Fee Update",
+   "url": "https://app.clickup.com/t/86b7tuavj",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "monthly recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1791795600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86b52gjhh",
+   "name": "Monthly Asset Review Tool Uploads",
+   "url": "https://app.clickup.com/t/86b52gjhh",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "monthly recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1791795600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86ba40k5m",
+   "name": "500 Willow Ave - Refi w/ Construction Line",
+   "url": "https://app.clickup.com/t/86ba40k5m",
+   "list": "Dashboard",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1789416000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86baxe6qg",
+   "name": "AI Agent for Mitch (test case for rest of team)",
+   "url": "https://app.clickup.com/t/86baxe6qg",
+   "list": "Jay Project Pipeline",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in review",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1787648400000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86ba40k59",
+   "name": "Modern Heights - refi",
+   "url": "https://app.clickup.com/t/86ba40k59",
+   "list": "Dashboard",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1787169600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86b45rffa",
+   "name": "Lion Creek Cap - Jay please add to LW GHL",
+   "url": "https://app.clickup.com/t/86b45rffa",
+   "list": "List",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "low",
+   "due": 1787043600000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86baxe88e",
+   "name": "Add \"Safeguard Referral Partner Program\" to GHL",
+   "url": "https://app.clickup.com/t/86baxe88e",
+   "list": "Jay Project Pipeline",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "not started",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1785834000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86baxe7bf",
+   "name": "Re: LW Lender Contacts - initial start for GHL Setup",
+   "url": "https://app.clickup.com/t/86baxe7bf",
+   "list": "Jay Project Pipeline",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in review",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1785834000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86ba40k65",
+   "name": "Eagle Creek / Langston - Refi",
+   "url": "https://app.clickup.com/t/86ba40k65",
+   "list": "Dashboard",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1785528000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bayrx3g",
+   "name": "Brian send Test Service Agreement through GHL to Chris",
+   "url": "https://app.clickup.com/t/86bayrx3g",
+   "list": "FolioExcel",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in review",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1785402000000,
+   "assignees": [
+    {
+     "id": "u-jay-delgado",
+     "name": "Jay Delgado",
+     "initials": "JD"
+    }
+   ]
+  },
+  {
+   "id": "86bc596wp",
+   "name": "Carter Place - REFI (not selling)",
+   "url": "https://app.clickup.com/t/86bc596wp",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1805792400000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bcgevjd",
+   "name": "Copperleaf Reserve Replacement Draw",
+   "url": "https://app.clickup.com/t/86bcgevjd",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "quarterly recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1799575200000,
+   "assignees": [
+    {
+     "id": "u-john-younes",
+     "name": "John Younes",
+     "initials": "JY"
+    }
+   ]
+  },
+  {
+   "id": "86b8be54h",
+   "name": "Modern Heights - refi w Arbor or Igor, need 90%+ occupancy",
+   "url": "https://app.clickup.com/t/86b8be54h",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1797933600000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86b8be50d",
+   "name": "Heston Pointe - Igor/Lument - Appraisals complete 9/28/26",
+   "url": "https://app.clickup.com/t/86b8be50d",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1797933600000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bbtr0x4",
+   "name": "Annual Investor In-Person Events",
+   "url": "https://app.clickup.com/t/86bbtr0x4",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1794909600000,
+   "assignees": [
+    {
+     "id": "u-jason-belt",
+     "name": "Jason Belt",
+     "initials": "JB"
+    }
+   ]
+  },
+  {
+   "id": "86bbbp7tc",
+   "name": "Monthly Ask Kouri for Boulder Ridge Cash to cover 321",
+   "url": "https://app.clickup.com/t/86bbbp7tc",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "monthly recurring",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1794823200000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  },
+  {
+   "id": "86baqb4ap",
+   "name": "Get Folio Excel Dundee Debit Card",
+   "url": "https://app.clickup.com/t/86baqb4ap",
+   "list": "FolioExcel",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1794477600000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86b7ux1hc",
+   "name": "Quarterly Investor Reports",
+   "url": "https://app.clickup.com/t/86b7ux1hc",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "quarterly recurring",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1793959200000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  },
+  {
+   "id": "86ba1jgrg",
+   "name": "PARK PLACE: Internet Project",
+   "url": "https://app.clickup.com/t/86ba1jgrg",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1793437200000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  },
+  {
+   "id": "86bbwyvt1",
+   "name": "Gather Underwriting Info. for LeavenWealth’s E&O, D&O and Crime Insurance Renewal",
+   "url": "https://app.clickup.com/t/86bbwyvt1",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1793336400000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    },
+    {
+     "id": "u-megan-richardson",
+     "name": "Megan Richardson",
+     "initials": "MR"
+    }
+   ]
+  },
+  {
+   "id": "86bc0ygr8",
+   "name": "BG Champion Investor Vote for LLS Loan",
+   "url": "https://app.clickup.com/t/86bc0ygr8",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792486800000,
+   "assignees": [
+    {
+     "id": "u-megan-richardson",
+     "name": "Megan Richardson",
+     "initials": "MR"
+    }
+   ]
+  },
+  {
+   "id": "86bbm524y",
+   "name": "26Q3 Quarterly reports identify ROC or lack there of in reports",
+   "url": "https://app.clickup.com/t/86bbm524y",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792486800000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86barwk1n",
+   "name": "Finish insurance",
+   "url": "https://app.clickup.com/t/86barwk1n",
+   "list": "FolioExcel",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792123200000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bb71c33",
+   "name": "Liv at 68th - Loan Modification w Aaron i3 Bank",
+   "url": "https://app.clickup.com/t/86bb71c33",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792040400000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bbehfu0",
+   "name": "Confirm with all PMs for proof of insurance for all tenants",
+   "url": "https://app.clickup.com/t/86bbehfu0",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1792054800000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  },
+  {
+   "id": "86bcfdpnd",
+   "name": "Claude users: Are you using LW Claude? Karen, Jason, Nick, John",
+   "url": "https://app.clickup.com/t/86bcfdpnd",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1791882000000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    },
+    {
+     "id": "u-jason-belt",
+     "name": "Jason Belt",
+     "initials": "JB"
+    },
+    {
+     "id": "u-karen-romero",
+     "name": "Karen Romero",
+     "initials": "KR"
+    },
+    {
+     "id": "u-nick-bruhn",
+     "name": "Nick Bruhn",
+     "initials": "NB"
+    },
+    {
+     "id": "u-john-younes",
+     "name": "John Younes",
+     "initials": "JY"
+    }
+   ]
+  },
+  {
+   "id": "86b4q91ad",
+   "name": "One Source of Truth (Database + Clickup)",
+   "url": "https://app.clickup.com/t/86b4q91ad",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1791882000000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bax806c",
+   "name": "500 S DAKOTA: renovation funds - $143k unused (bank inquiry from First Savings Bank)",
+   "url": "https://app.clickup.com/t/86bax806c",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1791536400000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bc10wmn",
+   "name": "600k Vestmint Fund ROC from LLS 1st week October. Coordinate w Luke",
+   "url": "https://app.clickup.com/t/86bc10wmn",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "to do",
+   "statusType": "custom",
+   "priority": "high",
+   "due": 1791363600000,
+   "assignees": [
+    {
+     "id": "u-mitchell-hagen",
+     "name": "Mitchell Hagen",
+     "initials": "MH"
+    }
+   ]
+  },
+  {
+   "id": "86bb6ffqn",
+   "name": "BRENT VILLAGE: Replacement Reserve - Greystone",
+   "url": "https://app.clickup.com/t/86bb6ffqn",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1790758800000,
+   "assignees": [
+    {
+     "id": "u-john-younes",
+     "name": "John Younes",
+     "initials": "JY"
+    }
+   ]
+  },
+  {
+   "id": "86b9yy0gh",
+   "name": "DORAL: ATV Title work",
+   "url": "https://app.clickup.com/t/86b9yy0gh",
+   "list": "AM To-Do's",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1790758800000,
+   "assignees": [
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  },
+  {
+   "id": "86bbh33k4",
+   "name": "Park Place - Small Claims Judgement",
+   "url": "https://app.clickup.com/t/86bbh33k4",
+   "list": "PM Review Questions",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1788339600000,
+   "assignees": [
+    {
+     "id": "u-john-younes",
+     "name": "John Younes",
+     "initials": "JY"
+    }
+   ]
+  },
+  {
+   "id": "86b8va0z5",
+   "name": "102 n 38 - fast Ave sale",
+   "url": "https://app.clickup.com/t/86b8va0z5",
+   "list": "MASTER LIST",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "off track",
+   "statusType": "custom",
+   "priority": "normal",
+   "due": 1787648400000,
+   "assignees": [
+    {
+     "id": "u-chris-pomerleau",
+     "name": "Chris Pomerleau",
+     "initials": "CP"
+    }
+   ]
+  },
+  {
+   "id": "86b5kqa2r",
+   "name": "Constructions Bids",
+   "url": "https://app.clickup.com/t/86b5kqa2r",
+   "list": "Due Diligence",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "in progress",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1785574800000,
+   "assignees": [
+    {
+     "id": "u-chris-pomerleau",
+     "name": "Chris Pomerleau",
+     "initials": "CP"
+    }
+   ]
+  },
+  {
+   "id": "86b9zkm9g",
+   "name": "Annual Board Meeting",
+   "url": "https://app.clickup.com/t/86b9zkm9g",
+   "list": "Towne Park HOA",
+   "listId": "",
+   "space": "",
+   "workspace": "9014303262",
+   "status": "annual recurring",
+   "statusType": "custom",
+   "priority": null,
+   "due": 1809028800000,
+   "assignees": [
+    {
+     "id": "u-cane-bueno",
+     "name": "Cane Bueno",
+     "initials": "CB"
+    },
+    {
+     "id": "u-brian-nelson",
+     "name": "Brian Nelson",
+     "initials": "BN"
+    }
+   ]
+  }
+ ],
+ "fetchedAt": "2026-10-11T15:00:00Z",
+ "stale": false
+}

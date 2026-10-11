@@ -376,3 +376,44 @@ input.fin-qsel { font-family: var(--mono); }
 .fin-fields { display: grid; grid-template-columns: minmax(120px, 26%) 1fr; gap: 1px 12px; font-size: 12.5px; }
 .fin-fields dt { color: var(--dimmer); padding: 5px 0; border-bottom: 1px solid var(--border); }
 .fin-fields dd { color: var(--text); padding: 5px 0; margin: 0; border-bottom: 1px solid var(--border); overflow-wrap: anywhere; }
+
+/* ===========================================================================
+   Shell restyle (docs/mockup/shell.dc.html + properties-mockup.dc.html).
+   Layered over the rules above rather than rewriting them, so the diff says
+   exactly what changed: sentence case in the body face, key figures in one
+   frame with hairlines, tabs as underlined text, no decorative colour on
+   cash and debt, no callout bar.
+   =========================================================================== */
+:is(#financialsNative, #folioReportsNative, #folioSubsNative, #leadliFinNative) * {
+  text-transform: none !important; letter-spacing: 0 !important;
+}
+:is(#financialsNative, #folioReportsNative, #folioSubsNative, #leadliFinNative) :is(div, span, b, th, td, button, input, select, label, p, h1, h2, h3) {
+  font-family: var(--font);
+}
+.fin-title { font-size: 22px; letter-spacing: -.01em !important; margin: 0 0 2px; }
+.fin-sub { font-size: 13px; color: var(--ink-3); }
+.fin-btn, .fin-qsel, .fin-ms-btn, .fin-range input, .fin-daterange input {
+  height: 32px; border-radius: 6px; font-size: 13px; font-weight: 500; background: transparent; color: var(--ink);
+}
+.fin-btn:hover { background: var(--hov); }
+.fin-btn.primary { color: var(--page); }
+.fin-tiles { gap: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--panel); overflow: hidden; }
+.fin-tile { border: 0; border-left: 1px solid var(--border); border-radius: 0; background: none; box-shadow: none; padding: 12px 14px; }
+.fin-tile:first-child { border-left: 0; }
+.fin-tile .k { font-size: 12.5px; color: var(--ink-3); }
+.fin-tile .v { font-size: 21px; font-weight: 600; }
+.fin-tile.cash .v, .fin-tile.debt .v { color: var(--ink); }
+.fin-tile .d { font-size: 12px; color: var(--ink-3); }
+.fin-filters { border-radius: 8px; background: var(--panel); }
+.fin-tabs { gap: 22px; margin-bottom: 14px; }
+.fin-tab { padding: 10px 0; font-size: 14px; font-weight: 500; color: var(--ink-3); background: none; border-radius: 0; }
+.fin-tab .n { font-size: 12px; }
+.fin-tablewrap { border-radius: 8px; background: var(--panel); }
+.fin-table { font-size: 13.5px; }
+.fin-table th { font-size: 12.5px; font-weight: 500; color: var(--ink-3); background: var(--panel); position: sticky; top: 0; }
+.fin-table td.r, .fin-table td.mono { font-size: 13.5px; color: inherit; }
+.fin-table tbody tr:hover { background: var(--hov); }
+.fin-note { border-left: 1px solid var(--border); background: transparent; color: var(--ink-3); }
+.fin-foot .pginfo, .fin-count { font-size: 12.5px; color: var(--ink-3); }
+.fin-chip { border-radius: 6px; font-size: 12.5px; }
+.fin-empty b { font-family: var(--font); }

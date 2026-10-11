@@ -7,16 +7,10 @@ When you change architecture, update this file in the same commit.
 An all-company internal portal + dashboards for LeavenWealth Group (one company,
 several brands). Two front ends are merged into ONE Express service:
 
-- `/`     → **portal** (`public/portal.html`) — a **sidebar app shell with brand-as-workspace**.
-            The workspace switcher (top-left) picks a brand (Executive Board / LeavenWealth / Leadli AI /
-            Folio Excel / Liquid Lending); each brand shows only its own nav + accent colour.
-            LeavenWealth: Properties, Loans + workspace core
-            (Tasks, Leads, Team, Departments, Tools & Apps, Financials, Documents). Leadli: Leads,
-            Appointments, Marketing/Ads, Financials (the payment stream). Folio: App
-            Users, Financials (SaaS). Liquid: Loan
-            Pipeline, Borrowers. **No brand has an Overview item** - see "Removed screens".
-            Clicking a person (Org/Dept charts, Team) opens a profile drawer
-            with a bio "See more". Brand maps 1:1 to Supabase `company` / `company_member`.
+- `/`     → **portal** (`public/portal.html`) — the shell from `docs/mockup/shell.dc.html`:
+            a business rail (Home, then LeavenWealth / Folio Excel / Leadli AI / Liquid
+            Lending), a sidebar per business, a breadcrumb header. See "The shell" below,
+            which supersedes every older description of the portal's menus in this file.
 - `/ops`  → the existing **operations dashboard** (`public/index.html`) — live ClickUp +
             Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10,
             Properties (sub-views: Properties / Property Tasks),
@@ -45,6 +39,55 @@ several brands). Two front ends are merged into ONE Express service:
   with a baked fallback until portal auth exists. Other cards are baked demo data for now.
 - **Roadmap:** Properties is done (native). Port Property Tasks and Loan Views the same way,
   then retire `/ops` and `public/index.html`. Until then the remaining embeds are the bridge.
+
+## The shell (2026-10-11) - supersedes older menu, Tasks and design notes below
+
+`public/portal.html` + `public/portal-shell.css`, built to `docs/mockup/shell.dc.html`.
+Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative`.
+
+- **Rail**: Home, divider, one button per business the person can reach, in
+  `BIZ_ORDER`. Ctrl+0 Home, Ctrl+1..4 the businesses in rail order. With one
+  business the rail is hidden and My tasks / All tasks sit at the top of that
+  business's sidebar instead, so nothing becomes unreachable.
+- **Menus** (`MENUS`): LeavenWealth Properties, Team, Departments, Tools & apps,
+  Documents. Folio Overview, Financials, Plans, Reports, Team, Departments, Tools &
+  apps, Documents. Leadli and Liquid Overview, Financials, Team, Departments, Tools
+  & apps, Documents. Executive board below a divider for owners/admins, with tabs
+  Overview, Financials (LeavenWealth cash and debt, `PortalFinancials`), Org &
+  departments, Data tracker, Users & roles. Leads, Loans, Tasks and the old Users &
+  Roles menu item are gone (GHL is a link on Tools & apps).
+- **Gates**: an item shows only when `dash_my_access()` holds its catalog id.
+  The third element of a `MENUS` entry names the id when it differs from the page:
+  Folio Financials rides on `reports` (no `financials` row) and Liquid Departments
+  rides on `team` (no `departments` row). No migration was needed. A page the person
+  cannot open is never listed, so nothing renders "no access".
+- **Memory**: `localStorage['lwShell:<staff id>']` = last business and last page per
+  business. A URL fragment wins over it. Theme: `localStorage.lwTheme`.
+- **URL**: `#brand=<home|leavenwealth|folio|leadli|liquid>&view=<page>&sub=<tab>`
+  plus Properties' own params and `who=` for the Team filter.
+- **Home = ClickUp tasks** (`home-tasks.js` at `/api/home/tasks`,
+  `public/portal-home.js`). Only the person's OWN ClickUp OAuth token
+  (`X-ClickUp-Token` / `du_token`); never `CLICKUP_API_TOKEN`. No token = 401 and one
+  Connect ClickUp button. Every page of every workspace is read, tasks are
+  de-duplicated by id, cached per token (fresh 60s, then served stale while it
+  refreshes) and per browser session (`sessionStorage.lwHomeTasks`).
+- **Team / Departments / Tools** read `/api/shell/*` (`shell-api.js`) as the
+  person's connector role. Folio Plans reads `/api/folio/financials/plans`.
+- **Tables** (`dataTable()` in portal.html): sortable headers (nulls last), frozen
+  header, Compact/Comfortable density (`localStorage.lwDensity`), CSV export.
+- **Design**: Graphite (dark, default) and Light stone in `tokens.css`, IBM Plex
+  Sans, radii 6/8/8. Sentence case everywhere: `portal-financials.css` ends with a
+  restyle block that removes the old uppercase mono labels inside the money
+  modules. The command-center indigo described under "The design" is history.
+- Still baked: the Executive board Overview's four figures, labelled as samples.
+
+Tests: `test/test-shell.js` (rail, menus, gates, memory, shortcuts, no capitals),
+`test/test-home.js` (a task in two businesses appears once; never the shared
+token). Screenshots: `node tools/shot-pages.js --pages tools/shell-pages-after.json
+--prefix after --clickup test/fixtures/home-tasks.json` and
+`node tools/mockup-shell.js` (renders the mockup without its runtime) write
+`docs/screenshots/shell/`. The harness pins `TZ=UTC`: from UTC+8 a Postgres DATE
+renders a day early and Financials pins to a snapshot that does not exist.
 
 ## Stack
 Node 18+, Express, vanilla HTML/CSS/JS (NO framework, NO build step — keep it that way
@@ -3029,7 +3072,8 @@ and a wrong patch is a silent lie on the screen people use to decide what needs 
     npm install --no-save playwright express
     node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
     node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
-    node test/test-portal-nav.js # Tasks gating, URL state, PT board columns, marks
+    node test/test-shell.js      # the shell: rail, menus, gates, memory, shortcuts
+    node test/test-home.js       # Home tasks: one row per task, own ClickUp sign-in only
     node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
     node test/test-task-cache.js # task cache patching after a write (no network needed)
     node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis

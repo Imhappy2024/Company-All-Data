@@ -58,7 +58,7 @@ const OWNER = {
   user: { id: 's-o', email: 'chris@leavenwealth.com', full_name: 'Chris Pomerleau',
           avatar_url: null, role: 'owner' },
   companies: { [LW]: 'LeavenWealth' },
-  access: { exec: { exec: 'write' }, [LW]: { overview: 'write', properties: 'write' } },
+  access: { exec: { exec: 'write' }, [LW]: { team: 'write', properties: 'write' } },
 };
 /* This one HAS a headshot, so the chip's photo path is exercised alongside OWNER's
    initials-only path. A data: URI rather than an http one - the sandbox has no
