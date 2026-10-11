@@ -54,8 +54,14 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   apps, Documents. Leadli and Liquid Overview, Financials, Team, Departments, Tools
   & apps, Documents. **The first rail button is Home for everyone else (My tasks,
   All tasks) and the Executive board for owners/admins** (`homeViews()`): L10
-  agenda, All tasks, Personal tasks, then Users & roles below a divider (the only
-  Users & roles entry). Businesses no longer carry an Executive board item; an old
+  agenda, All tasks, Personal tasks, then **Roles & permissions** below a divider
+  (the only access screen; `portal-access.js`). It lists ONLY people with
+  dashboard access: name, email, role. A click expands the row to show their level
+  per company and the screens it gives, with Update (the edit drawer) and Revoke
+  access (deactivate: dashboard login and Claude connector off together; the owner
+  and yourself cannot be revoked here). Invite user is two steps: name and email,
+  then permissions; it is the same invite as before (staff + connector account +
+  n8n setup email) and stays disabled until `MCP_ROLE_SECRET` is set. Businesses no longer carry an Executive board item; an old
   `view=exec` link lands on the new one. Leads,
   Loans, Tasks are gone (GHL is a link on Tools & apps). The old Exec tabs
   (sample Overview, LeavenWealth cash/debt Financials, Org & departments, Data

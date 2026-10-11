@@ -49,37 +49,64 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     return r.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true,"login":"test","connector":"test"}' });
   });
 
-  await pg.goto(BASE + '/?t=1#brand=leavenwealth&view=exec&sub=access', { waitUntil: 'domcontentloaded' });
+  await pg.goto(BASE + '/?t=1#brand=home&view=access', { waitUntil: 'domcontentloaded' });
   await pg.waitForSelector('.pa-tbl', { timeout: 60000 });
   const t = await pg.evaluate(() => ({
-    heads: [...document.querySelectorAll('.pa-tbl:not(.pa-log) thead th')].map(x => x.textContent.trim()),
+    heads: [...document.querySelectorAll('.pa-tbl thead th')].map(x => x.textContent.trim()),
     names: [...document.querySelectorAll('.pa-row .pa-name')].map(x => x.textContent.trim()),
-    rowFor: n => null,
+    rows: [...document.querySelectorAll('.pa-row')].map(r => [...r.cells].map(c => c.innerText.trim())),
   }));
-  check('columns: person, status, dashboard, every company, each company, last in Claude', () =>
-    assert.deepStrictEqual(t.heads, ['Person', 'Status', 'Dashboard', 'Every company', 'Folio Excel', 'Leadli AI', 'LeavenWealth', 'Liquid Lending Solutions', 'Last in Claude']));
-  check('lists Brian, Chris, Jay and Mitch', () => ['Brian Nelson', 'Chris Pomerleau', 'Jay Delgado', 'Mitch Hagen'].forEach(n => assert.ok(t.names.some(x => x.indexOf(n) === 0), n)));
-  const brianRow = await pg.evaluate(() => {
-    const r = [...document.querySelectorAll('.pa-row')].find(x => /^Brian Nelson/.test(x.querySelector('.pa-name').textContent));
-    return [...r.querySelectorAll('td')].map(td => td.innerText.trim());
-  });
-  check('Brian reads Folio Excel: Editor (no financials), LeavenWealth: Operations', () => {
-    assert.strictEqual(brianRow[4], 'Editor (no financials)'); assert.strictEqual(brianRow[6], 'Operations');
-  });
-  /* Users & roles is a tab inside the Executive board, not a menu item. */
-  const menu = await pg.evaluate(() => { const a = document.querySelector('.seg'); return a ? a.innerText : document.body.innerText; });
-  check('Users & roles is a tab on the Executive board', () => assert.ok(/Users & roles/.test(menu), menu.slice(0, 200)));
-  if (SHOTS) await pg.screenshot({ path: path.join(ROOT, 'docs', 'screenshots', 'access-list.png') });
+  check('the list is name, email and role', () => assert.deepStrictEqual(t.heads, ['Name', 'Email', 'Role']));
+  check('only people with dashboard access are listed (Brian, Chris, Jay, Mitch), not every staff record', () =>
+    assert.deepStrictEqual(t.names.slice().sort(), ['Brian Nelson', 'Chris Pomerleau', 'Jay Delgado', 'Mitch Hagen']));
+  check('Brian: his email and role', () => assert.deepStrictEqual(t.rows.find(r => /^Brian Nelson/.test(r[0])).slice(1), ['brian@leavenwealth.com', 'User']));
+  const menu = await pg.evaluate(() => document.getElementById('nav').innerText);
+  check('Roles & permissions is on the Executive board', () => assert.ok(/Roles & permissions/.test(menu), menu.slice(0, 200)));
+  const inviteBtn = await pg.evaluate(() => (document.querySelector('.page-h button.primary') || {}).textContent);
+  check('the header button reads Invite user', () => assert.strictEqual((inviteBtn || '').trim(), 'Invite user'));
 
-  /* open Brian, narrow a screen, save: the body is the connector model */
-  await pg.evaluate(() => [...document.querySelectorAll('.pa-row')].find(x => /^Brian Nelson/.test(x.querySelector('.pa-name').textContent)).click());
+  /* a click expands the row to show what the person can reach */
+  const rowOf = n => pg.evaluate(name => [...document.querySelectorAll('.pa-row')].find(x => x.querySelector('.pa-name').textContent.indexOf(name) === 0).click(), n);
+  await rowOf('Brian Nelson');
+  await pg.waitForSelector('.pa-x');
+  const ex = await pg.evaluate(() => ({
+    access: [...document.querySelectorAll('.pa-x .pa-xs-h')].map(h => [h.querySelector('b').textContent, h.querySelector('span').textContent]),
+    screens: (document.querySelector('.pa-x .pa-xs-s') || {}).textContent || '',
+    buttons: [...document.querySelectorAll('.pa-x .pa-actions button')].map(b => b.textContent),
+  }));
+  check('expanded: his access per company', () => assert.deepStrictEqual(ex.access, [['Folio Excel', 'Editor (no financials)'], ['LeavenWealth', 'Operations']]));
+  check('expanded: the screens it gives', () => assert.ok(ex.screens.length > 0, ex.screens));
+  check('expanded: Update and Revoke access', () => assert.deepStrictEqual(ex.buttons, ['Update', 'Revoke access']));
+  if (SHOTS) await pg.screenshot({ path: path.join(ROOT, 'docs', 'screenshots', 'access-list.png') });
+  await rowOf('Brian Nelson');
+  const collapsed = await pg.evaluate(() => document.querySelectorAll('.pa-x').length);
+  check('the row collapses on a second click', () => assert.strictEqual(collapsed, 0));
+  await rowOf('Chris Pomerleau');
+  const chrisBtns = await pg.evaluate(() => [...document.querySelectorAll('.pa-x .pa-actions button')].map(b => b.textContent));
+  check('the owner cannot be revoked from here', () => assert.deepStrictEqual(chrisBtns, ['Update']));
+  /* sign the harness in as Jay's real staff row, then look at his own row */
+  await pg.evaluate(id => { dashAccess.user.id = id; render(); }, JAY.id);
+  await pg.waitForSelector('.pa-row');
+  await rowOf('Jay Delgado');
+  const selfBtns = await pg.evaluate(() => [...document.querySelectorAll('.pa-x .pa-actions button')].map(b => b.textContent));
+  check('nor can you revoke yourself', () => assert.deepStrictEqual(selfBtns, ['Update']));
+
+  await rowOf('Brian Nelson');
+  pg.once('dialog', d => d.accept());
+  await pg.click('.pa-x [data-a="rowRevoke"]');
+  await pg.waitForTimeout(800);
+  const rev = sent.find(s => s.method === 'POST' && /\/deactivate$/.test(s.url));
+  check('Revoke access turns off the dashboard login and the connector (the same deactivate as before)', () => assert.ok(rev, JSON.stringify(sent)));
+
+  /* Update opens the edit drawer: narrow a screen, save: the body is the connector model */
+  await pg.click('.pa-x [data-a="rowEdit"]');
   await pg.waitForSelector('.pa-drawer');
   const dr = await pg.evaluate(() => ({
     selects: [...document.querySelectorAll('.pa-drawer select[data-in^="g:"]')].map(s => [s.getAttribute('data-in'), s.value]),
     screens: [...document.querySelectorAll('.pa-drawer .pa-scr span')].map(s => s.textContent.trim()),
     lwOptions: [...document.querySelectorAll('.pa-drawer select[data-in="g:leavenwealth"] option')].map(o => o.textContent.trim()),
   }));
-  check('the drawer shows his levels per company', () => assert.deepStrictEqual(dr.selects.filter(x => x[1]), [['g:folio', 'user'], ['g:leavenwealth', 'lw_user']]));
+  check('Update shows his levels per company', () => assert.deepStrictEqual(dr.selects.filter(x => x[1]), [['g:folio', 'user'], ['g:leavenwealth', 'lw_user']]));
   check('LeavenWealth offers the LeavenWealth levels in plain English', () =>
     ['Principal', 'Corporate', 'Operations', 'Operations (read-only)', 'Property facts only', 'Custom'].forEach(x => assert.ok(dr.lwOptions.indexOf(x) >= 0, x)));
   check('his screens are listed for narrowing', () => assert.ok(dr.screens.length >= 7, dr.screens.join(',')));
@@ -93,12 +120,23 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     assert.deepStrictEqual(put.body.restrictions, [{ scope: 'leavenwealth', area: 'company', nav_id: 'tasks', max: 'read' }]);
   });
 
-  /* invite: never shows a token, sends the connector-model body */
+  /* invite: Invite user, then name and email, then permissions */
   await pg.click('.pa-drawer [data-a="close"]');
-  await pg.evaluate(() => window.PortalAccess.openInvite());
+  await pg.click('.page-h button.primary');
   await pg.waitForSelector('.pa-drawer [data-in="i:email"]');
-  const invText = await pg.evaluate(() => document.querySelector('.pa-drawer').innerText);
-  check('the invite explains the token is emailed, never shown', () => assert.ok(/never shown here/.test(invText)));
+  const step1 = await pg.evaluate(() => ({ text: document.querySelector('.pa-drawer').innerText, levels: document.querySelectorAll('.pa-drawer select[data-in^="ig:"]').length }));
+  check('step 1 asks for the name and email only', () => assert.strictEqual(step1.levels, 0));
+  check('the invite explains the token is emailed, never shown', () => assert.ok(/never shown here/.test(step1.text)));
+  await pg.click('.pa-drawer [data-a="inviteNext"]');
+  const refused = await pg.evaluate(() => document.querySelector('.pa-drawer').innerText);
+  check('Next needs a name and a valid email', () => assert.ok(/valid email/.test(refused)));
+  await pg.fill('.pa-drawer [data-in="i:first_name"]', 'Test');
+  await pg.fill('.pa-drawer [data-in="i:last_name"]', 'Person');
+  await pg.fill('.pa-drawer [data-in="i:email"]', 'test.person@leavenwealth.com');
+  await pg.click('.pa-drawer [data-a="inviteNext"]');
+  await pg.waitForSelector('.pa-drawer select[data-in^="ig:"]');
+  const step2 = await pg.evaluate(() => document.querySelector('.pa-drawer').innerText);
+  check('step 2 sets permissions for that person', () => assert.ok(/Test Person/.test(step2) && /test.person@leavenwealth.com/.test(step2) && /Permissions/.test(step2)));
   if (SHOTS) await pg.screenshot({ path: path.join(ROOT, 'docs', 'screenshots', 'access-invite.png') });
   check('no page errors', () => assert.deepStrictEqual(errs, []));
 
