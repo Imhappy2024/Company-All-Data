@@ -94,6 +94,9 @@ async function summary(req, res, who) {
     [who.tenantId, entity, byManaging, managing]
   );
 
+  /* the Phase 2 screens read t12_net_income; the column is now
+     cash_flow_after_debt_and_capex */
+  for (const r of rows) r.t12_net_income = r.cash_flow_after_debt_and_capex;
   const held = rows.filter(r => r.ownership_status === 'held');
   const sum = (list, k) => {
     const vals = list.map(r => num(r[k])).filter(v => v !== null);
@@ -138,7 +141,7 @@ async function entities(req, res, who) {
             sum(s.units)                    as units,
             sum(s.t12_noi)                  as t12_noi,
             sum(s.optimized_noi)            as optimized_noi,
-            sum(s.t12_net_income)           as t12_net_income,
+            sum(s.cash_flow_after_debt_and_capex) as t12_net_income,
             sum(s.value_on_file)            as value_on_file,
             sum(s.debt)                     as debt,
             sum(s.t12_debt_service)         as t12_debt_service,

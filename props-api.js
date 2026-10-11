@@ -82,11 +82,29 @@ function cleanAddr(a) {
   return a.replace(/, USA/g, '').split(',').map(x => x.trim()).filter(x => x && !seen.has(x.toLowerCase()) && seen.add(x.toLowerCase())).join(', ');
 }
 
-/* The latest month with data anywhere in the tenant. Screens say "data
-   through" this month and default their periods to the twelve ending here. */
+/* The end of the latest LOADED T12 period. Screens say "data through" this
+   month and default their periods to the twelve ending here. */
 async function dataThrough(tenantId) {
-  const r = await q(`select to_char(max(month), 'YYYY-MM') m from reporting.property_month_mv where tenant_id = $1 and has_data`, [tenantId]);
+  const r = await q(`select to_char(max(period_end), 'YYYY-MM') m from public.t12_report where tenant_id = $1`, [tenantId]);
   return (r[0] && r[0].m) || null;
+}
+
+/* The monthly sync runs on the third Thursday of each month at 9:00 AM in
+   Chicago. Worked out in Chicago's own calendar, so a reader in Manila sees
+   the date the sync will actually run. */
+function nextSync(now) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: 'numeric', day: 'numeric', hour: 'numeric', hourCycle: 'h23' })
+    .formatToParts(now || new Date()).map(x => [x.type, x.value]));
+  const y = Number(parts.year), m = Number(parts.month) - 1, d = Number(parts.day), h = Number(parts.hour);
+  for (let i = 0; i < 3; i++) {
+    const yy = y + Math.floor((m + i) / 12), mm = (m + i) % 12;
+    const wd = new Date(Date.UTC(yy, mm, 1)).getUTCDay();
+    const day = 1 + ((4 - wd + 7) % 7) + 14;
+    if (i > 0 || day > d || (day === d && h < 9)) {
+      return { date: yy + '-' + String(mm + 1).padStart(2, '0') + '-' + String(day).padStart(2, '0'), label: MN[mm] + ' ' + day, time: '9:00 AM CT' };
+    }
+  }
+  return null;
 }
 
 /* Debt service the property actually pays, annualised from the books where
@@ -104,7 +122,7 @@ function debtServiceOf(s) {
    liveProps(): one row per held property with an income statement.
 --------------------------------------------------------------------------- */
 const LIST_SQL = `
-  select s.id, s.name, s.source_system, s.units, s.units_source, s.units_disagree,
+  select s.id, coalesce(p.display_name, s.name) as name, s.source_system, s.units, s.units_source, s.units_disagree,
          s.units_rent_roll, s.latest_occupancy, s.t12_income, s.t12_expense, s.t12_noi,
          s.cash_flow_after_debt_and_capex, s.optimized_noi, s.trailing_dscr,
          s.annual_debt_service, s.annual_debt_service_paid, s.debt,
@@ -112,6 +130,7 @@ const LIST_SQL = `
          s.pm_company, s.managing_entity_id, s.managing_entity_name,
          s.street, s.city, s.state, s.zip, s.entity_name
     from reporting.property_summary_mv s
+    join public.property p on p.id = s.id
    where s.tenant_id = $1 and s.ownership_status = 'held' and s.t12_income is not null`;
 
 function shapeProp(s) {
@@ -134,7 +153,7 @@ function shapeProp(s) {
 
 async function list(req, res, who) {
   const rows = await q(LIST_SQL + ' order by s.t12_noi desc nulls last, s.name', [who.tenantId]);
-  res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), properties: rows.map(shapeProp) });
+  res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), nextSync: nextSync(), properties: rows.map(shapeProp) });
 }
 
 async function propRow(tenantId, id) {
@@ -599,27 +618,40 @@ async function deleteGroup(req, res, who) {
 }
 
 async function loadView(id, who) {
+  await deptsOf(who);
   const r = await db.q(`
     select v.*, s.full_name as owner_name,
            (select coalesce(json_agg(json_build_object('principal_type', sh.principal_type, 'principal_id', sh.principal_id,
-                    'permission', sh.permission, 'name', coalesce(st.full_name, sh.principal_id))), '[]'::json)
+                    'permission', sh.permission,
+                    'name', coalesce(st.full_name, dp.name, case sh.principal_id when 'owner' then 'Owners' when 'admin' then 'Admins' when 'user' then 'All users' end, sh.principal_id))), '[]'::json)
               from public.saved_view_share sh
               left join public.staff st on sh.principal_type = 'user' and st.id::text = sh.principal_id
+              left join public.department dp on sh.principal_type = 'department' and dp.id::text = sh.principal_id
              where sh.view_id = v.id) as shares
       from public.saved_view v left join public.staff s on s.id = v.owner_staff_id
      where v.id = $1::uuid and v.tenant_id = $2 and v.deleted_at is null and v.display_type = 'custom'`, [id, who.tenantId]);
   return r.rows[0] || null;
 }
 
+/* the caller's current departments, for department shares */
+async function deptsOf(who) {
+  if (who._depts) return who._depts;
+  const r = await q(`select department_id::text d from public.department_member
+                      where tenant_id = $1 and staff_id = $2::uuid and (end_date is null or end_date >= current_date)`, [who.tenantId, who.staffId]);
+  who._depts = r.map(x => x.d);
+  return who._depts;
+}
+
 /* owner > editor > viewer > null. Private by default: only the creator, and
-   whoever they shared it with. */
+   whoever they shared it with: a person, a role, or a department. */
 function permissionFor(view, who) {
   if (!view) return null;
   if (view.owner_staff_id === who.staffId) return 'owner';
   let best = null;
   for (const s of view.shares || []) {
     const match = (s.principal_type === 'user' && s.principal_id === who.staffId)
-      || (s.principal_type === 'role' && s.principal_id === who.role);
+      || (s.principal_type === 'role' && s.principal_id === who.role)
+      || (s.principal_type === 'department' && (who._depts || []).indexOf(s.principal_id) >= 0);
     if (!match) continue;
     if (s.permission === 'editor') best = 'editor'; else if (best !== 'editor') best = 'viewer';
   }
@@ -627,14 +659,16 @@ function permissionFor(view, who) {
 }
 
 async function listViews(req, res, who) {
+  const depts = await deptsOf(who);
   const r = await db.q(`
     select v.id, v.name, v.owner_staff_id, v.updated_at, (v.owner_staff_id = $2) as is_mine
       from public.saved_view v
      where v.tenant_id = $1 and v.deleted_at is null and v.display_type = 'custom'
        and (v.owner_staff_id = $2 or exists (
              select 1 from public.saved_view_share sh where sh.view_id = v.id
-                and ((sh.principal_type = 'user' and sh.principal_id = $2::text) or (sh.principal_type = 'role' and sh.principal_id = $3))))
-     order by v.created_at`, [who.tenantId, who.staffId, who.role]);
+                and ((sh.principal_type = 'user' and sh.principal_id = $2::text) or (sh.principal_type = 'role' and sh.principal_id = $3)
+                     or (sh.principal_type = 'department' and sh.principal_id = any($4::text[])))))
+     order by v.created_at`, [who.tenantId, who.staffId, who.role, depts]);
   res.json({ ok: true, views: r.rows });
 }
 
@@ -702,19 +736,21 @@ async function deleteView(req, res, who) {
 async function writeShares(viewId, list, who, ownerId) {
   const clean = [];
   for (const s of list.slice(0, 50)) {
-    if (!s || (s.principal_type !== 'user' && s.principal_type !== 'role')) continue;
+    if (!s || ['user', 'role', 'department'].indexOf(s.principal_type) < 0) continue;
     if (s.permission !== 'viewer' && s.permission !== 'editor') continue;
     const pid = String(s.principal_id || '').trim();
     if (s.principal_type === 'user' && (!uuidOrNull(pid) || pid === ownerId)) continue;
     if (s.principal_type === 'role' && ['owner', 'admin', 'user'].indexOf(pid) < 0) continue;
+    if (s.principal_type === 'department' && !uuidOrNull(pid)) continue;
     clean.push([pid, s.principal_type, s.permission]);
   }
   await db.tx(async client => {
     await client.query('delete from public.saved_view_share where view_id = $1::uuid', [viewId]);
     for (const [pid, t, perm] of clean) {
       /* a user share must name a person in this tenant */
-      if (t === 'user') {
-        const ok = (await client.query('select 1 from public.staff where id = $1::uuid and tenant_id = $2', [pid, who.tenantId])).rows.length;
+      if (t === 'user' || t === 'department') {
+        const table = t === 'user' ? 'public.staff' : 'public.department';
+        const ok = (await client.query('select 1 from ' + table + ' where id = $1::uuid and tenant_id = $2', [pid, who.tenantId])).rows.length;
         if (!ok) continue;
       }
       await client.query(`insert into public.saved_view_share (view_id, principal_type, principal_id, permission, granted_by)
@@ -727,7 +763,10 @@ async function writeShares(viewId, list, who, ownerId) {
 async function people(req, res, who) {
   const r = await q(`select id, full_name, email from public.staff
                       where tenant_id = $1 and is_active and dashboard_access and id <> $2 order by full_name`, [who.tenantId, who.staffId]);
-  res.json({ ok: true, people: r, teams: [{ id: 'owner', name: 'Owners' }, { id: 'admin', name: 'Admins' }, { id: 'user', name: 'All users' }],
+  const depts = await q(`select id::text id, name from public.department where tenant_id = $1 order by name`, [who.tenantId]);
+  res.json({ ok: true, people: r,
+             teams: depts.map(d => ({ type: 'department', id: d.id, name: d.name }))
+               .concat([{ type: 'role', id: 'owner', name: 'Owners' }, { type: 'role', id: 'admin', name: 'Admins' }, { type: 'role', id: 'user', name: 'All users' }]),
              fields: V.FIELD_LIST, periods: await V.periodOptions(who.tenantId) });
 }
 
@@ -775,4 +814,4 @@ function propsRoutes() {
   return r;
 }
 
-module.exports = { propsRoutes, cleanAddr, _internal: { q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
+module.exports = { propsRoutes, cleanAddr, _internal: { nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };

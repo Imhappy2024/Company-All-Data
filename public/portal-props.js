@@ -292,7 +292,8 @@
     }).join('');
     var t = through();
     return '<header class="lw-head"><nav aria-label="Breadcrumb" class="lw-crumbs">' + crumbs + '</nav>' +
-      '<span class="lw-through">' + (t ? 'Data through ' + ymLong(t) : '') + '</span>' +
+      '<span class="lw-through">' + (t ? 'Data through ' + ymLong(t) : '') +
+      (S.data.list && S.data.list.nextSync ? ', next sync ' + esc(S.data.list.nextSync.label) : '') + '</span>' +
       '<div role="group" aria-label="Row density" style="display:flex;gap:4px">' +
       '<button class="btn press' + (!S.dense ? ' on' : '') + '" data-a="dense:0">Comfortable</button>' +
       '<button class="btn press' + (S.dense ? ' on' : '') + '" data-a="dense:1">Compact</button></div></header>';
@@ -1302,7 +1303,7 @@
 
     /* who can see it */
     var nameOf = function (s) {
-      if (s.principal_type === 'role') { var t = M.teams.find(function (x) { return x.id === s.principal_id; }); return t ? t.name : s.principal_id; }
+      if (s.principal_type === 'role' || s.principal_type === 'department') { var t = M.teams.find(function (x) { return x.type === s.principal_type && x.id === s.principal_id; }); return t ? t.name : s.principal_id; }
       var pp = M.people.find(function (x) { return x.id === s.principal_id; }); return pp ? pp.full_name : 'A person';
     };
     h += '<div style="margin-top:20px;font-weight:600">Who can see it</div>';
@@ -1314,7 +1315,10 @@
       }).join('');
       var taken = d.share.map(function (s) { return s.principal_type + ':' + s.principal_id; });
       h += '<div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap"><select class="sel" style="width:240px" data-in="d:shareSel" aria-label="Person or team"><option value="">Person or team</option>' +
-        '<optgroup label="Teams">' + M.teams.filter(function (t) { return taken.indexOf('role:' + t.id) < 0; }).map(function (t) { return '<option value="role:' + t.id + '"' + (d.shareSel === 'role:' + t.id ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</optgroup>' +
+        [['department', 'Departments'], ['role', 'Roles']].map(function (g) {
+          return '<optgroup label="' + g[1] + '">' + M.teams.filter(function (t) { return t.type === g[0] && taken.indexOf(t.type + ':' + t.id) < 0; }).map(function (t) {
+            var v = t.type + ':' + t.id; return '<option value="' + v + '"' + (d.shareSel === v ? ' selected' : '') + '>' + esc(t.name) + '</option>'; }).join('') + '</optgroup>';
+        }).join('') +
         '<optgroup label="People">' + M.people.filter(function (p) { return taken.indexOf('user:' + p.id) < 0; }).map(function (p) { return '<option value="user:' + p.id + '"' + (d.shareSel === 'user:' + p.id ? ' selected' : '') + '>' + esc(p.full_name) + '</option>'; }).join('') + '</optgroup></select>' +
         '<select class="sel" data-in="d:shareRole" aria-label="Access"><option value="viewer"' + (d.shareRole !== 'editor' ? ' selected' : '') + '>Can view</option><option value="editor"' + (d.shareRole === 'editor' ? ' selected' : '') + '>Can view and edit</option></select>' +
         '<button class="btn press" data-a="shadd"' + (d.shareSel ? '' : ' disabled') + '>Add</button></div>';
