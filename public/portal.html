@@ -36,7 +36,11 @@
     </div>
   </aside>
   <main class="sh-main">
-    <header class="sh-head"><div class="sh-crumb" id="crumb"></div><button class="sh-mode press" id="themeBtn" onclick="toggleTheme()"></button></header>
+    <header class="sh-head">
+      <button class="sh-icon press" id="sideBtn" onclick="toggleSide()"></button>
+      <div class="sh-crumb" id="crumb"></div>
+      <div class="sh-tools"><button class="sh-icon press" id="fullBtn" onclick="toggleFull()"></button><button class="sh-icon press" id="themeBtn" onclick="toggleTheme()"></button></div>
+    </header>
     <div class="sh-scroll" id="scroll"><div class="content" id="content"></div></div>
   </main>
 </div>
@@ -90,6 +94,9 @@ const IP={
   plans:'M4 4h16v16H4zM4 9h16M9 4v16',
   reports:'M6 2h9l5 5v15H6zM15 2v5h5M9 13h6M9 17h6M9 9h2',
   exec:'M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z',
+  side:'M3 4h18v16H3zM9 4v16',
+  full:'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
+  exitfull:'M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5',
   sun:'M12 4V2M12 22v-2M4.9 4.9 3.5 3.5M20.5 20.5l-1.4-1.4M4 12H2M22 12h-2M4.9 19.1l-1.4 1.4M20.5 3.5l-1.4 1.4M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10z',
   moon:'M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z',
   chev:'M9 6l6 6-6 6',
@@ -126,11 +133,17 @@ const MENUS={
   leadli:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments'],['tools','Tools & apps'],['documents','Documents']],
   liquid:[['overview','Overview'],['financials','Financials'],['team','Team'],['departments','Departments','team'],['tools','Tools & apps'],['documents','Documents']],
 };
-/* Executive board: two tabs, both for owners and admins only. The L10 agenda
-   reads ClickUp with the admin's own sign-in; Users & roles is the one place
-   access is set (mcp.access_grant). */
-const EXEC_TABS=[['l10','L10 agenda',null],['access','Users & roles',null]];
+/* The first rail button. Everyone else calls it Home and gets My tasks and All
+   tasks. For owners and admins it is the Executive board: the L10 agenda, All
+   tasks, Personal tasks (their own), and Users & roles below a divider - the
+   one place access is set (mcp.access_grant). Both read ClickUp with the
+   person's own sign-in. */
 const HOME_VIEWS=[['mine','My tasks'],['all','All tasks']];
+const EXEC_VIEWS=[['l10','L10 agenda'],['all','All tasks'],['mine','Personal tasks'],['access','Users & roles']];
+const HOME_ICON={mine:'mine',all:'all',l10:'overview',access:'user'};
+function homeViews(){ return isAdmin()?EXEC_VIEWS:HOME_VIEWS; }
+function homeName(){ return isAdmin()?'Executive board':'Home'; }
+function homeDefault(){ const v=pagesByBrand.home; return homeViews().some(x=>x[0]===v)?v:homeViews()[0][0]; }
 
 /* ---- access (dash_my_access payload, one call at boot) ------------------ */
 let dashAccess=null;
@@ -139,14 +152,10 @@ function scopeAccess(scope){ return (dashAccess&&dashAccess.access&&dashAccess.a
 function navLevel(b,navId){ const m=scopeAccess(b==='exec'?'exec':brandCompanyId(b)); return (m&&m[navId])||null; }
 function isAdmin(){ const r=dashAccess&&dashAccess.user&&dashAccess.user.role; return r==='owner'||r==='admin'; }
 function canSeeAccess(){ return isAdmin(); }
-function execTabVisible(t){ return t[2]===null ? isAdmin() : (isAdmin() && !!navLevel('exec',t[2])); }
-function execTabs(){ return EXEC_TABS.filter(execTabVisible); }
 /* Items the person can open in one business. A page they cannot open is never
    listed, so nothing ever renders "no access". */
 function visibleMenu(b){
-  const items=(MENUS[b]||[]).filter(it=>!!navLevel(b,it[2]||it[0]));
-  if(items.length && execTabs().length) items.push(['exec','Executive board']);
-  return items;
+  return (MENUS[b]||[]).filter(it=>!!navLevel(b,it[2]||it[0]));
 }
 function itemVisible(b,id){ return visibleMenu(b).some(it=>it[0]===id); }
 function allowedBizz(){ return BIZ_ORDER.filter(b=>(MENUS[b]||[]).some(it=>!!navLevel(b,it[2]||it[0]))); }
@@ -154,7 +163,7 @@ function firstAllowedView(b){ const it=visibleMenu(b)[0]; return it?it[0]:null; 
 
 /* ---- state ---- */
 let brand='home', view='mine', theme=document.documentElement.getAttribute('data-theme')||'dark';
-let execTab='l10', deptTab='list', teamFilter='all';
+let deptTab='list', teamFilter='all';
 const pagesByBrand={};      /* last page per business, for this person */
 
 /* ---- helpers ---- */
@@ -352,15 +361,6 @@ V.plans=function(){
   });
 };
 
-/* ---- Executive board ---- */
-function setExecTab(t){execTab=t;render();}
-V.exec=function(){
-  const list=execTabs();
-  if(!list.some(t=>t[0]===execTab)) execTab=list[0][0];
-  const head=pageHead('Executive board')+tabs(execTab,list.map(t=>[t[0],t[1]]),'setExecTab');
-  if(execTab==='access') return head+'<div id="usersNative"></div>';
-  return head+'<div id="l10Native" class="l10-wrap"></div>';
-};
 const trkWords=x=>{const s=String(x||'').replace(/_/g,' ');return s.charAt(0).toUpperCase()+s.slice(1);};
 
 /* ---- Properties: exactly as built ---- */
@@ -392,7 +392,23 @@ function closeDrawer(){document.getElementById('drawer').classList.remove('open'
 /* The switch names what it will do. Each person's choice is kept under their
    staff id; with none saved, the device setting decides. */
 function paintThemeBtn(){const b=document.getElementById('themeBtn');if(!b)return;const to=theme==='dark'?'light':'dark';
-  b.innerHTML=ico(to==='light'?'sun':'moon',15)+`<span>${to==='light'?'Light mode':'Dark mode'}</span>`;b.setAttribute('aria-label','Switch to '+to+' mode');}
+  b.innerHTML=ico(to==='light'?'sun':'moon',17);b.setAttribute('aria-label','Switch to '+to+' mode');b.title='Switch to '+to+' mode';}
+
+/* ---- left menu: hide / show, remembered per person ---------------------- */
+function sideKey(){const u=dashAccess&&dashAccess.user;return 'lwSideHidden'+(u?':'+u.id:'');}
+function paintSideBtn(){const b=document.getElementById('sideBtn');if(!b)return;const hidden=document.getElementById('app').classList.contains('side-hidden');
+  b.innerHTML=ico('side',17);b.setAttribute('aria-label',hidden?'Show the menu':'Hide the menu');b.title=hidden?'Show the menu':'Hide the menu';b.setAttribute('aria-pressed',String(hidden));}
+function setSide(hidden){document.getElementById('app').classList.toggle('side-hidden',!!hidden);paintSideBtn();}
+function toggleSide(){const h=!document.getElementById('app').classList.contains('side-hidden');setSide(h);try{localStorage.setItem(sideKey(),h?'1':'0');}catch(e){}}
+function personSide(){let h=null;try{h=localStorage.getItem(sideKey());}catch(e){}setSide(h==='1');}
+
+/* ---- full screen --------------------------------------------------------- */
+function isFull(){return !!(document.fullscreenElement||document.webkitFullscreenElement);}
+function paintFullBtn(){const b=document.getElementById('fullBtn');if(!b)return;const f=isFull();
+  b.innerHTML=ico(f?'exitfull':'full',17);b.setAttribute('aria-label',f?'Exit full screen':'Full screen');b.title=f?'Exit full screen':'Full screen';}
+function toggleFull(){const el=document.documentElement;
+  try{ if(!isFull()) (el.requestFullscreen||el.webkitRequestFullscreen).call(el); else (document.exitFullscreen||document.webkitExitFullscreen).call(document); }catch(e){/* not allowed here */}}
+document.addEventListener('fullscreenchange',paintFullBtn);document.addEventListener('webkitfullscreenchange',paintFullBtn);
 function deviceTheme(){return (window.matchMedia&&matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light';}
 function setTheme(t){theme=t==='light'?'light':'dark';document.documentElement.setAttribute('data-theme',theme);paintThemeBtn();}
 function personTheme(){let t=null;const u=dashAccess&&dashAccess.user;try{if(u)t=localStorage.getItem('lwTheme:'+u.id);}catch(e){}setTheme(t==='light'||t==='dark'?t:deviceTheme());}
@@ -412,7 +428,8 @@ function writeMem(){
 const singleBiz=()=>allowedBizz().length<=1;
 function railHtml(){
   const keys=allowedBizz();
-  const home=`<button class="biz press ${brand==='home'?'on':''}" onclick="goHome()" aria-label="Home" aria-current="${brand==='home'}">${ico('home',20)}<span class="tip">Home: your tasks<i>Ctrl 0</i></span></button>`;
+  const tip=isAdmin()?'Executive board':'Home: your tasks';
+  const home=`<button class="biz press ${brand==='home'?'on':''}" onclick="goHome()" aria-label="${homeName()}" aria-current="${brand==='home'}">${ico(isAdmin()?'exec':'home',20)}<span class="tip">${tip}<i>Ctrl 0</i></span></button>`;
   return home+`<div class="sh-rail-div"></div>`+keys.map((b,i)=>{
     const x=BRANDS[b], on=brand===b;
     const mark=b==='leavenwealth'?LW_MARK:`<span class="biz-mono ${x.tint}">${x.mono}</span>`;
@@ -424,29 +441,26 @@ function navBtn(id,label,icon,active,go,count){
 }
 function homeNavHtml(){
   const c=window.PortalHome?PortalHome.counts():null;
-  return HOME_VIEWS.map(([k,l])=>navBtn(k,l,k,brand==='home'&&view===k,`goHome('${k}')`,c?c[k]:null)).join('');
+  return homeViews().map(([k,l])=>(k==='access'?`<div class="nav-div"></div>`:'')+
+    navBtn(k,l,HOME_ICON[k],brand==='home'&&view===k,`goHome('${k}')`,c&&c[k]!=null?c[k]:null)).join('');
 }
 function navHtml(){
   if(brand==='home') return homeNavHtml();
-  const items=visibleMenu(brand);
-  const main=items.filter(it=>it[0]!=='exec'), ex=items.find(it=>it[0]==='exec');
   return (singleBiz()?homeNavHtml()+`<div class="nav-div"></div>`:'')+
-    main.map(it=>navBtn(it[0],it[1],it[0],view===it[0],`setView('${it[0]}')`)).join('')+
-    (ex?`<div class="nav-div"></div>`+navBtn('exec','Executive board','exec',view==='exec',`setView('exec')`):'');
+    visibleMenu(brand).map(it=>navBtn(it[0],it[1],it[0],view===it[0],`setView('${it[0]}')`)).join('');
 }
 function pageLabel(){
-  if(brand==='home') return (HOME_VIEWS.find(x=>x[0]===view)||HOME_VIEWS[0])[1];
+  if(brand==='home') return (homeViews().find(x=>x[0]===view)||homeViews()[0])[1];
   const it=visibleMenu(brand).find(x=>x[0]===view);return it?it[1]:'';
 }
 function crumbHtml(){
   const sep=`<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="c-muted" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>`;
-  const parts=[brand==='home'?'Home':BRANDS[brand].name,pageLabel()];
-  if(brand!=='home'&&view==='exec'){const t=EXEC_TABS.find(x=>x[0]===execTab);if(t&&execTab!=='overview')parts.push(t[1]);}
+  const parts=[brand==='home'?homeName():BRANDS[brand].name,pageLabel()];
   return parts.map((p,i)=>i<parts.length-1?`<span class="c-muted">${esc(p)}</span>${sep}`:`<span aria-current="page">${esc(p)}</span>`).join('');
 }
 
 /* ---- URL state: brand, view, sub, plus Properties' own params ---------- */
-function subOf(){ return view==='exec'?execTab:view==='departments'?deptTab:null; }
+function subOf(){ return view==='departments'?deptTab:null; }
 function writeState(){
   if(!dashAccess) return;
   try{
@@ -458,7 +472,7 @@ function writeState(){
       Object.keys(x).forEach(k=>{if(x[k]!==null&&x[k]!==undefined&&x[k]!=='')p.set(k,x[k]);});
     }
     if(view==='team'&&teamFilter!=='all') p.set('who',teamFilter);
-    if(view==='exec'&&execTab==='l10'&&window.PortalHome) p.set('sec',PortalHome.l10Tab());
+    if(brand==='home'&&view==='l10'&&window.PortalHome) p.set('sec',PortalHome.l10Tab());
     const q=new URLSearchParams(location.search);q.delete('v');
     const qs=q.toString();
     history.replaceState(null,'',location.pathname+(qs?'?'+qs:'')+'#'+p.toString());
@@ -471,13 +485,13 @@ function readState(){
   try{const v=new URLSearchParams(location.search).get('v');p=new URLSearchParams(v||(location.hash||'').replace(/^#/,''));}catch(e){return false;}
   const b=p.get('brand'), v=p.get('view'), s=p.get('sub');
   if(!b) return false;
-  if(b==='home'){brand='home';view=HOME_VIEWS.some(x=>x[0]===v)?v:'mine';return true;}
+  /* an old link to a business's Executive board lands on the new one */
+  if(v==='exec'&&isAdmin()){brand='home';view=s==='access'?'access':'l10';return true;}
+  if(b==='home'){brand='home';view=homeViews().some(x=>x[0]===v)?v:homeDefault();
+    if(view==='l10'&&p.get('sec')&&window.PortalHome) PortalHome.setL10Tab(p.get('sec'));return true;}
   if(!allowedBizz().includes(b)) return false;
   brand=b; view=v&&itemVisible(b,v)?v:firstAllowedView(b);
-  if(view==='exec'&&s&&execTabs().some(t=>t[0]===s)) execTab=s;
-  if(view==='exec'&&p.get('sec')&&window.PortalHome) PortalHome.setL10Tab(p.get('sec'));
   if(view==='departments'&&s&&['list','org','dept'].includes(s)) deptTab=s;
-  if(view==='exec'&&s==='org'){const d=p.get('dsub');if(d)deptTab=d;}
   const w=p.get('who'); teamFilter=['emp','con'].includes(w)?w:'all';
   return true;
 }
@@ -491,15 +505,24 @@ function render(){
   app.classList.toggle('solo',singleBiz());
   document.getElementById('rail').hidden=singleBiz();
   document.getElementById('rail').innerHTML=dashAccess?railHtml():'';
-  document.getElementById('sideTitle').textContent=brand==='home'?'Home':BRANDS[brand].name;
+  document.getElementById('sideTitle').textContent=brand==='home'?homeName():BRANDS[brand].name;
   document.getElementById('nav').innerHTML=dashAccess?navHtml():'';
   document.getElementById('crumb').innerHTML=dashAccess?crumbHtml():'';
   const content=document.getElementById('content');
   if(!dashAccess){content.innerHTML='';return;}
-  content.className='content view-in'+(view==='properties'?' props':(view==='financials'||view==='reports'||view==='exec')?' wide':'');
+  content.className='content view-in'+(view==='properties'?' props':(view==='financials'||view==='reports'||brand==='home')?' wide':'');
   if(brand==='home'){
-    content.innerHTML='<div id="homeNative"></div>';
-    if(window.PortalHome) PortalHome.mount(document.getElementById('homeNative'),{view,onCounts:()=>{document.getElementById('nav').innerHTML=navHtml();}});
+    if(view!=='mine'&&view!=='all'&&window.PortalHome&&PortalHome.close) PortalHome.close();
+    if(view==='l10'){
+      content.innerHTML=pageHead('L10 agenda','Rocks, Sprint and IDS from the MASTER LIST')+'<div id="l10Native" class="l10-wrap"></div>';
+      if(window.PortalHome) PortalHome.mountL10(document.getElementById('l10Native'),{onTab:writeState});
+    }else if(view==='access'){
+      content.innerHTML=pageHead('Users & roles')+'<div id="usersNative"></div>';
+      if(window.PortalAccess&&isAdmin()) PortalAccess.mount(document.getElementById('usersNative'),{me:dashAccess.user});
+    }else{
+      content.innerHTML='<div id="homeNative"></div>';
+      if(window.PortalHome) PortalHome.mount(document.getElementById('homeNative'),{view,title:pageLabel(),onCounts:()=>{document.getElementById('nav').innerHTML=navHtml();}});
+    }
     return;
   }
   if(window.PortalHome&&PortalHome.close) PortalHome.close();   /* the task panel belongs to Home */
@@ -508,10 +531,8 @@ function render(){
   if(brand==='folio'&&view==='financials'&&window.PortalFolioFin) PortalFolioFin.mountReports(document.getElementById('folioReportsNative'));
   if(brand==='folio'&&view==='reports'&&window.PortalFolioFin) PortalFolioFin.mount(document.getElementById('folioSubsNative'));
   if(brand==='leadli'&&view==='financials'&&window.PortalLeadliFin) PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
-  if(view==='exec'&&execTab==='l10'&&window.PortalHome) PortalHome.mountL10(document.getElementById('l10Native'),{onTab:writeState});
-  if(view==='exec'&&execTab==='access'&&window.PortalAccess&&isAdmin()) PortalAccess.mount(document.getElementById('usersNative'),{me:dashAccess.user});
 }
-function goHome(v){brand='home';view=v||pagesByBrand.home||'mine';render();}
+function goHome(v){brand='home';view=v&&homeViews().some(x=>x[0]===v)?v:homeDefault();render();}
 function setBrand(b){
   if(!allowedBizz().includes(b)) return;
   brand=b;
@@ -533,14 +554,14 @@ document.addEventListener('keydown',function(e){
   if(b&&!singleBiz()){e.preventDefault();setBrand(b);}
 });
 
-paintThemeBtn();
+paintThemeBtn();paintSideBtn();paintFullBtn();
 if(window.PortalAuth){
   PortalAuth.init();
   /* Signing in or out of ClickUp changes what Home can show. */
   PortalAuth.onChange(function(){ if(window.PortalHome) PortalHome.reset(); if(brand==='home') render(); });
 }
 if(window.PortalRealtime) PortalRealtime.start({
-  currentView:function(){ return view==='exec'?(execTab==='access'?'access':'exec'):view; },
+  currentView:function(){ return brand==='home'&&view==='access'?'access':view; },
   rerender:function(){ render(); },
   invalidate:function(v){
     if(v==='*'||v==='access'){ if(window.PortalAccess) PortalAccess.invalidate(); }
@@ -665,9 +686,10 @@ if(window.PortalSession){
       if(mem&&mem.pages) Object.assign(pagesByBrand,mem.pages);
       if(!readState()){
         if(mem&&mem.last&&mem.last!=='home'&&allowedBizz().includes(mem.last)) setBrandQuiet(mem.last);
-        else { brand='home'; view=pagesByBrand.home||'mine'; }
+        else { brand='home'; view=homeDefault(); }
       }
       personTheme();
+      personSide();
       renderIdentity();
       render();
       reveal();
