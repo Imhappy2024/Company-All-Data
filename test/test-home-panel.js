@@ -29,7 +29,7 @@ const TARGET = '86bce80dn';                // "BRENT VILLAGE: Quarterly Loan Rep
 const MEMBERS = [{ id: 'u-jay-delgado', name: 'Jay Delgado', initials: 'JD' }, { id: 'u-brian-nelson', name: 'Brian Nelson', initials: 'BN' },
                  { id: 'u-mitchell-hagen', name: 'Mitchell Hagen', initials: 'MH' }];
 const STATUSES = [{ status: 'to do', color: '#87909e', type: 'open', orderindex: 0 }, { status: 'in progress', color: '#5f55ee', type: 'custom', orderindex: 1 },
-                  { status: 'in review', color: '#f8ae00', type: 'custom', orderindex: 2 }, { status: 'complete', color: '#008844', type: 'closed', orderindex: 3 }];
+                  { status: 'in review', color: '#f8ae00', type: 'custom', orderindex: 2 }, { status: 'complete', color: '#008844', type: 'closed', orderindex: 3, done: true }];
 const COMMENTS = [
   { id: 'c1', author: 'Mitchell Hagen', at: 1791000000000, parts: [{ text: 'Older note' }] },
   { id: 'c2', author: 'Brian Nelson', at: 1792000000000, parts: [{ text: 'See ' }, { link: 'https://files.example/report.pdf', text: 'report.pdf', file: true }] },
@@ -182,6 +182,14 @@ const STUB = `window.PortalSession = {
     check('ClickUp\'s message in the panel', /You do not have permission to edit this task/.test(await panelText()), true);
     check('row reverted', (await rowOf(TARGET))[2], 'in progress');
     REFUSE = false;
+
+    console.log('\nMarking it complete takes it off Home');
+    await page.click('[data-p="status"]');
+    await page.waitForSelector('.hm-menu button');
+    await page.click('.hm-menu button[data-v="complete"]');
+    await page.waitForTimeout(250);
+    check('the row is gone from My tasks, the panel stays open', [await page.$$eval(`tr[data-hm-open="${TARGET}"]`, e => e.length), await page.$$eval('.hm-panel', e => e.length)], [0, 1]);
+    check('and the My tasks count dropped to 18', await page.$eval('#nav .nav-item .nav-count', e => e.textContent), '18');
 
     console.log('\nComments: Ctrl+Enter posts');
     commentsDelay = 50;

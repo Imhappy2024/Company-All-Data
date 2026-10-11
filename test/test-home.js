@@ -61,6 +61,16 @@ check('All tasks shows each task once', () => assert.strictEqual(all.count, 5));
 check('All tasks is grouped by list', () => assert.deepStrictEqual(all.groups.map(g => g.group).sort(),
   ["AM To-Do's", 'Dashboard', 'FolioExcel', 'MASTER LIST']));
 
+console.log('\nCompleted tasks are not shown');
+const doneRaw = (id, status, type) => Object.assign(raw(id, 'x', 'L', NOON, [ME]), { status: { status, type } });
+const withDone = S.collect([{ workspace: 'lw', tasks: [doneRaw('d1', 'complete', 'closed'), doneRaw('d2', 'done', 'done'),
+  doneRaw('d3', 'Completed', 'custom'), doneRaw('d4', 'in progress', 'custom'), doneRaw('d5', 'shipped', 'custom')] }]);
+check('closed, done and Completed-mapped statuses are dropped by the server', () => assert.deepStrictEqual(withDone.map(t => t.id), ['d4']));
+check('the browser drops them too, even from a copy cached without the flag', () => assert.deepStrictEqual(
+  H.groupAll([{ id: 'a', list: 'L', status: 'complete', assignees: [] }, { id: 'b', list: 'L', status: 'to do', statusType: 'closed', assignees: [] },
+    { id: 'c', list: 'L', status: 'in progress', assignees: [] }]).count, 1));
+check('and from My tasks', () => assert.strictEqual(H.groupMine([{ id: 'a', status: 'Done', assignees: [{ id: ME }] }, { id: 'b', status: 'to do', assignees: [{ id: ME }] }], ME, H.dayOf(NOON)).count, 1));
+
 console.log('\nGroups and order');
 check('Overdue / Today / This week / Later, in that order', () => assert.deepStrictEqual(mine.groups.map(g => g.group),
   ['Overdue', 'Today', 'This week', 'Later']));
