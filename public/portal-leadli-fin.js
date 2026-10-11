@@ -95,14 +95,8 @@ window.PortalLeadliFin = (function () {
       '</div>';
   }
 
-  function getJson(url) {
-    return fetch(url, { headers: { Accept: 'application/json' } }).then(function (r) {
-      return r.json().then(function (j) {
-        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        return j;
-      });
-    });
-  }
+  /* as the signed-in person: the server answers with their connector role's rows */
+  function getJson(url) { return window.PortalSession.getJson(url); }
 
   /* Repeated array params, never comma-joined. */
   function qs() {

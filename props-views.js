@@ -41,7 +41,7 @@ async function groupsFor(gids, tenantId) {
 
 const RR_SQL = `
   with l as (
-    select u.*, coalesce(u.unit, u.unit_id::text) as ukey from reporting.rent_roll_unit u
+    select u.*, coalesce(u.unit, u.unit_id::text) as ukey from public.rpt_rent_roll_unit u
      where u.tenant_id = $1 and ($2::uuid[] is null or u.property_id = any($2::uuid[])) and u.is_current and u.is_latest),
   per_unit as (
     select property_id, ukey, max(as_of_date) as_of,
@@ -71,20 +71,20 @@ async function loadPlain(ids, tenantId) {
     select s.id::text id, coalesce(p.display_name, s.name) as name, s.units, s.latest_occupancy, s.t12_income, s.t12_expense, s.t12_noi,
            s.cash_flow_after_debt_and_capex, s.optimized_noi, s.annual_debt_service, s.annual_debt_service_paid,
            s.debt, s.value_on_file, s.pm_company, s.managing_entity_name, s.street, s.city, s.state, s.zip
-      from reporting.property_summary_mv s join public.property p on p.id = s.id
+      from public.rpt_property_summary s join public.property p on p.id = s.id
      where s.tenant_id = $1 and ($2::uuid[] is null or s.id = any($2::uuid[]))`, [tenantId, idArg])).rows;
   const from = core.ymAdd(t, -23);
   const pm = (await db.q(`
     select property_id::text pid, to_char(month, 'YYYY-MM') m, total_operating_income inc, total_operating_expense opx,
            noi, capex, debt_service ds, cash_flow cf
-      from reporting.property_month_mv
+      from public.rpt_property_month
      where tenant_id = $1 and ($2::uuid[] is null or property_id = any($2::uuid[])) and has_data and lower(accounting_basis) = 'cash'
        and month >= $3::date`, [tenantId, idArg, from + '-01'])).rows;
   /* a fee row covering several properties is shared equally between them */
   const fees = (await db.q(`
     select l.property_id::text pid, to_char(f.fee_month, 'YYYY-MM') m,
            f.expected / n.n expected, f.received / n.n received, f.variance / n.n variance
-      from reporting.am_fee_month f
+      from public.rpt_am_fee_month f
       join public.am_fee_schedule_property l on l.schedule_id = f.schedule_id
       join (select schedule_id, count(*) n from public.am_fee_schedule_property group by 1) n on n.schedule_id = f.schedule_id
      where f.tenant_id = $1 and ($2::uuid[] is null or l.property_id = any($2::uuid[])) and f.fee_month >= $3::date`, [tenantId, idArg, from + '-01'])).rows;

@@ -143,14 +143,8 @@ window.PortalFolioFin = (function () {
     return '<span class="fin-flag" title="' + esc(reason || '') + '">Not set</span>';
   }
 
-  function getJson(url) {
-    return fetch(url, { headers: { Accept: 'application/json' } }).then(function (r) {
-      return r.json().then(function (j) {
-        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        return j;
-      });
-    });
-  }
+  /* as the signed-in person: the server answers with their connector role's rows */
+  function getJson(url) { return window.PortalSession.getJson(url); }
 
   /* Repeated array params, never comma-joined: business names contain commas
      and ampersands ("J & M Property Management, Inc.") and the compact form
@@ -828,12 +822,8 @@ window.PortalFolioFin = (function () {
      from the server session, as it does on the LeavenWealth export. */
   function doExport(viewName) {
     var url = API + '/export?view=' + encodeURIComponent(viewName) + '&' + qs();
-    var a = document.createElement('a');
-    a.href = url;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    /* fetched with the session token: a plain link cannot carry it */
+    window.PortalSession.download(url).catch(function (e) { window.alert('Export failed: ' + e.message); });
   }
 
   /* ---- mount ------------------------------------------------------------ */

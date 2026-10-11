@@ -280,14 +280,8 @@ window.PortalFinancials = (function () {
     return p.join('&');
   }
 
-  function getJson(url) {
-    return fetch(url, { headers: { Accept: 'application/json' } }).then(function (r) {
-      return r.json().then(function (j) {
-        if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
-        return j;
-      });
-    });
-  }
+  /* as the signed-in person: the server answers with their connector role's rows */
+  function getJson(url) { return window.PortalSession.getJson(url); }
 
   /* ---- loading ----------------------------------------------------------- */
 
@@ -1096,12 +1090,8 @@ window.PortalFinancials = (function () {
       'format=' + encodeURIComponent(format) +
       (S.sort ? '&sort=' + encodeURIComponent(S.sort) + '&dir=' + encodeURIComponent(S.dir || '') : '') +
       '&' + qs();
-    var a = document.createElement('a');
-    a.href = url;
-    a.rel = 'noopener';
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    /* fetched with the session token: a plain link cannot carry it */
+    window.PortalSession.download(url).catch(function (e) { window.alert('Export failed: ' + e.message); });
   }
 
   /* ---- mount -------------------------------------------------------------- */

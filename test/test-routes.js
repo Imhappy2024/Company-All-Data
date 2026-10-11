@@ -83,16 +83,16 @@ async function waitUp(tries = 80) {
     }
 
     console.log('\nApp code revalidates, so a deploy is never masked by a cached bundle');
-    /* Nothing here is fingerprinted - portal-users.js, not portal-users.a1b2c3.js -
+    /* Nothing here is fingerprinted - portal-access.js, not portal-users.a1b2c3.js -
        so anything longer than "revalidate" lets a browser serve code from before a
        deploy, and a bug fixed three commits ago reappears with no way to tell from
        the outside whether the fix is real. no-cache still STORES; it just checks. */
-    for (const p of ['/', '/ops', '/login', '/invite', '/portal-users.js', '/tokens.css']) {
+    for (const p of ['/', '/ops', '/login', '/invite', '/portal-access.js', '/tokens.css']) {
       const r = await get(p);
       check(`${p} is no-cache`, r.cache, 'no-cache');
     }
     check('but they still carry an ETag, so revalidation is a cheap 304',
-      (await get('/portal-users.js')).etag.length > 0, true);
+      (await get('/portal-access.js')).etag.length > 0, true);
     const png = await get('/icons/icon-192.png');
     check('images are content, not code, and may sit in cache', png.cache, 'public, max-age=3600');
 

@@ -102,24 +102,92 @@ function isAdmin(identity) {
   return identity && (identity.role === 'owner' || identity.role === 'admin');
 }
 
+/* The person's Claude connector role (mcp.app_user.db_role), which every
+   data query of theirs runs as (supabase-db.js runAs). Read on the
+   privileged connection: the role is what decides access, so it cannot be
+   looked up through itself. A person with no connector account, or an
+   inactive one, has no data access - in the dashboard exactly as in Claude. */
+/* cached 30s: a deactivation still bites at once, because identify() refuses
+   anyone whose dashboard_access the sync has already turned off */
+const roleCache = new Map();
+async function connectorRole(staffId) {
+  const hit = roleCache.get(staffId);
+  if (hit && hit.at > Date.now() - 30000) return hit.role;
+  const r = await db.privileged(() => db.q(
+    `select u.db_role from mcp.app_user u where u.staff_id = $1 and u.active and u.db_role is not null`, [staffId]));
+  if (!r.rows.length) { roleCache.delete(staffId); throw new AuthError(403, 'Your Claude connector account is not set up, so there is no data to show. Ask an admin.'); }
+  roleCache.set(staffId, { role: r.rows[0].db_role, at: Date.now() });
+  return r.rows[0].db_role;
+}
+
+function fail(res, e) {
+  const status = e instanceof AuthError ? e.status : 500;
+  if (status === 500) console.error('[identity]', e);
+  return res.status(status).json({ error: e.message || 'Not authorised.' });
+}
+
+/* Express middleware: identify the caller and run the rest of the request
+   as their connector role. For routers that do not call guard() per route. */
+function asCaller() {
+  return async function (req, res, next) {
+    let who, role;
+    try { who = await identify(req); role = await connectorRole(who.staffId); }
+    catch (e) { return fail(res, e); }
+    req.who = who;
+    db.runAs(role, () => next());
+  };
+}
+
+/* For the routes the /ops dashboard shares (/api/loans, /api/tracker): /ops
+   sends a ClickUp token, not a Supabase session, so it keeps today's path.
+   A portal request carries a session and runs as the person. This leaves the
+   /ops path as open as it was; it closes when /ops is retired. */
+function asCallerIfSession() {
+  const mw = asCaller();
+  return function (req, res, next) {
+    const t = bearer(req);
+    /* a ClickUp token is not a JWT; a Supabase session token is (three dot-separated parts) */
+    if (t && t.split('.').length === 3) return mw(req, res, next);
+    return next();
+  };
+}
+
+/* Express middleware for admin-only and legacy routers: owner or admin, run
+   on the privileged connection. Users & Roles and the setup forms live here,
+   so an admin can always repair access even when grants are wrong. */
+function adminOnly() {
+  return async function (req, res, next) {
+    let who;
+    try {
+      who = await identify(req);
+      if (!isAdmin(who)) throw new AuthError(403, 'Only an owner or admin can use this.');
+    } catch (e) { return fail(res, e); }
+    req.who = who;
+    db.privileged(() => next());
+  };
+}
+
 /* Wrap a route so it always has an identity, and so a thrown AuthError turns
-   into its own status rather than a 500. */
+   into its own status rather than a 500. The handler runs as the caller's
+   connector role, unless opts.privileged (owner/admin only) or the router is
+   already inside adminOnly(). */
 function guard(handler, opts) {
   const need = opts && opts.nav;
+  const priv = !!(opts && opts.privileged);
   return async function (req, res) {
-    let who;
+    let who, role = null;
+    const already = db.currentRole() === null && db.inPrivileged();
     try {
       who = await identify(req);
       if (need && !hasNav(who, need) && !isAdmin(who)) {
         throw new AuthError(403, 'You do not have access to this screen.');
       }
-    } catch (e) {
-      const status = e instanceof AuthError ? e.status : 500;
-      if (status === 500) console.error('[identity]', e);
-      return res.status(status).json({ error: e.message || 'Not authorised.' });
-    }
+      if ((priv || already) && !isAdmin(who)) throw new AuthError(403, 'Only an owner or admin can use this.');
+      if (!priv && !already) role = await connectorRole(who.staffId);
+    } catch (e) { return fail(res, e); }
+    const run = () => handler(req, res, who);
     try {
-      await handler(req, res, who);
+      await (role ? db.runAs(role, run) : db.privileged(run));
     } catch (e) {
       console.error('[' + (req.baseUrl || '') + req.path + ']', e);
       if (!res.headersSent) res.status(500).json({ error: e.message || 'Server error.' });
@@ -127,4 +195,4 @@ function guard(handler, opts) {
   };
 }
 
-module.exports = { identify, hasNav, isAdmin, guard, AuthError, bearer };
+module.exports = { identify, hasNav, isAdmin, guard, asCaller, asCallerIfSession, adminOnly, connectorRole, AuthError, bearer };
