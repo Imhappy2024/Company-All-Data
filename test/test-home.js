@@ -63,9 +63,10 @@ check('All tasks is grouped by list', () => assert.deepStrictEqual(all.groups.ma
 
 console.log('\nCompleted tasks are not shown');
 const doneRaw = (id, status, type) => Object.assign(raw(id, 'x', 'L', NOON, [ME]), { status: { status, type } });
-const withDone = S.collect([{ workspace: 'lw', tasks: [doneRaw('d1', 'complete', 'closed'), doneRaw('d2', 'done', 'done'),
+const withDone = S.collect([{ workspace: 'lw', tasks: [doneRaw('d1', 'complete', 'closed'), doneRaw('d2', 'Done', 'custom'),
   doneRaw('d3', 'Completed', 'custom'), doneRaw('d4', 'in progress', 'custom'), doneRaw('d5', 'shipped', 'custom')] }]);
-check('closed, done and Completed-mapped statuses are dropped by the server', () => assert.deepStrictEqual(withDone.map(t => t.id), ['d4']));
+/* only closed-type and complete / completed / done count: shipped stays */
+check('closed-type, complete, completed and done are dropped by the server', () => assert.deepStrictEqual(withDone.map(t => t.id), ['d4', 'd5']));
 check('the browser drops them too, even from a copy cached without the flag', () => assert.deepStrictEqual(
   H.groupAll([{ id: 'a', list: 'L', status: 'complete', assignees: [] }, { id: 'b', list: 'L', status: 'to do', statusType: 'closed', assignees: [] },
     { id: 'c', list: 'L', status: 'in progress', assignees: [] }]).count, 1));
@@ -149,6 +150,30 @@ check('or the du_token cookie', () => assert.strictEqual(S.personToken({ headers
   check('an id that is not an id never reaches ClickUp', () => assert.ok(bad.status === 400 || bad.status === 404));
   global.fetch = realFetch;
   await new Promise(r => srv2.close(r));
+
+  console.log('\nThe L10 agenda');
+  const F = S.L10.field, ROCK = 'c917bba4-4e1f-49bb-99a2-398e4679727b', SPRINT = '716caa9c-4f78-4746-a1e1-1b2fde0928cd', IDS = '5658f4a8-8a4c-473f-9114-d1241bd6800c';
+  check('the "Appears In" labels map to Rocks, Sprint and IDS', () => assert.deepStrictEqual(
+    S.l10Sections({ custom_fields: [{ id: F, value: [ROCK, { id: IDS }] }] }), ['rock', 'ids']));
+  const l10Task = (id, labels, status, type) => ({ id, name: id, status: { status: status || 'in progress', type: type || 'custom' }, list: { id: '901403327501', name: 'MASTER LIST' },
+    assignees: [], custom_fields: [{ id: F, value: labels }] });
+  const l10Calls = [];
+  const l10Fetch = async (u, init) => {
+    l10Calls.push([String(u), init.headers.Authorization]);
+    const body = /\/task\?/.test(u)
+      ? { last_page: true, tasks: [l10Task('a', [ROCK]), l10Task('b', [SPRINT, IDS]), l10Task('c', [ROCK], 'complete', 'closed'), l10Task('d', [])] }
+      : { name: 'MASTER LIST', space: { id: '9', name: 'Company' }, folder: { hidden: true } };
+    return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+  };
+  const l10 = await S.readL10('admin-token', l10Fetch);
+  check('reads list 901403327501 with the admin\'s own token', () => assert.ok(l10Calls.every(c => c[1] === 'admin-token' && c[0].includes('/list/901403327501'))));
+  check('completed and unlabelled items are left out', () => assert.deepStrictEqual(l10.items.map(t => [t.id, t.sections]), [['a', ['rock']], ['b', ['sprint', 'ids']]]));
+  check('the location names the space', () => assert.strictEqual(l10.items[0].spaceName, 'Company'));
+  const app3 = express(); app3.use('/api/home', (req, res, next) => { req.who = { staffId: 's', role: 'user' }; next(); }, require(path.join(ROOT, 'home-tasks.js')).homeRoutes());
+  const srv3 = app3.listen(0);
+  const notAdmin = await fetch('http://127.0.0.1:' + srv3.address().port + '/api/home/l10', { headers: { 'X-ClickUp-Token': 'mine' } });
+  check('a non-admin is refused the L10 agenda', () => assert.strictEqual(notAdmin.status, 403));
+  await new Promise(r => srv3.close(r));
 
   console.log(`\nhome: ${pass} passed, ${fails.length} failed`);
   fails.forEach(f => console.log('  FAIL  ' + f));

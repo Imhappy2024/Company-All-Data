@@ -362,3 +362,21 @@ button.hm-menu-i:hover,button.hm-menu-i:focus-visible{background:var(--hov)}
 .btn[disabled]{opacity:.55;cursor:default}
 @media (prefers-reduced-motion:reduce){.hm-panel,.hm-scrim{animation:none}}
 [data-theme='dark'] .hm-scrim{background:rgba(0,0,0,.5)}
+
+/* ---- the task pop-up: a centered modal (supersedes the side panel above) -- */
+html.hm-locked,html.hm-locked body{overflow:hidden}
+.hm-panel{top:50%;left:50%;right:auto;bottom:auto;transform:translate(-50%,-50%);width:min(760px,calc(100vw - 32px));max-height:calc(100vh - 48px);
+  border:1px solid var(--border);border-radius:8px;animation:hmPop 180ms var(--ease) both;overflow:hidden}
+@keyframes hmPop{from{opacity:0;transform:translate(-50%,-50%) scale(.97)}to{opacity:1;transform:translate(-50%,-50%) scale(1)}}
+.hm-p-b{min-height:0}
+.hm-dlg-back{border-radius:8px;align-items:center;padding:18px}
+@media (max-width:640px){.hm-panel{width:100vw;max-height:100dvh;height:100dvh;border-radius:0}}
+@media (prefers-reduced-motion:reduce){.hm-panel{animation:none}}
+
+/* ---- light/dark switch, top right of the header ------------------------- */
+.sh-head .sh-crumb{flex:1}
+.sh-mode{margin-left:auto;display:inline-flex;align-items:center;gap:7px;height:32px;padding:0 11px;border:1px solid var(--border);border-radius:6px;background:transparent;color:var(--ink-2);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap}
+.sh-mode:hover{color:var(--ink);border-color:var(--ink-3)}
+.sh-mode svg{flex:none}
+.l10-wrap .seg{margin-top:4px}
+.seg .hm-gc{margin-left:4px}

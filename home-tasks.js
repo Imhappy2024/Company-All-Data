@@ -45,19 +45,13 @@ async function cu(token, path, fetchImpl) {
   return r.json();
 }
 
-/* Completed means what it means on /ops: a status data/status-mappings.json
-   maps to 'Completed', or one ClickUp itself types as done/closed. Those
-   tasks are not shown on Home. */
-const DONE_NAMES = (() => {
-  try {
-    const m = require('./data/status-mappings.json');
-    return new Set(Object.keys(m).filter(k => k !== '_comment' && m[k] === 'Completed'));
-  } catch (e) { return new Set(['done', 'completed', 'complete', 'closed']); }
-})();
+/* Completed: a status ClickUp types as "closed", or one named complete,
+   completed or done. Those tasks are never shown on Home or the L10 agenda. */
+const DONE_NAMES = new Set(['complete', 'completed', 'done']);
 function isDone(t) {
   const type = (t.status && t.status.type) || '';
   const name = String((t.status && t.status.status) || '').trim().toLowerCase();
-  return type === 'closed' || type === 'done' || DONE_NAMES.has(name);
+  return type === 'closed' || DONE_NAMES.has(name);
 }
 
 const ms = v => (v === null || v === undefined || v === '' ? null : Number(v));
@@ -185,6 +179,42 @@ function patchCached(key, task) {
   if (i >= 0) e.data.tasks[i] = Object.assign({}, e.data.tasks[i], task, { spaceName: e.data.tasks[i].spaceName });
 }
 
+/* ---- the L10 agenda (Executive board) ----------------------------------
+   One ClickUp list, MASTER LIST in the Company space. Its "Appears In" labels
+   field says which agenda section an item belongs to; an item can appear in
+   more than one. Completed items are left out, as on Home. */
+const L10 = {
+  list: '901403327501',
+  field: '21ad3d3b-bfc9-4a1e-9e9e-6bfc8b58cbee',
+  sections: { 'c917bba4-4e1f-49bb-99a2-398e4679727b': 'rock', '716caa9c-4f78-4746-a1e1-1b2fde0928cd': 'sprint', '5658f4a8-8a4c-473f-9114-d1241bd6800c': 'ids' },
+};
+function l10Sections(t) {
+  const f = (t.custom_fields || []).find(x => x.id === L10.field);
+  const v = f && Array.isArray(f.value) ? f.value : [];
+  return v.map(x => L10.sections[typeof x === 'object' && x ? x.id : x]).filter(Boolean);
+}
+async function readL10(token, fetchImpl) {
+  const list = await act(token, 'GET', '/list/' + L10.list, null, fetchImpl);
+  const spaceNames = {};
+  if (list.space && list.space.id) spaceNames[String(list.space.id)] = list.space.name;
+  const items = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const d = await act(token, 'GET', '/list/' + L10.list + '/task?page=' + page + '&subtasks=true&include_closed=false', null, fetchImpl);
+    for (const t of (d.tasks || [])) {
+      if (isDone(t)) continue;
+      const sections = l10Sections(t);
+      if (!sections.length) continue;
+      items.push(Object.assign(normalize(t, '', spaceNames), {
+        spaceName: (list.space && list.space.name) || '',
+        folder: (list.folder && !list.folder.hidden && list.folder.name) || '',
+        sections,
+      }));
+    }
+    if (d.last_page === true || !(d.tasks || []).length) break;
+  }
+  return { list: { id: L10.list, name: list.name || 'MASTER LIST', space: (list.space && list.space.name) || '' }, items, fetchedAt: new Date().toISOString() };
+}
+
 function refresh(key, token) {
   const entry = cache.get(key) || {};
   if (entry.inflight) return entry.inflight;
@@ -216,6 +246,13 @@ function homeRoutes() {
   };
   const idOk = v => /^[A-Za-z0-9_-]{1,40}$/.test(String(v || ''));
   const badId = (res, what) => res.status(400).json({ error: 'Not a ' + what + ' id.' });
+
+  /* Executive board L10 agenda: admins only, with the admin's own ClickUp sign-in. */
+  r.get('/l10', panel(async (req, res, token) => {
+    const role = req.who && req.who.role;
+    if (role !== 'owner' && role !== 'admin') return res.status(403).json({ error: 'The L10 agenda is for admins.' });
+    res.json(await readL10(token));
+  }));
 
   r.get('/list/:id/statuses', panel(async (req, res, token) => {
     if (!idOk(req.params.id)) return badId(res, 'list');
@@ -274,4 +311,4 @@ function homeRoutes() {
 /* old entries go */
 setInterval(() => { const cut = Date.now() - KEEP_MS; for (const [k, v] of cache) if (!v.inflight && (!v.at || v.at < cut)) cache.delete(k); }, 5 * 60 * 1000).unref();
 
-module.exports = { homeRoutes, _internal: { collect, normalize, readAll, personToken, cleanUpdate, shapeComment, act, isDone } };
+module.exports = { homeRoutes, _internal: { collect, normalize, readAll, personToken, cleanUpdate, shapeComment, act, isDone, readL10, l10Sections, L10 } };

@@ -43,10 +43,10 @@
   };
 
   /* Completed: the server's flag, or (for a copy cached before the flag
-     existed) the same rule - ClickUp's done/closed type, or a status
-     data/status-mappings.json maps to Completed. */
-  var DONE_RE = /^(done|completed|complete|closed|finished|shipped|resolved|live|archived)$/i;
-  function isDone(t) { return !!(t.done || t.statusType === 'closed' || t.statusType === 'done' || DONE_RE.test(String(t.status || '').trim())); }
+     existed) the same rule: ClickUp type "closed", or named complete,
+     completed or done. */
+  var DONE_RE = /^(complete|completed|done)$/i;
+  function isDone(t) { return !!(t.done || t.statusType === 'closed' || DONE_RE.test(String(t.status || '').trim())); }
 
   /* Pure: the rows for one view. Each task id appears once whatever the input. */
   function groupMine(tasks, meId, today) {
@@ -230,30 +230,51 @@
   function bindKeys() {
     if (keysBound) return; keysBound = true;
     document.addEventListener('keydown', function (ev) {
-      if (ev.key !== 'Escape' || !P.id) return;
+      if (!P.id) return;
+      if (ev.key === 'Tab') { trapFocus(ev); return; }
+      if (ev.key !== 'Escape') return;
       if (P.assign) { P.assign = null; paintPanel(); return; }
       if (P.statusOpen) { P.statusOpen = false; paintPanel(); return; }
       closePanel();
     });
   }
 
-  function openPanel(id) {
-    var t = taskById(id);
-    if (!t) return;
+  /* Focus stays inside the open dialog: Tab from the last control wraps to the
+     first, Shift+Tab from the first wraps to the last. */
+  function trapFocus(ev) {
+    var box = document.querySelector('#hmPanel .hm-dlg') || document.querySelector('#hmPanel .hm-panel');
+    if (!box) return;
+    var f = Array.prototype.filter.call(box.querySelectorAll('a[href],button:not([disabled]),input:not([disabled]),textarea:not([disabled]),select,[tabindex]:not([tabindex="-1"])'),
+      function (el) { return el.offsetParent !== null && !el.closest('[hidden]'); });
+    if (!f.length) { ev.preventDefault(); return; }
+    var first = f[0], last = f[f.length - 1], at = document.activeElement;
+    if (!box.contains(at)) { ev.preventDefault(); first.focus(); return; }
+    if (ev.shiftKey && at === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && at === last) { ev.preventDefault(); first.focus(); }
+  }
+
+  /* The task pop-up, for any task object: Home's rows and the Executive
+     board's L10 agenda both open it. `onChange` is told after every edit (and
+     on close), so the screen behind can repaint its row. */
+  function openTask(task, opts) {
+    if (!task) return;
     var back = document.activeElement;
-    P = { id: id, statuses: null, statusOpen: false, comments: null, commentsErr: '', msg: '', assign: null, posting: false, back: back };
+    P = { id: task.id, task: task, onChange: (opts && opts.onChange) || null, statuses: null, statusOpen: false,
+          comments: null, commentsErr: '', msg: '', assign: null, posting: false, back: back };
     bindKeys();
     paintPanel();
-    paint();
+    if (P.onChange) P.onChange(task);
     var c = document.querySelector('#hmPanel .hm-p-x'); if (c) c.focus();
     loadComments();
   }
+  function openPanel(id) { openTask(taskById(id), { onChange: homeChanged }); }
+  function homeChanged() { if (S.data) { writeCache(S.data); counts(); } paint(); }
   function closePanel() {
     if (!P.id) return;
-    var back = P.back;
+    var back = P.back, cb = P.onChange, t = P.task;
     P = { id: null };
     paintPanel();
-    paint();
+    if (cb) cb(t);
     if (back && back.focus && document.body.contains(back)) back.focus();
   }
 
@@ -271,7 +292,7 @@
   /* One write: change the row now, send it, keep ClickUp's answer, or put the
      row back and say why. */
   function update(body, optimistic) {
-    var t = taskById(P.id);
+    var t = P.task;
     if (!t) return;
     var before = JSON.parse(JSON.stringify(t));
     optimistic(t);
@@ -279,7 +300,7 @@
     afterChange();
     api('PUT', '/task/' + encodeURIComponent(t.id), body).then(function (d) {
       var fresh = d.task || {};
-      ['status', 'statusType', 'statusColor', 'done', 'due', 'assignees', 'priority', 'tags', 'updated', 'name'].forEach(function (k) { if (k in fresh) t[k] = fresh[k]; });
+      SYNCED.forEach(function (k) { if (k in fresh) t[k] = fresh[k]; });
       P.saving = false;
       afterChange();
     }, function (e) {
@@ -289,12 +310,21 @@
       afterChange();
     });
   }
-  function afterChange() { writeCache(S.data); counts(); paint(); paintPanel(); }
+  var SYNCED = ['status', 'statusType', 'statusColor', 'done', 'due', 'assignees', 'priority', 'tags', 'updated', 'name'];
+  /* The same task can be on Home and on the L10 agenda as two objects; an edit
+     in either copy is mirrored into Home's, so neither screen goes stale. */
+  function afterChange() {
+    var t = P.task, h = t && taskById(t.id);
+    if (h && h !== t) SYNCED.forEach(function (k) { if (k in t) h[k] = t[k]; });
+    if (P.onChange) P.onChange(t);
+    if (h && P.onChange !== homeChanged) homeChanged();
+    paintPanel();
+  }
 
   function openStatus() {
     P.statusOpen = !P.statusOpen;
     paintPanel();
-    var t = taskById(P.id);
+    var t = P.task;
     if (!P.statusOpen || P.statuses || !t || !t.listId) return;
     var id = P.id;
     api('GET', '/list/' + encodeURIComponent(t.listId) + '/statuses').then(function (d) {
@@ -311,14 +341,14 @@
   }
   function setDue(iso) {
     /* 5 pm, as the dashboard always set it, so the day never slips across a timezone */
-    var t = taskById(P.id);
+    var t = P.task;
     if (!t || (iso || '') === isoDay(t.due)) return;   /* the same day again is not a change */
     var msv = iso ? new Date(iso + 'T17:00:00').getTime() : null;
     update({ due_date: msv }, function (t) { t.due = msv; });
   }
 
   function openAssign() {
-    var t = taskById(P.id);
+    var t = P.task;
     if (!t) return;
     P.assign = { members: null, q: '', sel: {}, err: '' };
     (t.assignees || []).forEach(function (a) { P.assign.sel[String(a.id)] = true; });
@@ -337,7 +367,7 @@
     }, function (e) { if (P.assign) { P.assign.err = e.message; P.assign.members = []; paintPanel(); } });
   }
   function saveAssign() {
-    var t = taskById(P.id), a = P.assign;
+    var t = P.task, a = P.assign;
     if (!t || !a || !a.members) return;
     var cur = {}; (t.assignees || []).forEach(function (x) { cur[String(x.id)] = true; });
     var add = Object.keys(a.sel).filter(function (k) { return a.sel[k] && !cur[k]; });
@@ -411,13 +441,14 @@
 
   function paintPanel() {
     var host = panelHost();
-    var t = P.id && taskById(P.id);
-    if (!t) { host.innerHTML = ''; return; }
+    var t = P.id && P.task;
+    if (!t) { host.innerHTML = ''; document.documentElement.classList.remove('hm-locked'); return; }
+    document.documentElement.classList.add('hm-locked');
     /* the frame is built once per opening, so its slide-in plays once; every
        later repaint morphs the inside, which also leaves a focused field alone */
     var aside = host.querySelector('.hm-panel');
     if (!aside) {
-      host.innerHTML = '<div class="hm-scrim"></div><aside class="hm-panel" role="dialog" aria-modal="true" aria-labelledby="hmPTitle"></aside>';
+      host.innerHTML = '<div class="hm-scrim"></div><div class="hm-panel" role="dialog" aria-modal="true" aria-labelledby="hmPTitle"></div>';
       aside = host.querySelector('.hm-panel');
     }
     var td = today();
@@ -487,6 +518,79 @@
     if (window.PortalMorph) window.PortalMorph.morph(aside, inner); else aside.innerHTML = inner;
   }
 
+  /* ===========================================================================
+     The L10 agenda (Executive board). ClickUp list MASTER LIST in the Company
+     space, split by its "Appears In" labels into Rocks, Sprint and IDS. Read
+     with the signed-in admin's own ClickUp sign-in; completed items never
+     show; a row opens the same task pop-up as Home.
+     =========================================================================== */
+  var SECTIONS = [['rock', 'Rocks'], ['sprint', 'Sprint'], ['ids', 'IDS']];
+  var L = { host: null, data: null, err: '', connect: false, loading: false, tab: 'rock', onTab: null };
+
+  function mountL10(host, opts) {
+    if (!host) return;
+    L.host = host; L.onTab = (opts && opts.onTab) || null;
+    host.onclick = function (ev) {
+      var tb = ev.target.closest('[data-l10-tab]');
+      if (tb) { L.tab = tb.getAttribute('data-l10-tab'); if (L.onTab) L.onTab(L.tab); paintL10(); return; }
+      if (ev.target.closest('[data-l10-retry]')) { L.err = ''; loadL10(true); return; }
+      var row = ev.target.closest('[data-l10-open]');
+      if (!row || !L.data) return;
+      if (ev.target.closest('a') && (ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.button !== 0)) return;
+      ev.preventDefault();
+      var id = row.getAttribute('data-l10-open');
+      openTask((L.data.items || []).find(function (x) { return x.id === id; }), { onChange: paintL10 });
+    };
+    paintL10();
+    loadL10(false);
+  }
+  function loadL10(fresh) {
+    if (!signedIn()) { L.connect = true; paintL10(); return; }
+    if (L.loading) return;
+    L.loading = true;
+    var t0 = window.PortalLoader ? window.PortalLoader.now() : 0;
+    api('GET', '/l10' + (fresh ? '?fresh=1' : '')).then(function (d) {
+      var done = function () { L.data = d; L.err = ''; L.connect = false; L.loading = false; paintL10(); };
+      if (window.PortalLoader) window.PortalLoader.settle(t0, done); else done();
+    }, function (e) { L.loading = false; if (e.connect) L.connect = true; else L.err = e.message; paintL10(); });
+  }
+  function paintL10() {
+    if (!L.host || !document.body.contains(L.host)) return;
+    var html;
+    if (L.connect) {
+      html = '<div class="hm-connect"><p>The L10 agenda reads ClickUp with your own ClickUp sign-in.</p>' +
+        '<a class="hm-btn" href="' + esc(window.PortalAuth ? window.PortalAuth.signInUrl() : '/auth/clickup') + '">Connect ClickUp</a></div>';
+    } else if (L.err && !L.data) {
+      html = '<div class="hm-err" role="alert">Could not load the L10 agenda: ' + esc(L.err) + ' <button class="hm-link" data-l10-retry>Try again</button></div>';
+    } else if (!L.data) {
+      html = window.PortalLoader ? window.PortalLoader.full('the L10 agenda') : '';
+    } else {
+      var live = (L.data.items || []).filter(function (t) { return !isDone(t); });
+      var td = today();
+      var tabs = '<div class="seg" role="tablist">' + SECTIONS.map(function (x) {
+        var n = live.filter(function (t) { return (t.sections || []).indexOf(x[0]) >= 0; }).length;
+        return '<button class="segbtn' + (L.tab === x[0] ? ' on' : '') + '" role="tab" aria-selected="' + (L.tab === x[0]) + '" data-l10-tab="' + x[0] + '">' + x[1] + ' <span class="hm-gc">' + n + '</span></button>';
+      }).join('') + '</div>';
+      var rows = live.filter(function (t) { return (t.sections || []).indexOf(L.tab) >= 0; }).sort(byDue);
+      var body = rows.length ? rows.map(function (t) {
+        var overdue = t.due !== null && t.due !== undefined && dayOf(t.due) < td;
+        var owners = (t.assignees || []).map(function (a) { return esc(a.name); }).join(', ');
+        return '<tr class="hm-row' + (P.id === t.id ? ' hm-sel' : '') + '" data-l10-open="' + esc(t.id) + '">' +
+          '<td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener">' + esc(t.name) + '</a></td>' +
+          '<td>' + statusPill(t.status) + '</td>' +
+          '<td>' + (owners || '<span class="hm-muted">Unassigned</span>') + '</td>' +
+          '<td class="' + (overdue ? 'hm-overdue' : '') + '">' + esc(fmtDue(t.due, td)) + '</td>' +
+          '<td>' + priorityCell(t.priority) + '</td>' +
+          '<td class="hm-muted">' + esc(fmtDue(t.updated, td)) + '</td></tr>';
+      }).join('') : '<tr><td colspan="6" class="hm-empty">Nothing open in ' + esc((SECTIONS.find(function (x) { return x[0] === L.tab; }) || [0, ''])[1]) + '.</td></tr>';
+      html = tabs + '<div class="hm-frame"><table class="hm-tbl"><thead><tr><th class="hm-tcol">Item</th><th>Status</th><th>Owner</th><th>Due</th><th>Priority</th><th>Updated</th></tr></thead><tbody>' +
+        body + '</tbody></table></div>' +
+        '<p class="hm-note">From ClickUp, ' + esc(L.data.list.name) + (L.data.list.space ? ' in the ' + esc(L.data.list.space) + ' space' : '') +
+        ', using your own ClickUp sign-in. Completed items are not shown. Click an item to open it here.' + (L.loading ? ' Refreshing…' : '') + '</p>';
+    }
+    if (window.PortalMorph) window.PortalMorph.morph(L.host, html); else L.host.innerHTML = html;
+  }
+
   function mount(host, opts) {
     if (!host) return;
     S.host = host; S.view = (opts && opts.view) === 'all' ? 'all' : 'mine';
@@ -508,5 +612,7 @@
   function current() { return S.data ? { mine: groupMine(S.data.tasks, S.data.me.id, today()).count, all: groupAll(S.data.tasks).count } : null; }
   function reset() { S.data = null; S.connect = false; if (P.id) closePanel(); try { sessionStorage.removeItem(CACHE_KEY); } catch (e) { /* */ } }
 
-  return { mount: mount, counts: current, reset: reset, open: openPanel, close: closePanel, _internal: { isDone: isDone, groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
+  return { mount: mount, counts: current, reset: reset, open: openPanel, openTask: openTask, close: closePanel,
+           mountL10: mountL10, l10Tab: function () { return L.tab; }, setL10Tab: function (t) { if (SECTIONS.some(function (x) { return x[0] === t; })) L.tab = t; },
+           _internal: { isDone: isDone, groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
 });
