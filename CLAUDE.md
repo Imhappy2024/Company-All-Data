@@ -71,6 +71,10 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   Connect ClickUp button. Every page of every workspace is read, tasks are
   de-duplicated by id, cached per token (fresh 60s, then served stale while it
   refreshes) and per browser session (`sessionStorage.lwHomeTasks`).
+  **Completed tasks are never shown**: ClickUp's done/closed status types, or any
+  status `data/status-mappings.json` maps to Completed (the /ops definition). The
+  server drops them and flags `done`; the browser applies the same rule, so a task
+  marked complete in the panel leaves the list at once and the panel stays open.
 - **The task panel** (portal-home.js `openPanel`): a row click opens it in the
   dashboard (ctrl/cmd/middle click on the name still opens ClickUp). Ported from
   the /ops task detail (`openTaskDetail`, `openStatusEditor`, `openDuePicker`,

@@ -45,6 +45,21 @@ async function cu(token, path, fetchImpl) {
   return r.json();
 }
 
+/* Completed means what it means on /ops: a status data/status-mappings.json
+   maps to 'Completed', or one ClickUp itself types as done/closed. Those
+   tasks are not shown on Home. */
+const DONE_NAMES = (() => {
+  try {
+    const m = require('./data/status-mappings.json');
+    return new Set(Object.keys(m).filter(k => k !== '_comment' && m[k] === 'Completed'));
+  } catch (e) { return new Set(['done', 'completed', 'complete', 'closed']); }
+})();
+function isDone(t) {
+  const type = (t.status && t.status.type) || '';
+  const name = String((t.status && t.status.status) || '').trim().toLowerCase();
+  return type === 'closed' || type === 'done' || DONE_NAMES.has(name);
+}
+
 const ms = v => (v === null || v === undefined || v === '' ? null : Number(v));
 function initials(name) {
   const p = String(name || '').trim().split(/\s+/).filter(Boolean);
@@ -72,6 +87,7 @@ function normalize(t, workspace, spaceNames) {
     created: ms(t.date_created),
     updated: ms(t.date_updated),
     due: ms(t.due_date),
+    done: isDone(t),
     assignees: (t.assignees || []).map(a => ({ id: String(a.id), name: a.username || a.email || 'Someone', initials: a.initials || initials(a.username) })),
   };
 }
@@ -94,7 +110,7 @@ function collect(pages, spaceNames) {
   for (const pg of pages) {
     for (const t of (pg.tasks || [])) {
       const id = String(t.id);
-      if (!byId.has(id)) byId.set(id, normalize(t, pg.workspace, spaceNames));
+      if (!byId.has(id) && !isDone(t)) byId.set(id, normalize(t, pg.workspace, spaceNames));
     }
   }
   return [...byId.values()];
@@ -204,7 +220,7 @@ function homeRoutes() {
   r.get('/list/:id/statuses', panel(async (req, res, token) => {
     if (!idOk(req.params.id)) return badId(res, 'list');
     const d = await act(token, 'GET', '/list/' + req.params.id);
-    res.json({ statuses: (d.statuses || []).map(x => ({ status: x.status, color: x.color, type: x.type, orderindex: x.orderindex })) });
+    res.json({ statuses: (d.statuses || []).map(x => ({ status: x.status, color: x.color, type: x.type, orderindex: x.orderindex, done: isDone({ status: x }) })) });
   }));
   r.get('/list/:id/members', panel(async (req, res, token) => {
     if (!idOk(req.params.id)) return badId(res, 'list');
@@ -258,4 +274,4 @@ function homeRoutes() {
 /* old entries go */
 setInterval(() => { const cut = Date.now() - KEEP_MS; for (const [k, v] of cache) if (!v.inflight && (!v.at || v.at < cut)) cache.delete(k); }, 5 * 60 * 1000).unref();
 
-module.exports = { homeRoutes, _internal: { collect, normalize, readAll, personToken, cleanUpdate, shapeComment, act } };
+module.exports = { homeRoutes, _internal: { collect, normalize, readAll, personToken, cleanUpdate, shapeComment, act, isDone } };

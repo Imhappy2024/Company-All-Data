@@ -42,11 +42,17 @@
     return x - y || String(a.name).localeCompare(String(b.name));
   };
 
+  /* Completed: the server's flag, or (for a copy cached before the flag
+     existed) the same rule - ClickUp's done/closed type, or a status
+     data/status-mappings.json maps to Completed. */
+  var DONE_RE = /^(done|completed|complete|closed|finished|shipped|resolved|live|archived)$/i;
+  function isDone(t) { return !!(t.done || t.statusType === 'closed' || t.statusType === 'done' || DONE_RE.test(String(t.status || '').trim())); }
+
   /* Pure: the rows for one view. Each task id appears once whatever the input. */
   function groupMine(tasks, meId, today) {
     var seen = {}, mine = [];
     tasks.forEach(function (t) {
-      if (seen[t.id]) return;
+      if (seen[t.id] || isDone(t)) return;   /* completed tasks are not shown */
       if ((t.assignees || []).some(function (a) { return String(a.id) === String(meId); })) { seen[t.id] = true; mine.push(t); }
     });
     mine.sort(byDue);
@@ -60,7 +66,7 @@
   function groupAll(tasks) {
     var seen = {}, lists = {};
     tasks.forEach(function (t) {
-      if (seen[t.id]) return; seen[t.id] = true;
+      if (seen[t.id] || isDone(t)) return; seen[t.id] = true;
       var k = t.list || 'No list';
       (lists[k] = lists[k] || []).push(t);
     });
@@ -273,7 +279,7 @@
     afterChange();
     api('PUT', '/task/' + encodeURIComponent(t.id), body).then(function (d) {
       var fresh = d.task || {};
-      ['status', 'statusType', 'statusColor', 'due', 'assignees', 'priority', 'tags', 'updated', 'name'].forEach(function (k) { if (k in fresh) t[k] = fresh[k]; });
+      ['status', 'statusType', 'statusColor', 'done', 'due', 'assignees', 'priority', 'tags', 'updated', 'name'].forEach(function (k) { if (k in fresh) t[k] = fresh[k]; });
       P.saving = false;
       afterChange();
     }, function (e) {
@@ -300,7 +306,8 @@
   function setStatus(name) {
     var st = (P.statuses || []).find(function (x) { return x.status === name; });
     P.statusOpen = false;
-    update({ status: name }, function (t) { t.status = name; if (st) { t.statusColor = st.color; t.statusType = st.type; } });
+    /* a completed status takes the row off Home at once; the panel stays open */
+    update({ status: name }, function (t) { t.status = name; if (st) { t.statusColor = st.color; t.statusType = st.type; t.done = !!st.done; } else t.done = DONE_RE.test(name); });
   }
   function setDue(iso) {
     /* 5 pm, as the dashboard always set it, so the day never slips across a timezone */
@@ -501,5 +508,5 @@
   function current() { return S.data ? { mine: groupMine(S.data.tasks, S.data.me.id, today()).count, all: groupAll(S.data.tasks).count } : null; }
   function reset() { S.data = null; S.connect = false; if (P.id) closePanel(); try { sessionStorage.removeItem(CACHE_KEY); } catch (e) { /* */ } }
 
-  return { mount: mount, counts: current, reset: reset, open: openPanel, close: closePanel, _internal: { groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
+  return { mount: mount, counts: current, reset: reset, open: openPanel, close: closePanel, _internal: { isDone: isDone, groupMine: groupMine, groupAll: groupAll, bucket: bucket, fmtDue: fmtDue, dayOf: dayOf } };
 });
