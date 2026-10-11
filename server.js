@@ -2180,6 +2180,8 @@ app.use('/api/shell', identityMw.asCaller(), require('./shell-api').shellRoutes(
    data is read-only; the only writes are a person's own groups and views.
    See props-api.js. */
 app.use('/api/props', require('./props-api').propsRoutes());
+/* Properties > Reports: build, export, save, send and schedule. See reports-api.js. */
+app.use('/api/reports', require('./reports-api').reportsRoutes());
 
 /* Phase 2 ships READ-ONLY: the new Properties screens call no write
    endpoint. The existing write endpoints are untouched and still mounted;
@@ -2728,6 +2730,7 @@ app.use((req, res) => {
 });
 
 app.listen(PORT, '0.0.0.0', () => {
+  require('./report-scheduler').start();
   console.log(`Dashboard running on port ${PORT}`);
   if (!CLICKUP_TOKEN) console.warn('WARNING: CLICKUP_API_TOKEN is not set.');
   if (CLICKUP_TOKEN) {

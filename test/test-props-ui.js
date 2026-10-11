@@ -121,7 +121,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     font: getComputedStyle(document.querySelector('#reportingNative .lw')).fontFamily,
     sticky: getComputedStyle(document.querySelector('#reportingNative thead th')).position,
   }));
-  check('portfolio tabs are Entities | Custom view', () => assert.deepStrictEqual(ent.tabs, ['Entities', 'Custom view']));
+  check('portfolio tabs are Entities | Custom view | Reports', () => assert.deepStrictEqual(ent.tabs, ['Entities', 'Custom view', 'Reports']));
   check('entities table columns are the spec\'s', () => assert.deepStrictEqual(ent.heads,
     ['Managing entity', 'Properties', 'Units', 'Occupancy', 'NOI', 'Market value', 'Cash flow after debt and capex', 'Debt']));
   check('"No managing entity" is the last row', () => assert.strictEqual(ent.rows[ent.rows.length - 1], 'No managing entity'));

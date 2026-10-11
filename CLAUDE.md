@@ -2813,6 +2813,65 @@ Tests and tools:
 test-reporting-ui.js, test-views-ui.js and test-setup-ui.js were retired with
 the Phase 2 screens they drove.
 
+## Properties > Reports (2026-10-12)
+
+Third Portfolio tab (Entities | Custom view | Reports), built to the mockup revision
+Jay supplied on 2026-10-12 (its Reports tab; the repo copy of
+`docs/mockup/properties-mockup.dc.html` predates it). Sub-tabs Build report | Saved
+reports | Scheduled.
+
+| Piece | File |
+|---|---|
+| Routes, `/api/reports` | `reports-api.js` |
+| What a report is: config, periods, roll-forward, the document | `reports-core.js` |
+| Document as xlsx (one sheet per report) / pdf (as previewed) / csv zip | `reports-export.js` |
+| Email via n8n "Report email (dashboard reports)" `ghGUvzmOC19PUwMO` | `report-mailer.js` |
+| 9:00 AM America/Chicago sends, every 5 min tick | `report-scheduler.js` (started in server.js; `REPORT_SCHEDULER=off` disables) |
+| UI, rendered inside PortalProps (data-a/data-in `rp*` forwarded) | `public/portal-reports.js` |
+| Tables `report_definition`, `report_schedule`, `report_send_log` | `migrations/20261015_reports.sql` (APPLIED 2026-10-12) |
+
+- **A report stores its definition, never figures**: reports (income / rent roll /
+  optimized NOI), income period type (regular month range, quarterly, bi-annual,
+  annual or T12) and statements (income and/or cash flow), property ids. Every
+  open, export, send and scheduled run builds `buildDoc()` on current data. The
+  preview, the file and the attachment are the same document.
+- **Months with no data are left out** of the income tables and the section's
+  sub-line says how many of how many months have none.
+- **Access**: every route needs the Properties screen; report DATA is read as the
+  caller's connector role (guard), so it only holds properties they can see, and a
+  property they cannot see is counted in `omitted`. Saving, sending, scheduling and
+  RESUMING a schedule need Properties write; read-only levels can build, preview and
+  export. The three tables are server-only (RLS on, no policy, anon/authenticated
+  revoked), read and written on the privileged connection filtered by the verified
+  tenant and staff id. Saved reports and schedules are listed to everyone with
+  Properties; only the creator or an admin deletes, pauses or resumes.
+- **Schedules** run as the OWNER's connector role, after re-checking at every send
+  that the owner is active, has dashboard access and has Properties WRITE; otherwise
+  the send is `skipped` and logged. The period rolls forward to the latest COMPLETED
+  period of the same type, measured against the latest month of data loaded (not
+  the calendar). A send claims its occurrence first (`next_run_at` moved to the next
+  due date with `... where next_run_at <= now()`), so a restart or a slow send never
+  sends twice; missed occurrences are not replayed. Failures set `last_status`,
+  `last_error`, `failure_count`, log a row, and email the owner a notice.
+  `start_date` is read as `to_char(...)` text: a pg DATE becomes local midnight and
+  shifts a day east of UTC.
+- **Email**: `REPORT_EMAIL_SECRET` (Railway, same value as in the workflow's code
+  node). The workflow sends through Microsoft Graph `/me/sendMail` with the Outlook
+  "Jay" credential (the Outlook node sent an empty Cc as a recipient and failed), so
+  every report email comes from Jay's mailbox. Attachments up to **3 MB** (Graph
+  inline limit); larger is refused with a message to export instead. Max 4 To, 3 Cc,
+  3 Bcc. The workflow keeps no execution data.
+- **PDF footers** sit below pdfkit's bottom margin; `page.margins.bottom = 0` before
+  drawing them, or pdfkit adds a blank page after every page (props-export.js had
+  the same bug, fixed in the same commit).
+
+Tests: `node test/test-reports-ui.js [--shots]` (30, live data: build, preview with
+Franklin Court NOI 84,177.43 / 78,217.93 / 92,865.54, months left out, each export
+format, send body, save, schedule, pause; cleans up its rows) and
+`node test/test-report-scheduler.js` (10, live DB, email stubbed: one send per
+occurrence, 9:00 AM Chicago next run, Q1 2025 rolled to Q3 2026, failure recorded and
+owner notified). Screenshots in `docs/screenshots/reports/`.
+
 ## Railway variables: what belongs, and what takes the app down
 
 **`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one
@@ -2832,7 +2891,8 @@ returns Railway's error page, check `PORT` before anything else.
 `CLICKUP_OAUTH_REDIRECT_URI`, `DATA_SOURCE`, `OWNER_EMAIL`, `PORTAL_CACHE_MS`,
 `SSE_COALESCE_MS`, `SSE_MAX_CLIENTS`, `SSE_MAX_PER_IP`, `SSE_PING_MS`,
 `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE`, `SUPABASE_URL`,
-`SUPABASE_WEBHOOK_SECRET`, plus the `GHL_TOKEN_<NAME>` / `GHL_LOCATION_<NAME>`
+`SUPABASE_WEBHOOK_SECRET`, `REPORT_EMAIL_SECRET` (optional `REPORT_EMAIL_WEBHOOK_URL`,
+`REPORT_SCHEDULER`), plus the `GHL_TOKEN_<NAME>` / `GHL_LOCATION_<NAME>`
 pairs.
 
 Regenerate that list rather than trusting this one:
