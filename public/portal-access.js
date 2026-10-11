@@ -238,7 +238,7 @@
     if (p.custom_tables) h += '<p class="pa-desc">' + p.custom_tables + ' custom table choices are kept as they are (set with the connector\'s admin tools).</p>';
     h += screensBlock(dr);
     h += '<div class="pa-actions"><button class="pa-btn on" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? 'Saving…' : 'Save') + '</button>' +
-      (p.active ? '<button class="pa-btn" data-a="sendToken">Email a new connector token</button>' + (p.owner ? '' : '<button class="pa-btn bad" data-a="deactivate">Revoke access</button>')
+      (p.active ? '<button class="pa-btn" data-a="sendToken">Email Claude connector setup</button>' + (p.owner ? '' : '<button class="pa-btn bad" data-a="deactivate">Revoke access</button>')
                 : '<button class="pa-btn" data-a="reactivate">Restore access</button>') + '</div>';
     if (S.msg) h += '<div class="pa-msg" role="status">' + esc(S.msg) + '</div>';
     var mine = D().log.filter(function (r) { return r.person === p.full_name; }).slice(0, 12);
@@ -249,7 +249,7 @@
   function inviteDrawer() {
     var v = S.inv, cfg = D().configured || {};
     var h = '<aside class="pa-drawer" role="dialog" aria-label="Invite a person"><div class="pa-dh"><div class="pa-dt">Invite a person</div><button class="pa-x" data-a="close" aria-label="Close">×</button></div>' +
-      '<p class="pa-desc">Creates their Claude connector account and dashboard sign-in together, with the same access in both. They get two emails: a link to set their dashboard password, and their Claude connector setup steps with a personal token. The token is never shown here.</p>';
+      '<p class="pa-desc">Sends them an invitation to the LeavenWealth Command Center dashboard. The link in it takes them to a page to set their password, then they can sign in. Their Claude connector account is set up with the same access; send its setup email later from Update if they need Claude.</p>';
     if (!cfg.roleSecret) h += '<div class="pa-msg bad">Invites are switched off until MCP_ROLE_SECRET is set on this deployment (same value as on lw-data-mcp).</div>';
     if (!cfg.tokenEmail) h += '<div class="pa-msg bad">The connector email is not configured (CONNECTOR_INVITE_URL / CONNECTOR_INVITE_SECRET).</div>';
     h += '<div class="pa-steps"><span class="' + (v.step === 1 ? 'on' : '') + '">1. Name and email</span><span class="' + (v.step === 2 ? 'on' : '') + '">2. Permissions</span></div>';
@@ -347,7 +347,7 @@
       var v = S.inv;
       var body = { first_name: v.first_name, last_name: v.last_name, email: v.email, principal: v.principal || null,
                    grants: Object.keys(v.grants).filter(function (k) { return v.grants[k]; }).map(function (k) { return { scope: k, level: v.grants[k] }; }) };
-      after(api('/invite', 'POST', body), function (r) { return 'Invited. Dashboard sign-in: ' + r.login + '. Claude connector email: ' + r.connector + '.'; });
+      after(api('/invite', 'POST', body), function (r) { return 'Invited. Dashboard invitation: ' + r.login + '.'; });
     }
   }
   function onInput(ev) {
