@@ -139,7 +139,7 @@ const MENUS={
    one place access is set (mcp.access_grant). Both read ClickUp with the
    person's own sign-in. */
 const HOME_VIEWS=[['mine','My tasks'],['all','All tasks']];
-const EXEC_VIEWS=[['l10','L10 agenda'],['all','All tasks'],['mine','Personal tasks'],['access','Users & roles']];
+const EXEC_VIEWS=[['l10','L10 agenda'],['all','All tasks'],['mine','Personal tasks'],['access','Roles & permissions']];
 const HOME_ICON={mine:'mine',all:'all',l10:'overview',access:'user'};
 function homeViews(){ return isAdmin()?EXEC_VIEWS:HOME_VIEWS; }
 function homeName(){ return isAdmin()?'Executive board':'Home'; }
@@ -517,7 +517,8 @@ function render(){
       content.innerHTML=pageHead('L10 agenda','Rocks, Sprint and IDS from the MASTER LIST')+'<div id="l10Native" class="l10-wrap"></div>';
       if(window.PortalHome) PortalHome.mountL10(document.getElementById('l10Native'),{onTab:writeState});
     }else if(view==='access'){
-      content.innerHTML=pageHead('Users & roles')+'<div id="usersNative"></div>';
+      content.innerHTML=pageHead('Roles & permissions','Who can sign in, and what each person can see and change',
+        `<button class="btn primary" onclick="window.PortalAccess&&PortalAccess.openInvite()">${ico('user',14)} Invite user</button>`)+'<div id="usersNative"></div>';
       if(window.PortalAccess&&isAdmin()) PortalAccess.mount(document.getElementById('usersNative'),{me:dashAccess.user});
     }else{
       content.innerHTML='<div id="homeNative"></div>';

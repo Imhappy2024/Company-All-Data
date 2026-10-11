@@ -102,7 +102,7 @@ function stub(payload) {
     check('rail: Executive board, then the four businesses in order', await rail(page), ['Executive board', 'LeavenWealth', 'Folio Excel', 'Leadli AI', 'Liquid Lending Solutions']);
     check('tooltips name the shortcut', await page.$$eval('#rail .tip', e => e.map(x => x.textContent)),
       ['Executive boardCtrl 0', 'LeavenWealthCtrl 1', 'Folio ExcelCtrl 2', 'Leadli AICtrl 3', 'Liquid Lending SolutionsCtrl 4']);
-    check('Executive board sidebar: L10 agenda, All tasks, Personal tasks, then Users & roles', await navLabels(page), ['L10 agenda', 'All tasks', 'Personal tasks', 'Users & roles']);
+    check('Executive board sidebar: L10 agenda, All tasks, Personal tasks, then Roles & permissions', await navLabels(page), ['L10 agenda', 'All tasks', 'Personal tasks', 'Roles & permissions']);
     check('sidebar title', await page.$eval('#sideTitle', e => e.textContent), 'Executive board');
     await page.evaluate(() => goHome('mine'));
     check('not connected: one Connect ClickUp button and nothing else to click',
@@ -143,7 +143,7 @@ function stub(payload) {
     console.log('\nUsers & roles lives in the Executive board');
     await page.evaluate(() => goHome('access'));
     check('in the URL', new URLSearchParams(new URL(page.url()).hash.slice(1)).get('view'), 'access');
-    check('crumb', await page.$eval('#crumb', e => e.innerText.replace(/\s+/g, ' ').trim()), 'Executive board Users & roles');
+    check('crumb', await page.$eval('#crumb', e => e.innerText.replace(/\s+/g, ' ').trim()), 'Executive board Roles & permissions');
     await page.goto(BASE + '/?r=0#brand=leavenwealth&view=exec&sub=access', { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.dashAccess !== null && !document.getElementById('authGate'));
     check('an old Executive board link still lands on it', await state(page), { brand: 'home', view: 'access' });

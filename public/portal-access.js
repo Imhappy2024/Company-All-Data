@@ -87,20 +87,57 @@
     return g ? '<span class="pa-lv">' + esc(label(g.level)) + '</span>' : '<span class="pa-muted">–</span>';
   }
 
+  /* The list is name, email and role. Clicking a person expands their row to
+     show what they can reach, with Update (the edit drawer) and Revoke access
+     (dashboard login and Claude connector off together; Restore brings both
+     back). Someone with no Claude account yet can only be invited. The owner,
+     and the signed-in admin themselves, cannot be revoked from here. */
+  function roleCell(p) {
+    var r = p.dashboard_access ? ({ owner: 'Owner', admin: 'Admin', user: 'User' }[p.dashboard_role] || p.dashboard_role) : 'No dashboard';
+    var tag = !p.user_id ? '<span class="pa-chip">Not invited</span>' : !p.active ? '<span class="pa-chip bad">Access revoked</span>'
+      : (p.dashboard_access && !p.has_login) ? '<span class="pa-chip ok">Invite sent</span>' : '';
+    return '<span class="' + (p.dashboard_access ? '' : 'pa-muted') + '">' + esc(r) + '</span>' + (tag ? ' ' + tag : '');
+  }
+  function accessDetail(p, i) {
+    var me = S.me || {};
+    var scopes = [{ key: 'all', name: 'Every company' }].concat(D().companies.map(function (c) { return { key: c.key, name: c.name }; }));
+    var held = scopes.map(function (sc) {
+      var g = (p.grants || []).find(function (x) { return x.scope === sc.key; });
+      if (!g) return '';
+      var screens = Object.keys(allowedScreens(p.grants || [], sc.key)).map(function (nav) { return navLabel(sc.key, nav); });
+      return '<div class="pa-xs"><div class="pa-xs-h"><b>' + esc(sc.name) + '</b><span>' + esc(label(g.level)) + '</span></div>' +
+        (screens.length ? '<div class="pa-xs-s">' + screens.map(esc).join(', ') + '</div>' : '') + '</div>';
+    }).join('');
+    var emails = (p.emails || []).map(function (e) { return e.email; });
+    var self = me.id && String(me.id) === String(p.staff_id);
+    var btns = !p.user_id
+      ? '<button class="pa-btn on" data-a="rowInvite" data-i="' + i + '">Invite</button>'
+      : '<button class="pa-btn on" data-a="rowEdit" data-i="' + i + '">Update</button>' +
+        (p.owner || self ? '' : p.active ? '<button class="pa-btn bad" data-a="rowRevoke" data-i="' + i + '">Revoke access</button>'
+                                         : '<button class="pa-btn" data-a="rowRestore" data-i="' + i + '">Restore access</button>');
+    return '<div class="pa-x-body">' +
+      (held || '<p class="pa-desc">No access yet.</p>') +
+      '<div class="pa-x-meta">' + (emails.length > 1 ? 'Also signs in as ' + esc(emails.slice(1).join(', ')) + '. ' : '') +
+        (p.principal ? 'Principal: ' + esc(p.principal) + '. ' : '') + 'Last in Claude: ' + (p.last_seen_at ? esc(String(p.last_seen_at).slice(0, 10)) : 'never') + '.</div>' +
+      '<div class="pa-actions">' + btns + '</div></div>';
+  }
   function table() {
-    var cos = D().companies;
-    var h = '<div class="pa-scroll"><table class="pa-tbl"><thead><tr><th>Person</th><th>Status</th><th>Dashboard</th><th>Every company</th>' +
-      cos.map(function (c) { return '<th>' + esc(c.name) + '</th>'; }).join('') + '<th>Last in Claude</th></tr></thead><tbody>';
+    var h = '<div class="pa-scroll"><table class="pa-tbl pa-list"><thead><tr><th>Name</th><th>Email</th><th>Role</th></tr></thead><tbody>';
+    /* Only people who have been granted the dashboard. Everyone else is a
+       staff record, not a user; they are added with Invite user. */
+    var shown = 0;
     D().people.forEach(function (p, i) {
+      if (!p.dashboard_access) return;
+      shown++;
+      var key = String(p.staff_id || p.user_id);
+      var open = S.expanded === key;
       var emails = (p.emails || []).map(function (e) { return e.email; });
-      if (!emails.length && p.staff_email) emails = [p.staff_email];
-      h += '<tr class="pa-row" data-i="' + i + '"><td><div class="pa-name">' + esc(p.full_name || '(no name)') + (p.owner ? ' <span class="pa-chip">Owner</span>' : '') +
-        (p.principal ? ' <span class="pa-chip">Principal: ' + esc(p.principal) + '</span>' : '') + '</div>' +
-        '<div class="pa-sub">' + esc(emails.join(', ')) + '</div></td>' +
-        '<td>' + statusChip(p) + '</td><td>' + dashRole(p) + '</td><td>' + grantCell(p, 'all') + '</td>' +
-        cos.map(function (c) { return '<td>' + grantCell(p, c.key) + '</td>'; }).join('') +
-        '<td class="pa-muted">' + (p.last_seen_at ? esc(String(p.last_seen_at).slice(0, 10)) : '–') + '</td></tr>';
+      h += '<tr class="pa-row' + (open ? ' pa-open' : '') + '" data-i="' + i + '" aria-expanded="' + open + '">' +
+        '<td><span class="pa-name">' + esc(p.full_name || '(no name)') + '</span>' + (p.owner ? ' <span class="pa-chip">Owner</span>' : '') + '</td>' +
+        '<td class="pa-muted">' + esc(emails[0] || p.staff_email || '') + '</td><td>' + roleCell(p) + '</td></tr>';
+      if (open) h += '<tr class="pa-x"><td colspan="3">' + accessDetail(p, i) + '</td></tr>';
     });
+    if (!shown) h += '<tr><td colspan="3" class="pa-muted">Nobody has dashboard access yet. Use Invite user.</td></tr>';
     return h + '</tbody></table></div>';
   }
 
@@ -201,8 +238,8 @@
     if (p.custom_tables) h += '<p class="pa-desc">' + p.custom_tables + ' custom table choices are kept as they are (set with the connector\'s admin tools).</p>';
     h += screensBlock(dr);
     h += '<div class="pa-actions"><button class="pa-btn on" data-a="save"' + (S.busy ? ' disabled' : '') + '>' + (S.busy ? 'Saving…' : 'Save') + '</button>' +
-      (p.active ? '<button class="pa-btn" data-a="sendToken">Email a new connector token</button><button class="pa-btn bad" data-a="deactivate">Deactivate</button>'
-                : '<button class="pa-btn" data-a="reactivate">Reactivate</button>') + '</div>';
+      (p.active ? '<button class="pa-btn" data-a="sendToken">Email a new connector token</button>' + (p.owner ? '' : '<button class="pa-btn bad" data-a="deactivate">Revoke access</button>')
+                : '<button class="pa-btn" data-a="reactivate">Restore access</button>') + '</div>';
     if (S.msg) h += '<div class="pa-msg" role="status">' + esc(S.msg) + '</div>';
     var mine = D().log.filter(function (r) { return r.person === p.full_name; }).slice(0, 12);
     h += logTable(mine, 'Recent changes for ' + p.full_name);
@@ -215,15 +252,22 @@
       '<p class="pa-desc">Creates their Claude connector account and dashboard sign-in together, with the same access in both. They get two emails: a link to set their dashboard password, and their Claude connector setup steps with a personal token. The token is never shown here.</p>';
     if (!cfg.roleSecret) h += '<div class="pa-msg bad">Invites are switched off until MCP_ROLE_SECRET is set on this deployment (same value as on lw-data-mcp).</div>';
     if (!cfg.tokenEmail) h += '<div class="pa-msg bad">The connector email is not configured (CONNECTOR_INVITE_URL / CONNECTOR_INVITE_SECRET).</div>';
-    h += '<div class="pa-grid2"><div class="pa-field"><label>First name</label><input class="pa-sel" data-in="i:first_name" value="' + esc(v.first_name) + '"></div>' +
-      '<div class="pa-field"><label>Last name</label><input class="pa-sel" data-in="i:last_name" value="' + esc(v.last_name) + '"></div></div>' +
-      '<div class="pa-field"><label>Work email</label><input class="pa-sel" type="email" data-in="i:email" value="' + esc(v.email) + '"></div>' +
-      '<h3 class="pa-h3">Data level</h3>' + levelBlock('all', v.grants.all, 'ig:') + D().companies.map(function (c) { return levelBlock(c.key, v.grants[c.key], 'ig:'); }).join('');
+    h += '<div class="pa-steps"><span class="' + (v.step === 1 ? 'on' : '') + '">1. Name and email</span><span class="' + (v.step === 2 ? 'on' : '') + '">2. Permissions</span></div>';
+    if (v.step === 1) {
+      h += '<div class="pa-grid2"><div class="pa-field"><label>First name</label><input class="pa-sel" data-in="i:first_name" value="' + esc(v.first_name) + '"></div>' +
+        '<div class="pa-field"><label>Last name</label><input class="pa-sel" data-in="i:last_name" value="' + esc(v.last_name) + '"></div></div>' +
+        '<div class="pa-field"><label>Work email</label><input class="pa-sel" type="email" data-in="i:email" value="' + esc(v.email) + '"></div>' +
+        '<div class="pa-actions"><button class="pa-btn on" data-a="inviteNext">Next: set permissions</button></div>';
+      if (S.msg) h += '<div class="pa-msg" role="status">' + esc(S.msg) + '</div>';
+      return h + '</aside>';
+    }
+    h += '<p class="pa-desc"><b>' + esc((v.first_name + ' ' + v.last_name).trim()) + '</b>, ' + esc(v.email) + '. <button class="pa-link" data-a="inviteBack">Change</button></p>' +
+      '<h3 class="pa-h3">Permissions</h3>' + levelBlock('all', v.grants.all, 'ig:') + D().companies.map(function (c) { return levelBlock(c.key, v.grants[c.key], 'ig:'); }).join('');
     if (Object.keys(v.grants).some(function (k) { return v.grants[k] === 'principal'; })) {
       h += '<div class="pa-field"><label>Principal</label><select class="pa-sel" data-in="i:principal"><option value="">Choose</option>' +
         D().principals.map(function (x) { return '<option value="' + esc(x.key) + '"' + (v.principal === x.key ? ' selected' : '') + '>' + esc(x.name) + '</option>'; }).join('') + '</select></div>';
     }
-    h += '<div class="pa-actions"><button class="pa-btn on" data-a="sendInvite"' + (S.busy || !cfg.roleSecret ? ' disabled' : '') + '>' + (S.busy ? 'Inviting…' : 'Send invite') + '</button></div>';
+    h += '<div class="pa-actions"><button class="pa-btn" data-a="inviteBack">Back</button><button class="pa-btn on" data-a="sendInvite"' + (S.busy || !cfg.roleSecret ? ' disabled' : '') + '>' + (S.busy ? 'Inviting…' : 'Send invite') + '</button></div>';
     if (S.msg) h += '<div class="pa-msg" role="status">' + esc(S.msg) + '</div>';
     return h + '</aside>';
   }
@@ -234,8 +278,7 @@
     if (S.error && !S.data) html = '<div class="pa-msg bad">' + esc(S.error) + '</div>';
     else if (!S.data) html = window.PortalLoader.full('people');
     else {
-      html = '<div class="pa"><p class="pa-desc pa-top">One set of access for the dashboard and for Claude: each person\'s level per company decides what they can see and change in both. Changes apply immediately and are logged.</p>' +
-        table() + logTable(D().log.slice(0, 25), 'Recent access changes') + '</div>' + drawer();
+      html = '<div class="pa">' + table() + '</div>' + drawer();
     }
     if (window.PortalMorph) window.PortalMorph.morph(S.host, html); else S.host.innerHTML = html;
   }
@@ -264,8 +307,20 @@
   }
 
   function onClick(ev) {
+    var act = ev.target.closest('[data-a^="row"]');
+    if (act && S.host.contains(act)) {
+      var pr = D().people[+act.getAttribute('data-i')], k = act.getAttribute('data-a');
+      if (k === 'rowEdit') { S.mode = 'edit'; S.open = pr; S.draft = draftFrom(pr); S.msg = ''; paint(); return; }
+      if (k === 'rowInvite') { var nm = (pr.full_name || '').split(' '); openInvite({ first_name: nm[0] || '', last_name: nm.slice(1).join(' '), email: pr.staff_email || '' }); return; }
+      if (k === 'rowRevoke') {
+        if (!window.confirm('Revoke access for ' + pr.full_name + '? Their dashboard sign-in and Claude connector stop working until access is restored.')) return;
+        after(api('/' + pr.user_id + '/deactivate', 'POST', {}), function () { return 'Access revoked for ' + pr.full_name + '.'; }); return;
+      }
+      if (k === 'rowRestore') { after(api('/' + pr.user_id + '/reactivate', 'POST', {}), function () { return 'Access restored for ' + pr.full_name + '.'; }); return; }
+    }
     var row = ev.target.closest('.pa-row');
-    if (row && S.host.contains(row)) { var p = D().people[+row.getAttribute('data-i')]; S.mode = 'edit'; S.open = p; S.draft = draftFrom(p); S.msg = ''; paint(); return; }
+    if (row && S.host.contains(row)) { var p = D().people[+row.getAttribute('data-i')]; var key = String(p.staff_id || p.user_id);
+      S.expanded = S.expanded === key ? null : key; paint(); return; }
     var el = ev.target.closest('[data-a]'); if (!el || !S.host.contains(el)) return;
     var a = el.getAttribute('data-a'), p2 = S.open;
     if (a === 'close') { S.open = null; S.mode = null; S.msg = ''; paint(); return; }
@@ -274,14 +329,20 @@
     if (a === 'addEmail') { after(api('/' + p2.user_id + '/emails', 'POST', { email: S.draft.email }), 'Address added.'); return; }
     if (a.indexOf('rmEmail:') === 0) { after(api('/' + p2.user_id + '/emails/' + encodeURIComponent(a.slice(8)), 'DELETE'), 'Address removed.'); return; }
     if (a === 'deactivate') {
-      if (!window.confirm('Deactivate ' + p2.full_name + '? Their Claude connector and dashboard sign-in stop working until reactivated.')) return;
-      after(api('/' + p2.user_id + '/deactivate', 'POST', {}), function (r) { return 'Deactivated. Dashboard sign-in: ' + r.login + '.'; }); return;
+      if (!window.confirm('Revoke access for ' + p2.full_name + '? Their dashboard sign-in and Claude connector stop working until access is restored.')) return;
+      after(api('/' + p2.user_id + '/deactivate', 'POST', {}), function (r) { return 'Access revoked. Dashboard sign-in: ' + r.login + '.'; }); return;
     }
-    if (a === 'reactivate') { after(api('/' + p2.user_id + '/reactivate', 'POST', {}), function (r) { return 'Reactivated. Dashboard sign-in: ' + r.login + '.'; }); return; }
+    if (a === 'reactivate') { after(api('/' + p2.user_id + '/reactivate', 'POST', {}), function (r) { return 'Access restored. Dashboard sign-in: ' + r.login + '.'; }); return; }
     if (a === 'sendToken') {
       if (!window.confirm('Email ' + p2.full_name + ' a new Claude connector token? Their current token stops working.')) return;
       after(api('/' + p2.user_id + '/send-token', 'POST', {}), function (r) { return 'Connector email: ' + r.email + '.'; }); return;
     }
+    if (a === 'inviteNext') {
+      var iv = S.inv;
+      if (!String(iv.first_name || '').trim() || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(String(iv.email || '').trim())) { S.msg = 'Add a first name and a valid email first.'; paint(); return; }
+      iv.step = 2; S.msg = ''; paint(); return;
+    }
+    if (a === 'inviteBack') { S.inv.step = 1; S.msg = ''; paint(); return; }
     if (a === 'sendInvite') {
       var v = S.inv;
       var body = { first_name: v.first_name, last_name: v.last_name, email: v.email, principal: v.principal || null,
@@ -306,7 +367,7 @@
   function openInvite(pre) {
     if (!S.data) return;
     S.mode = 'invite'; S.open = null; S.msg = '';
-    S.inv = Object.assign({ first_name: '', last_name: '', email: '', principal: '', grants: {} }, pre || {});
+    S.inv = Object.assign({ first_name: '', last_name: '', email: '', principal: '', grants: {}, step: 1 }, pre || {});
     paint();
   }
 
@@ -339,6 +400,21 @@
     '.pa-check{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}',
     '.pa-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:18px}',
     '.pa-btn{height:34px;padding:0 14px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit;font:inherit;font-size:13px;cursor:pointer}',
+    '.pa-list td{vertical-align:middle}.pa-list .pa-row td{padding:11px 14px}',
+    '.pa-row.pa-open td{background:var(--hov,rgba(127,127,127,.06))}',
+    '.pa-x>td{padding:4px 14px 16px;background:var(--hov,rgba(127,127,127,.06))}',
+    '.pa-x-body{display:flex;flex-direction:column;gap:10px;padding:6px 2px 0}',
+    '.pa-xs{border:1px solid var(--border);border-radius:8px;padding:9px 12px;background:var(--panel)}',
+    '.pa-xs-h{display:flex;justify-content:space-between;gap:12px;font-size:13.5px}.pa-xs-h span{color:var(--ink-2,inherit)}',
+    '.pa-xs-s{margin-top:4px;font-size:12.5px;color:var(--text3,var(--muted));line-height:1.5}',
+    '.pa-x-meta{font-size:12.5px;color:var(--text3,var(--muted))}',
+    '.pa-x .pa-actions{margin-top:2px}',
+    '.pa-steps{display:flex;gap:16px;margin:12px 0 4px;font-size:12.5px;color:var(--text3,var(--muted))}.pa-steps .on{color:inherit;font-weight:600}',
+    '.pa-btn.sm{height:28px;padding:0 10px;font-size:12.5px;border-radius:6px}',
+    /* the actions stay in view however wide the company columns make the table */
+    '.pa-act,.pa-act-h{position:sticky;right:0;z-index:1;background:var(--panel);white-space:nowrap;text-align:right;box-shadow:-1px 0 0 var(--border)}',
+    '.pa-act-h{z-index:2}.pa-row:hover .pa-act{background:var(--hov,var(--panel))}.pa-act .pa-btn+.pa-btn{margin-left:6px}',
+    '.pa-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}',
     '.pa-btn.on{background:var(--accent);border-color:var(--accent);color:var(--page)}.pa-btn.bad{color:var(--crit,#FF5A45)}.pa-btn[disabled]{opacity:.55;cursor:default}',
     '.pa-link{background:none;border:0;color:var(--accent);cursor:pointer;font:inherit;font-size:12.5px}',
     '.pa-msg{margin-top:12px;padding:8px 12px;border-radius:8px;background:var(--panel-2,rgba(127,127,127,.1));font-size:13px}.pa-msg.bad{color:var(--crit,#FF5A45)}',
