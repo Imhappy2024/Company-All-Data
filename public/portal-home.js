@@ -142,10 +142,135 @@
       '<td><span class="hm-people">' + (t.assignees || []).map(function (a) { return '<span class="hm-av" title="' + esc(a.name) + '">' + esc(a.initials) + '</span>'; }).join('') + '</span></td></tr>';
   }
 
+  /* ===========================================================================
+     The task dashboard, laid out like the click-up-dashboard repo: a filter
+     bar, a row of count cards that filter the table when clicked (fewer than
+     that repo's six), and the task table. One renderer serves My tasks, All
+     tasks and the L10 agenda, so the three cannot drift apart.
+     Filters live per board in FS[key]; nothing here writes to ClickUp.
+     =========================================================================== */
+  var FS = {};
+  function filtersFor(key) { return FS[key] || (FS[key] = { q: '', who: '', status: '', priority: '', space: '', card: '' }); }
+  function inWeek(t, td) { if (t.due === null || t.due === undefined) return false; var d = dayOf(t.due); return d >= td && d <= addDays(td, 7); }
+  function isOverdue(t, td) { return t.due !== null && t.due !== undefined && dayOf(t.due) < td; }
+  var CARD_TESTS = {
+    open: function () { return true; },
+    overdue: function (t, td) { return isOverdue(t, td); },
+    week: function (t, td) { return inWeek(t, td); },
+    review: function (t) { return /review/i.test(t.status || ''); },
+    unassigned: function (t) { return !(t.assignees || []).length; },
+  };
+  function applyFilters(rows, f) {
+    var q = f.q.trim().toLowerCase();
+    return rows.filter(function (t) {
+      if (q && String(t.name).toLowerCase().indexOf(q) < 0) return false;
+      if (f.who === 'none' && (t.assignees || []).length) return false;
+      if (f.who && f.who !== 'none' && !(t.assignees || []).some(function (a) { return String(a.id) === f.who; })) return false;
+      if (f.status && String(t.status).toLowerCase() !== f.status) return false;
+      if (f.priority && (t.priority || 'none') !== f.priority) return false;
+      if (f.space && (t.spaceName || '') !== f.space) return false;
+      return true;
+    });
+  }
+  function options(rows, pick) {
+    var seen = {};
+    rows.forEach(function (t) { pick(t).forEach(function (o) { if (o && o[0] !== undefined && !seen[o[0]]) seen[o[0]] = o[1]; }); });
+    return Object.keys(seen).map(function (k) { return [k, seen[k]]; }).sort(function (a, b) { return String(a[1]).localeCompare(String(b[1])); });
+  }
+  function selectHtml(key, name, label, opts, val) {
+    return '<label class="hm-f"><span class="hm-vh">' + esc(label) + '</span><select class="hm-f-sel" data-board="' + key + '" data-f="' + name + '" aria-label="' + esc(label) + '">' +
+      '<option value="">' + esc(label) + '</option>' +
+      opts.map(function (o) { return '<option value="' + esc(o[0]) + '"' + (String(val) === String(o[0]) ? ' selected' : '') + '>' + esc(o[1]) + '</option>'; }).join('') + '</select></label>';
+  }
+  function assigneeCell(t) {
+    var a = t.assignees || [];
+    if (!a.length) return '<span class="hm-muted">Unassigned</span>';
+    return '<span class="hm-who"><span class="hm-av" title="' + esc(a[0].name) + '">' + esc(a[0].initials) + '</span><span class="hm-who-n">' + esc(a[0].name) + '</span>' +
+      (a.length > 1 ? '<span class="hm-more" title="' + esc(a.slice(1).map(function (x) { return x.name; }).join(', ')) + '">+' + (a.length - 1) + '</span>' : '') + '</span>';
+  }
+  function statusCell(t) {
+    return '<span class="hm-stp"><i class="hm-dot" style="background:' + esc(t.statusColor || 'var(--ink-3)') + '"></i>' + esc(t.status || '–') + '</span>';
+  }
+  function boardRow(t, td, openAttr, l10) {
+    if (l10) return '<tr class="hm-row' + (P.id === t.id ? ' hm-sel' : '') + '" ' + openAttr + '="' + esc(t.id) + '">' +
+      '<td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener">' + esc(t.name) + '</a></td>' +
+      '<td>' + statusCell(t) + '</td><td>' + assigneeCell(t) + '</td>' +
+      '<td class="' + (isOverdue(t, td) ? 'hm-overdue' : '') + '">' + esc(fmtDue(t.due, td)) + '</td>' +
+      '<td>' + priorityCell(t.priority) + '</td><td class="hm-muted">' + esc(fmtDue(t.updated, td)) + '</td></tr>';
+    var where = [t.spaceName, t.list].filter(Boolean).map(esc).join(' <span class="hm-sep">/</span> ');
+    return '<tr class="hm-row' + (P.id === t.id ? ' hm-sel' : '') + '" ' + openAttr + '="' + esc(t.id) + '">' +
+      '<td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener">' + esc(t.name) + '</a></td>' +
+      '<td class="hm-muted hm-where">' + (where || '–') + '</td>' +
+      '<td>' + assigneeCell(t) + '</td><td>' + statusCell(t) + '</td>' +
+      '<td class="' + (isOverdue(t, td) ? 'hm-overdue' : '') + '">' + esc(fmtDue(t.due, td)) + '</td>' +
+      '<td>' + priorityCell(t.priority) + '</td></tr>';
+  }
+  /* cfg: {key, base, cards:[[id,label,sub,tone]], tabs?:[[id,label,count]], tab?, group?:fn, openAttr, empty, note, who:bool} */
+  function boardHtml(cfg) {
+    var f = filtersFor(cfg.key), td = today();
+    var filtered = applyFilters(cfg.base, f);
+    var cards = cfg.tabs
+      ? cfg.tabs.map(function (x) {
+          return '<button class="hm-card press' + (cfg.tab === x[0] ? ' on' : '') + '" data-board="' + cfg.key + '" data-tab="' + x[0] + '" aria-pressed="' + (cfg.tab === x[0]) + '" style="--tone:var(--accent)">' +
+            '<span class="hm-card-k">' + esc(x[1]) + '</span><span class="hm-card-v">' + x[2] + '</span><span class="hm-card-s">' + esc(x[3] || '') + '</span></button>';
+        }).join('')
+      : cfg.cards.map(function (c) {
+          var n = filtered.filter(function (t) { return CARD_TESTS[c[0]](t, td); }).length;
+          var on = (f.card || 'open') === c[0];
+          return '<button class="hm-card press' + (on ? ' on' : '') + '" data-board="' + cfg.key + '" data-card="' + c[0] + '" aria-pressed="' + on + '" style="--tone:' + c[3] + '">' +
+            '<span class="hm-card-k">' + esc(c[1]) + '</span><span class="hm-card-v">' + n + '</span><span class="hm-card-s">' + esc(c[2]) + '</span></button>';
+        }).join('');
+    var rows = cfg.tabs ? filtered : filtered.filter(function (t) { return CARD_TESTS[f.card || 'open'](t, td); });
+    var base = cfg.base;
+    var bar = '<div class="hm-fbar"><input class="hm-f-q" type="search" placeholder="Search tasks" aria-label="Search tasks" data-board="' + cfg.key + '" data-f="q" value="' + esc(f.q) + '">' +
+      (cfg.who ? selectHtml(cfg.key, 'who', 'All assignees', [['none', 'Unassigned']].concat(options(base, function (t) { return (t.assignees || []).map(function (a) { return [String(a.id), a.name]; }); })), f.who) : '') +
+      selectHtml(cfg.key, 'status', 'All statuses', options(base, function (t) { return [[String(t.status).toLowerCase(), t.status]]; }), f.status) +
+      selectHtml(cfg.key, 'priority', 'All priorities', [['urgent', 'Urgent'], ['high', 'High'], ['normal', 'Normal'], ['low', 'Low'], ['none', 'No priority']], f.priority) +
+      selectHtml(cfg.key, 'space', 'All spaces', options(base, function (t) { return [[t.spaceName || '', t.spaceName || '']]; }).filter(function (o) { return o[0]; }), f.space) +
+      ((f.q || f.who || f.status || f.priority || f.space || f.card) ? '<button class="btn ghost" data-board="' + cfg.key + '" data-f-clear>Clear</button>' : '') +
+      '<span class="hm-fcount">' + rows.length + ' of ' + base.length + '</span></div>';
+    var body;
+    rows.sort(byDue);
+    if (!rows.length) body = '<tr><td colspan="6" class="hm-empty">' + esc(cfg.empty) + '</td></tr>';
+    else if (cfg.group) body = cfg.group(rows, td).map(function (g) {
+      return '<tr class="hm-grp"><td colspan="6"><span class="' + (g.group === 'Overdue' ? 'hm-overdue' : '') + '">' + esc(g.group) + '</span><span class="hm-gc">' + g.tasks.length + '</span></td></tr>' +
+        g.tasks.map(function (t) { return boardRow(t, td, cfg.openAttr, cfg.l10); }).join('');
+    }).join('');
+    else body = rows.map(function (t) { return boardRow(t, td, cfg.openAttr, cfg.l10); }).join('');
+    return '<div class="hm-cards">' + cards + '</div>' + bar +
+      '<div class="hm-frame"><table class="hm-tbl"><thead><tr>' + (cfg.l10
+        ? '<th class="hm-tcol">Item</th><th>Status</th><th>Owner</th><th>Due</th><th>Priority</th><th>Updated</th>'
+        : '<th class="hm-tcol">Task</th><th>Space / list</th><th>Assigned to</th><th>Status</th><th>Due</th><th>Priority</th>') + '</tr></thead><tbody>' +
+      body + '</tbody></table></div><p class="hm-note">' + cfg.note + '</p>';
+  }
+  /* Filter controls, for every board on the page. Bound per host, not per paint. */
+  function bindBoard(host, repaint) {
+    host.onchange = function (ev) {
+      var el = ev.target; if (!el.getAttribute || !el.getAttribute('data-f')) return;
+      filtersFor(el.getAttribute('data-board'))[el.getAttribute('data-f')] = el.value; repaint();
+    };
+    host.oninput = function (ev) {
+      var el = ev.target; if (!el.classList || !el.classList.contains('hm-f-q')) return;
+      filtersFor(el.getAttribute('data-board')).q = el.value; repaint();
+    };
+  }
+  function boardClick(ev, repaint) {
+    var c = ev.target.closest('[data-card]');
+    if (c) { var f = filtersFor(c.getAttribute('data-board')); var k = c.getAttribute('data-card'); f.card = (f.card === k || k === 'open') ? '' : k; repaint(); return true; }
+    var x = ev.target.closest('[data-f-clear]');
+    if (x) { FS[x.getAttribute('data-board')] = null; repaint(); return true; }
+    return false;
+  }
+  function bucketGroups(rows, td) {
+    return ['Overdue', 'Today', 'This week', 'Later', 'No due date'].map(function (g) {
+      return { group: g, tasks: rows.filter(function (t) { return bucket(t.due, td) === g; }) };
+    }).filter(function (g) { return g.tasks.length; });
+  }
+
   function paint() {
     if (!S.host || !document.body.contains(S.host)) return;
     var html;
-    var title = S.view === 'mine' ? 'My tasks' : 'All tasks';
+    var title = S.title || (S.view === 'mine' ? 'My tasks' : 'All tasks');
     if (S.connect) {
       html = '<div class="hm"><h1 class="hm-h1">' + title + '</h1><div class="hm-connect">' +
         '<p>Home shows your ClickUp tasks across every business, using your own ClickUp sign-in so you only see what ClickUp lets you see.</p>' +
@@ -156,25 +281,18 @@
     } else if (!S.data) {
       html = window.PortalLoader ? window.PortalLoader.full('your tasks') : 'Loading';
     } else {
-      var td = today(), g, sub;
-      if (S.view === 'mine') {
-        g = groupMine(S.data.tasks, S.data.me.id, td);
-        sub = g.count + ' open ' + (g.count === 1 ? 'task' : 'tasks') + ' assigned to you, ' + g.overdue + ' overdue';
-      } else {
-        g = groupAll(S.data.tasks);
-        sub = g.count + ' open tasks in ' + g.lists + ' lists you can access';
-      }
-      var body = g.groups.map(function (grp) {
-        var cls = S.view === 'mine' && grp.group === 'Overdue' ? ' hm-overdue' : '';
-        return '<tr class="hm-grp"><td colspan="6"><span class="' + cls + '">' + esc(grp.group) + '</span><span class="hm-gc">' + grp.tasks.length + '</span></td></tr>' +
-          grp.tasks.map(function (t) { return row(t, td); }).join('');
-      }).join('');
-      if (!g.count) body = '<tr><td colspan="6" class="hm-empty">' + (S.view === 'mine' ? 'Nothing assigned to you is open. Nice.' : 'No open tasks in the lists you can access.') + '</td></tr>';
-      html = '<div class="hm"><div class="hm-top"><h1 class="hm-h1">' + title + '</h1><span class="hm-sub">' + esc(sub) + '</span></div>' +
-        '<div class="hm-frame"><table class="hm-tbl"><thead><tr><th class="hm-tcol">Task</th><th>List</th><th>Status</th><th>Priority</th><th>Due</th><th>Assigned to</th></tr></thead><tbody>' +
-        body + '</tbody></table></div>' +
-        '<p class="hm-note">From ClickUp, using your own ClickUp sign-in, so you only see spaces and lists you can access. Click a task to open it here.' +
-        (S.data.stale || S.loading ? ' Refreshing…' : '') + '</p></div>';
+      var mine = S.view === 'mine';
+      var base = mine ? groupMine(S.data.tasks, S.data.me.id, today()).groups.reduce(function (a, g) { return a.concat(g.tasks); }, [])
+                      : groupAll(S.data.tasks).groups.reduce(function (a, g) { return a.concat(g.tasks); }, []);
+      html = '<div class="hm"><div class="hm-top"><h1 class="hm-h1">' + title + '</h1><span class="hm-sub">' +
+        (mine ? 'Open tasks assigned to you' : 'Every open task in the spaces and lists you can access') + '</span></div>' +
+        boardHtml({ key: S.view, base: base, who: !mine, openAttr: 'data-hm-open',
+          cards: mine
+            ? [['open', 'Open', 'assigned to you', 'var(--accent)'], ['overdue', 'Overdue', 'past due, not done', 'var(--crit)'], ['week', 'Due this week', 'next 7 days', 'var(--warn)'], ['review', 'In review', 'awaiting review', 'var(--ink-3)']]
+            : [['open', 'Open', 'all open tasks', 'var(--accent)'], ['overdue', 'Overdue', 'past due, not done', 'var(--crit)'], ['week', 'Due this week', 'next 7 days', 'var(--warn)'], ['unassigned', 'Unassigned', 'no owner', 'var(--ink-3)']],
+          group: mine ? bucketGroups : null,
+          empty: mine ? 'Nothing assigned to you matches. Nice.' : 'No open tasks match.',
+          note: 'From ClickUp, using your own ClickUp sign-in, so you only see spaces and lists you can access. Completed tasks are not shown. Click a task to open it here.' + (S.data.stale || S.loading ? ' Refreshing…' : '') }) + '</div>';
     }
     if (window.PortalMorph) window.PortalMorph.morph(S.host, html); else S.host.innerHTML = html;
   }
@@ -530,9 +648,11 @@
   function mountL10(host, opts) {
     if (!host) return;
     L.host = host; L.onTab = (opts && opts.onTab) || null;
+    bindBoard(host, paintL10);
     host.onclick = function (ev) {
-      var tb = ev.target.closest('[data-l10-tab]');
-      if (tb) { L.tab = tb.getAttribute('data-l10-tab'); if (L.onTab) L.onTab(L.tab); paintL10(); return; }
+      if (boardClick(ev, paintL10)) return;
+      var tb = ev.target.closest('[data-tab]');
+      if (tb) { L.tab = tb.getAttribute('data-tab'); if (L.onTab) L.onTab(L.tab); paintL10(); return; }
       if (ev.target.closest('[data-l10-retry]')) { L.err = ''; loadL10(true); return; }
       var row = ev.target.closest('[data-l10-open]');
       if (!row || !L.data) return;
@@ -566,27 +686,15 @@
       html = window.PortalLoader ? window.PortalLoader.full('the L10 agenda') : '';
     } else {
       var live = (L.data.items || []).filter(function (t) { return !isDone(t); });
-      var td = today();
-      var tabs = '<div class="seg" role="tablist">' + SECTIONS.map(function (x) {
-        var n = live.filter(function (t) { return (t.sections || []).indexOf(x[0]) >= 0; }).length;
-        return '<button class="segbtn' + (L.tab === x[0] ? ' on' : '') + '" role="tab" aria-selected="' + (L.tab === x[0]) + '" data-l10-tab="' + x[0] + '">' + x[1] + ' <span class="hm-gc">' + n + '</span></button>';
-      }).join('') + '</div>';
-      var rows = live.filter(function (t) { return (t.sections || []).indexOf(L.tab) >= 0; }).sort(byDue);
-      var body = rows.length ? rows.map(function (t) {
-        var overdue = t.due !== null && t.due !== undefined && dayOf(t.due) < td;
-        var owners = (t.assignees || []).map(function (a) { return esc(a.name); }).join(', ');
-        return '<tr class="hm-row' + (P.id === t.id ? ' hm-sel' : '') + '" data-l10-open="' + esc(t.id) + '">' +
-          '<td class="hm-task"><a href="' + esc(t.url) + '" target="_blank" rel="noopener">' + esc(t.name) + '</a></td>' +
-          '<td>' + statusPill(t.status) + '</td>' +
-          '<td>' + (owners || '<span class="hm-muted">Unassigned</span>') + '</td>' +
-          '<td class="' + (overdue ? 'hm-overdue' : '') + '">' + esc(fmtDue(t.due, td)) + '</td>' +
-          '<td>' + priorityCell(t.priority) + '</td>' +
-          '<td class="hm-muted">' + esc(fmtDue(t.updated, td)) + '</td></tr>';
-      }).join('') : '<tr><td colspan="6" class="hm-empty">Nothing open in ' + esc((SECTIONS.find(function (x) { return x[0] === L.tab; }) || [0, ''])[1]) + '.</td></tr>';
-      html = tabs + '<div class="hm-frame"><table class="hm-tbl"><thead><tr><th class="hm-tcol">Item</th><th>Status</th><th>Owner</th><th>Due</th><th>Priority</th><th>Updated</th></tr></thead><tbody>' +
-        body + '</tbody></table></div>' +
-        '<p class="hm-note">From ClickUp, ' + esc(L.data.list.name) + (L.data.list.space ? ' in the ' + esc(L.data.list.space) + ' space' : '') +
-        ', using your own ClickUp sign-in. Completed items are not shown. Click an item to open it here.' + (L.loading ? ' Refreshing…' : '') + '</p>';
+      var sub = { rock: 'quarterly priorities', sprint: 'this sprint', ids: 'issues to discuss' };
+      var tabs = SECTIONS.map(function (x) {
+        return [x[0], x[1], live.filter(function (t) { return (t.sections || []).indexOf(x[0]) >= 0; }).length, sub[x[0]]];
+      });
+      var name = (SECTIONS.find(function (x) { return x[0] === L.tab; }) || [0, ''])[1];
+      html = boardHtml({ key: 'l10-' + L.tab, base: live.filter(function (t) { return (t.sections || []).indexOf(L.tab) >= 0; }), who: true,
+        openAttr: 'data-l10-open', l10: true, tabs: tabs, tab: L.tab, empty: 'Nothing open in ' + name + '.',
+        note: 'From ClickUp, ' + esc(L.data.list.name) + (L.data.list.space ? ' in the ' + esc(L.data.list.space) + ' space' : '') +
+          ', using your own ClickUp sign-in. Completed items are not shown. Click an item to open it here.' + (L.loading ? ' Refreshing\u2026' : '') });
     }
     if (window.PortalMorph) window.PortalMorph.morph(L.host, html); else L.host.innerHTML = html;
   }
@@ -594,8 +702,11 @@
   function mount(host, opts) {
     if (!host) return;
     S.host = host; S.view = (opts && opts.view) === 'all' ? 'all' : 'mine';
+    S.title = (opts && opts.title) || '';
     S.onCounts = (opts && opts.onCounts) || S.onCounts;
+    bindBoard(host, paint);
     host.onclick = function (ev) {
+      if (boardClick(ev, paint)) return;
       var el = ev.target.closest && ev.target.closest('[data-hm]');
       if (el && el.getAttribute('data-hm') === 'retry') { S.error = ''; load(true); return; }
       var row = ev.target.closest && ev.target.closest('[data-hm-open]');

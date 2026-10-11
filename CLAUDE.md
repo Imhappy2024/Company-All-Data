@@ -52,8 +52,11 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
 - **Menus** (`MENUS`): LeavenWealth Properties, Team, Departments, Tools & apps,
   Documents. Folio Overview, Financials, Plans, Reports, Team, Departments, Tools &
   apps, Documents. Leadli and Liquid Overview, Financials, Team, Departments, Tools
-  & apps, Documents. Executive board below a divider for owners/admins, with two
-  tabs: **L10 agenda** and **Users & roles** (the only Users & roles entry). Leads,
+  & apps, Documents. **The first rail button is Home for everyone else (My tasks,
+  All tasks) and the Executive board for owners/admins** (`homeViews()`): L10
+  agenda, All tasks, Personal tasks, then Users & roles below a divider (the only
+  Users & roles entry). Businesses no longer carry an Executive board item; an old
+  `view=exec` link lands on the new one. Leads,
   Loans, Tasks are gone (GHL is a link on Tools & apps). The old Exec tabs
   (sample Overview, LeavenWealth cash/debt Financials, Org & departments, Data
   tracker) were removed by instruction on 2026-10-11; `portal-financials.js`,
@@ -72,8 +75,10 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   cannot open is never listed, so nothing renders "no access".
 - **Memory**: `localStorage['lwShell:<staff id>']` = last business and last page per
   business. A URL fragment wins over it.
-- **Light/dark**: a labelled switch at the top right of the header (it names what it
-  will do). Kept per person in `localStorage['lwTheme:<staff id>']`; with none saved
+- **Header**: menu button (hides/shows the left menu, per person,
+  `lwSideHidden:<staff id>`), breadcrumb, then full screen and the light/dark icon at
+  the top right.
+- **Light/dark**: an icon switch (its label says what it will do). Kept per person in `localStorage['lwTheme:<staff id>']`; with none saved
   the device setting (`prefers-color-scheme`) decides. Before the person is known
   the pre-paint script uses `lwThemeLast`, then `personTheme()` corrects it.
 - **URL**: `#brand=<home|leavenwealth|folio|leadli|liquid>&view=<page>&sub=<tab>`
@@ -89,6 +94,12 @@ Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative
   wider /ops mapping). The server drops them and flags `done`; the browser applies
   the same rule, so a task marked complete leaves the list at once and the pop-up
   stays open.
+- **Task dashboard** (`boardHtml()` in portal-home.js), laid out like the
+  click-up-dashboard repo but with four cards, not six: count cards that filter the
+  table when clicked (Open, Overdue, Due this week, then In review on personal tasks
+  or Unassigned on all tasks), a filter bar (search, assignee, status, priority,
+  space), and the table. The L10 agenda uses the same renderer with Rocks / Sprint /
+  IDS as its cards and its own columns. Filters are in memory per board.
 - **The task pop-up** (portal-home.js `openTask(task, {onChange})`, `openPanel(id)`
   for Home): a centered modal with a dimmed backdrop; X, Esc or a click outside
   closes it, Tab is trapped inside, the page behind does not scroll

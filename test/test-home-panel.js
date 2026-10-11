@@ -120,6 +120,22 @@ const STUB = `window.PortalSession = {
     await page.goto(BASE + '/#brand=home&view=mine', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector(`tr[data-hm-open="${TARGET}"]`, { timeout: 10000 });
 
+    console.log('\nDashboard: cards, filters, table');
+    check('Personal tasks cards', await page.$$eval('#homeNative .hm-card', e => e.map(x => [x.querySelector('.hm-card-k').textContent, x.querySelector('.hm-card-v').textContent])),
+      [['Open', '19'], ['Overdue', '8'], ['Due this week', '5'], ['In review', '3']]);
+    check('columns', await page.$$eval('#homeNative thead th', e => e.map(x => x.textContent)), ['Task', 'Space / list', 'Assigned to', 'Status', 'Due', 'Priority']);
+    await page.click('#homeNative .hm-card[data-card="overdue"]');
+    check('a card filters the table', await page.$$eval('#homeNative tr.hm-row', e => e.length), 8);
+    await page.click('#homeNative .hm-card[data-card="overdue"]');
+    check('clicking it again clears it', await page.$$eval('#homeNative tr.hm-row', e => e.length), 19);
+    await page.fill('#homeNative .hm-f-q', 'refi');
+    check('search narrows the rows and keeps the caret', [await page.$$eval('#homeNative tr.hm-row', e => e.length), await page.evaluate(() => document.activeElement.classList.contains('hm-f-q'))], [3, true]);
+    await page.click('#homeNative [data-f-clear]');
+    await page.selectOption('#homeNative select[data-f="priority"]', 'high');
+    check('priority filter', await page.$$eval('#homeNative tr.hm-row', e => e.length), 6);
+    await page.click('#homeNative [data-f-clear]');
+    check('Clear puts everything back', await page.$$eval('#homeNative tr.hm-row', e => e.length), 19);
+
     console.log('\nA click opens the panel here, not ClickUp');
     const popup = [];
     page.on('popup', p => popup.push(p.url()));
@@ -148,7 +164,7 @@ const STUB = `window.PortalSession = {
     await page.waitForTimeout(150);
     const put1 = sent.filter(x => x.method === 'PUT').pop();
     check('sent to ClickUp with the person\'s own token', [put1.path, put1.body, put1.token], ['/api/home/task/' + TARGET, { status: 'in progress' }, 'person-token']);
-    check('the row changed at once', (await rowOf(TARGET))[2], 'in progress');
+    check('the row changed at once', (await rowOf(TARGET))[3], 'in progress');
 
     console.log('\nDue: editable, row moves group');
     check('starts in Later', await groupOf(TARGET), 'Later');
@@ -175,8 +191,9 @@ const STUB = `window.PortalSession = {
     await page.click('[data-p="assign-save"]');
     await page.waitForTimeout(200);
     check('add sent', sent.filter(x => x.method === 'PUT').pop().body, { assignees: { add: ['u-brian-nelson'], rem: [] } });
-    check('names in the panel, initials in the row', [await page.$eval('.hm-kv dd:nth-of-type(3)', e => e.innerText.replace(' Edit', '')), (await rowOf(TARGET))[5].split(/\s+/).sort()],
-      ['Jay Delgado, Brian Nelson', ['BN', 'JD']]);
+    check('names in the panel; first assignee and +1 in the row', [await page.$eval('.hm-kv dd:nth-of-type(3)', e => e.innerText.replace(' Edit', '')),
+      await page.$eval(`tr[data-hm-open="${TARGET}"] .hm-who`, e => [e.querySelector('.hm-av').textContent, e.querySelector('.hm-more').textContent, e.querySelector('.hm-more').title])],
+      ['Jay Delgado, Brian Nelson', ['JD', '+1', 'Brian Nelson']]);
     await page.click('[data-p="assign"]');
     await page.waitForSelector('.hm-dlg-m');
     await page.click('[data-p="assign-cancel"]');
@@ -189,7 +206,7 @@ const STUB = `window.PortalSession = {
     await page.click('.hm-menu button[data-v="complete"]');
     await page.waitForSelector('.hm-p-err');
     check('ClickUp\'s message in the panel', /You do not have permission to edit this task/.test(await panelText()), true);
-    check('row reverted', (await rowOf(TARGET))[2], 'in progress');
+    check('row reverted', (await rowOf(TARGET))[3], 'in progress');
     REFUSE = false;
 
     console.log('\nMarking it complete takes it off Home');
@@ -198,7 +215,7 @@ const STUB = `window.PortalSession = {
     await page.click('.hm-menu button[data-v="complete"]');
     await page.waitForTimeout(250);
     check('the row is gone from My tasks, the panel stays open', [await page.$$eval(`tr[data-hm-open="${TARGET}"]`, e => e.length), await page.$$eval('.hm-panel', e => e.length)], [0, 1]);
-    check('and the My tasks count dropped to 18', await page.$eval('#nav .nav-item .nav-count', e => e.textContent), '18');
+    check('and the Personal tasks count dropped to 18', await page.$$eval('#nav .nav-item', e => (e.find(x => /Personal tasks/.test(x.textContent)) || {}).textContent), 'Personal tasks18');
 
     console.log('\nComments: Ctrl+Enter posts');
     commentsDelay = 50;
@@ -231,11 +248,13 @@ const STUB = `window.PortalSession = {
     console.log('\nExecutive board: L10 agenda');
     await page.goto(BASE + '/?r=l10#brand=leavenwealth&view=exec', { waitUntil: 'domcontentloaded' });
     await page.waitForSelector('[data-l10-open]', { timeout: 10000 });
+    check('an old Executive board link lands on the new L10 agenda', await page.evaluate(() => [brand, view]), ['home', 'l10']);
     await shot(page, 'exec-l10');
-    check('tabs with counts', await page.$$eval('#l10Native .segbtn', e => e.map(x => x.innerText.replace(/\s+/g, ' ').trim())), ['Rocks 2', 'Sprint 2', 'IDS 1']);
+    check('Rocks, Sprint and IDS as cards with counts', await page.$$eval('#l10Native .hm-card', e => e.map(x => [x.querySelector('.hm-card-k').textContent, x.querySelector('.hm-card-v').textContent])),
+      [['Rocks', '2'], ['Sprint', '2'], ['IDS', '1']]);
     check('columns', await page.$$eval('#l10Native thead th', e => e.map(x => x.textContent)), ['Item', 'Status', 'Owner', 'Due', 'Priority', 'Updated']);
     check('Rocks rows', await page.$$eval('#l10Native tbody tr', e => e.map(x => x.cells[0].innerText)), ['One source of truth (database + ClickUp)', 'Refinance Carter Place']);
-    await page.click('#l10Native .segbtn[data-l10-tab="sprint"]');
+    await page.click('#l10Native .hm-card[data-tab="sprint"]');
     check('section in the URL', new URLSearchParams(new URL(page.url()).hash.slice(1)).get('sec'), 'sprint');
     check('Sprint rows, earliest due first', await page.$$eval('#l10Native tbody tr', e => e.map(x => x.cells[0].innerText)), ['Vestmint fund return of capital', 'One source of truth (database + ClickUp)']);
     await page.click('#l10Native tr[data-l10-open="s1"] a');
@@ -249,7 +268,7 @@ const STUB = `window.PortalSession = {
     await page.click('.hm-menu button[data-v="complete"]');
     await page.waitForTimeout(250);
     check('completing it takes it off the agenda at once', [await page.$$eval('#l10Native tr[data-l10-open="s1"]', e => e.length),
-      await page.$eval('#l10Native .segbtn[data-l10-tab="sprint"]', e => e.innerText.replace(/\s+/g, ' ').trim())], [0, 'Sprint 1']);
+      await page.$eval('#l10Native .hm-card[data-tab="sprint"] .hm-card-v', e => e.textContent)], [0, '1']);
     await page.keyboard.press('Escape');
     check('panel gone', await page.$$eval('.hm-panel', e => e.length), 0);
     check('nothing in capitals in the panel CSS', /text-transform:\s*uppercase/.test(fs.readFileSync(path.join(ROOT, 'public', 'portal-shell.css'), 'utf8').split('Home task panel')[1]), false);

@@ -380,3 +380,41 @@ html.hm-locked,html.hm-locked body{overflow:hidden}
 .sh-mode svg{flex:none}
 .l10-wrap .seg{margin-top:4px}
 .seg .hm-gc{margin-left:4px}
+
+/* ---- task dashboard: count cards, filter bar (click-up-dashboard layout) -- */
+.hm-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:16px 0 14px}
+.hm-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:14px 16px 13px;border:1px solid var(--border);border-radius:8px;background:var(--panel);color:var(--ink);text-align:left;cursor:pointer;overflow:hidden;transition:background-color 120ms ease,border-color 120ms ease}
+.hm-card::before{content:"";position:absolute;left:0;right:0;top:0;height:2px;background:var(--tone,var(--accent))}
+.hm-card:hover{background:var(--hov)}
+.hm-card.on{border-color:var(--ink-3);background:var(--hov)}
+.hm-card-k{font-size:12.5px;color:var(--ink-3)}
+.hm-card-v{font-size:28px;font-weight:600;line-height:1.15;letter-spacing:-.01em}
+.hm-card-s{font-size:12px;color:var(--ink-3)}
+.hm-fbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px}
+.hm-f-q{height:32px;min-width:220px;flex:0 1 280px;padding:0 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px}
+.hm-f-sel{height:32px;padding:0 28px 0 10px;border:1px solid var(--border);border-radius:6px;background:var(--panel);color:var(--ink);font:inherit;font-size:13px;cursor:pointer;max-width:200px}
+.hm-f-q:focus,.hm-f-sel:focus{outline:2px solid var(--accent);outline-offset:0;border-color:transparent}
+.hm-vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.hm-fcount{margin-left:auto;font-size:12.5px;color:var(--ink-3)}
+.hm-who{display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+.hm-who-n{max-width:150px;overflow:hidden;text-overflow:ellipsis}
+.hm-more{font-size:12px;color:var(--ink-3)}
+.hm-stp{display:inline-flex;align-items:center;gap:6px;padding:2px 9px 2px 7px;border:1px solid var(--border);border-radius:999px;font-size:12px;white-space:nowrap}
+.hm-where{max-width:260px;overflow:hidden;text-overflow:ellipsis}
+.hm .hm-frame{max-height:calc(100vh - 330px)}
+@media (max-width:760px){.hm-cards{grid-template-columns:1fr 1fr}.hm-f-q{flex:1 1 100%}}
+.hm .hm-tcol,.l10-wrap .hm-tcol{min-width:280px}
+.hm-where{max-width:220px}
+.hm-tbl td.hm-task{max-width:420px}
+
+/* ---- header icon buttons: menu, full screen, theme ----------------------- */
+.sh-head{gap:10px}
+.sh-tools{margin-left:auto;display:flex;align-items:center;gap:4px}
+.sh-icon{width:34px;height:34px;flex:none;display:inline-flex;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:var(--ink-3);cursor:pointer}
+.sh-icon:hover{background:var(--hov);color:var(--ink)}
+.sh-icon[aria-pressed="true"]{color:var(--ink)}
+#sideBtn{margin-left:-8px}
+/* hidden left menu: the column collapses, the rail stays */
+.sh-app.side-hidden{grid-template-columns:64px minmax(0,1fr)}
+.sh-app.solo.side-hidden{grid-template-columns:minmax(0,1fr)}
+.sh-app.side-hidden .sh-side{display:none}
