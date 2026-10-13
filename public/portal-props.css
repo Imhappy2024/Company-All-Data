@@ -182,9 +182,3 @@ html[data-theme="light"] .lw {
    would leave the header bright */
 .lw .lw-main:has(.lw-rp-dlg) { position: relative; z-index: 20; }
 
-/* Optimized NOI: the actual-DSCR row under Assumptions */
-.lw .lw-actual { display: flex; align-items: center; gap: 8px 18px; flex-wrap: wrap; padding: 10px 16px; border-bottom: 1px solid var(--rule); font-size: 13px; color: var(--muted); }
-.lw .lw-act { display: inline-flex; align-items: baseline; gap: 6px; }
-.lw .lw-act-k { color: var(--muted); }
-.lw .lw-act b { font-weight: 600; }
-.lw .lw-act-sub { font-size: 12px; color: var(--muted); }
