@@ -128,7 +128,7 @@ const LIST_SQL = `
          s.annual_debt_service, s.annual_debt_service_paid, s.debt,
          s.value_on_file, to_char(s.value_as_of, 'YYYY-MM-DD') as value_as_of,
          s.pm_company, s.managing_entity_id, s.managing_entity_name,
-         s.street, s.city, s.state, s.zip, s.entity_name
+         s.street, s.city, s.state, s.zip, s.entity_id, s.entity_name
     from public.rpt_property_summary s
     join public.property p on p.id = s.id
    where s.tenant_id = $1 and s.ownership_status = 'held' and s.t12_income is not null`;
@@ -146,14 +146,39 @@ function shapeProp(s) {
     dscr: ds.annual && noi !== null ? noi / ds.annual : null,
     debt: num(s.debt), value: num(s.value_on_file), valueAsOf: s.value_as_of,
     pm: s.pm_company || '', mgrId: s.managing_entity_id, mgr: s.managing_entity_name || null,
-    owner: s.entity_name || null,
+    ownerId: s.entity_id || null, owner: s.entity_name || null,
     address: cleanAddr([s.street, s.city, [s.state, s.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')),
   };
 }
 
 async function list(req, res, who) {
   const rows = await q(LIST_SQL + ' order by s.t12_noi desc nulls last, s.name', [who.tenantId]);
-  res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), nextSync: nextSync(), properties: rows.map(shapeProp) });
+  const econ = await economicOccupancy(who.tenantId);
+  res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), nextSync: nextSync(),
+             properties: rows.map(shapeProp).map(p => Object.assign(p, econ[p.id] || { econ: null, econNum: null, econDen: null, econMonth: null })) });
+}
+
+/* Economic occupancy (Jay, 2026-10-13) = (rent income + recurring fee income)
+   / total expected income, for the property's latest month with data. The
+   numerator and denominator ride along so an entity's figure is the ratio of
+   the SUMS, never an average of ratios. Total expected income (and recurring
+   fee income) come from property_financials and are empty today, so the
+   figure is null until they are loaded: shown as a red "-", never 0. */
+async function economicOccupancy(tenantId) {
+  const r = await q(`
+    select distinct on (property_id) property_id, to_char(month, 'YYYY-MM') m,
+           rent_income, recurring_fee_income, total_expected_income
+      from public.rpt_property_month
+     where tenant_id = $1 and lower(accounting_basis) = 'cash' and has_data
+     order by property_id, month desc`, [tenantId]);
+  const out = {};
+  for (const x of r) {
+    const den = num(x.total_expected_income), rent = num(x.rent_income), fee = num(x.recurring_fee_income);
+    const n = rent === null && fee === null ? null : (rent || 0) + (fee || 0);
+    const ok = den > 0 && n !== null;
+    out[x.property_id] = { econ: ok ? n / den : null, econNum: ok ? n : null, econDen: ok ? den : null, econMonth: x.m };
+  }
+  return out;
 }
 
 async function propRow(tenantId, id) {

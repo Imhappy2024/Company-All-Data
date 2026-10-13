@@ -309,13 +309,20 @@ revision when Jay supplies it.
 
 ### Structure
 - **Portfolio** tabs: **Entities | Custom view | Reports**.
-  - Entities table columns: Managing entity, Properties, Units, Occupancy, NOI, Market
-    value, Cash flow after debt and capex, Debt.
+  - **Entities = OWNER entities** (`property.entity_id`, the owner LLC), not managing
+    entities (Jay, 2026-10-13). Each row's sub-line names its managing entity. The
+    drill-down (`ent=` in the URL) is the owner entity id.
+  - Entities table columns: Owner entity, Properties, Units, Physical occupancy,
+    Economic occupancy, NOI, Market value, Cash flow after debt and capex, Debt.
+  - **Economic occupancy** = (rent income + recurring fee income) / total expected
+    income, latest month with data (`economicOccupancy()` in props-api.js); an entity's
+    figure is the ratio of the sums. Total expected income and recurring fee income
+    (`property_financials`) are empty today, so it shows a red "–" until loaded.
   - **Market value:** sum of values on file, "(k of n)" when partial, an "Outdated"
     tag, red "–" when none.
-  - **No managing entity:** properties without one are grouped under a row named
-    "No managing entity" (open item 1 in section 18 may change this).
-- **Entity page:** its properties table only.
+  - A property with no owner entity would sit under "No owner entity on file" (none
+    today: all 50 have one).
+- **Entity page:** its properties table only (Physical and Economic occupancy columns).
 - **Property page** tabs, in this order:
   1. Overview (the only place with the key-figure cards)
   2. Buildings & units
@@ -759,9 +766,8 @@ When editing n8n, keep changes additive (parallel branches, continue-on-fail).
 
 ## 18. Open items (decided to do, or waiting on Jay)
 
-1. **No managing entity:** group those properties under their owning LLC instead of
-   "No managing entity". Keep "No managing entity" only for a property with no owner
-   at all.
+1. **Economic occupancy inputs:** total expected income and recurring fee income are
+   not loaded for any property, so the column is a red "–". Needs a source.
 2. **Brent Village owner name:** the database says "BVP, LLC"; Dropbox and AppFolio
    say "Brent Partners". Waiting on Jay.
 3. **Liquid Lending dashboards** (Overview, Financials, Investor notes) from the
