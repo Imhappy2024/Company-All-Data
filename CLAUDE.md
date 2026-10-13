@@ -350,22 +350,11 @@ revision when Jay supplies it.
 - **Optimized NOI:**
   - Cards: status (Safe / Fixable / At risk / Critical), Best NOI latest, DSCR, max
     loan, vs current loan, value (all on Best NOI).
-  - Then the Assumptions frame (Jay, 2026-10-13): the inputs (required DSCR, rate,
-    amortization, cap rate, max LTV 75%, loan, debt service, what-if NOI), then the
-    **side-by-side** table, same columns on every row (loan, rate, annual debt
-    service, DSCR on T12 NOI, DSCR on best NOI, meets?, basis):
-    1. Assumptions (the inputs);
-    2. Current loans, on file (`optimizedData().loans`: every `rpt_loan` not closed,
-       since status 'none' means not recorded; balance-weighted rate; first maturity),
-       or "No current loan on file";
-    3. Actual, from the books (debt service paid over the longest trailing window,
-       annualized; actual DSCR over the same months);
-    4. New loan today, sized on T12: the smaller of T12 / required DSCR at the rate
-       and amortization, and max LTV x (T12 / cap rate); says which limit binds.
-       This is the answer for a property with no loan.
-  - Then the "What it earns, and what that supports" table with three rows only:
-    Best NOI, latest (T#) or "None", Previous best NOI (T#), What-if. What-if inputs
-    are never saved.
+  - Then the Assumptions row; under it **Actual DSCR, from the books** (Best NOI,
+    Previous best, T12: NOI / debt service paid over the same months, all-debt where
+    it differs); then the "What it earns, and what that supports" table with three
+    rows only: Best NOI, latest (T#) or "None", Previous best NOI (T#), What-if.
+    What-if inputs are never saved.
   - Then the NOI heat map: above-average months bold, dot rows for both runs.
 - **Needs attention:**
   - Rules run server-side: operating loss, DSCR < 1.00, DSCR < 1.25, vacancy ≥ 15%,

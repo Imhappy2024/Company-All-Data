@@ -751,15 +751,15 @@
        the server (props-api bestRuns), the same rule as
        property_summary.optimized_noi. */
     var TW = D.trailing || { windows: [] };
+    var win = function (k) { return TW.windows.filter(function (w) { return w.k === k; })[0] || null; };
     var BR = D.best || {};
     var bw = BR.latest || null, pw = BR.previous || null;
     var noneWhy = BR.end ? ymShort(BR.end) + ' is below the 12-month average of ' + money(BR.average) + ' a month' : 'No NOI on file';
     var wLab = function (w) { return w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to); };
-    var std = { req: '1.25', rate: '6.5', amort: '30', cap: '7', ltv: '75', loan: D.loan ? String(Math.round(D.loan)) : '', ds: D.debtService ? String(Math.round(D.debtService)) : '' };
+    var std = { req: '1.25', rate: '6.5', amort: '30', cap: '7', loan: D.loan ? String(Math.round(D.loan)) : '', ds: D.debtService ? String(Math.round(D.debtService)) : '' };
     var cur = Object.assign({}, std, S.oa[S.prop] || {});
     var edited = Object.keys(std).some(function (k) { return cur[k] !== std[k]; });
     var req = nIn(cur.req) || 1.25, rate = nIn(cur.rate) ? nIn(cur.rate) / 100 : null, yrs = nIn(cur.amort), cap = nIn(cur.cap) ? nIn(cur.cap) / 100 : null, loan = nIn(cur.loan), ds = nIn(cur.ds);
-    var ltv = nIn(cur.ltv) ? nIn(cur.ltv) / 100 : null;
     var k2 = rate && yrs ? 12 * (rate / 12) / (1 - Math.pow(1 + rate / 12, -yrs * 12)) : null;
     var optimized = bw ? bw.annual : null;
     var dOf = function (v) { return ds && isNum(v) ? v / ds : null; };
@@ -822,71 +822,29 @@
       heads: [{ label: 'What it earns, and what that supports' }, { label: 'Months', cls: 'l' }, { label: 'Annualized', cls: 'l' }, { label: 'Annual NOI' }, { label: 'DSCR', cls: 'sep' },
               { label: 'Meets?' }, { label: 'Max loan' }, { label: 'Compared with current loan' }, { label: 'Value at cap rate', cls: 'sep' }],
       rows: scen };
-    /* Side by side (Jay, 2026-10-13): the assumptions next to what is real
-       today, column for column, so the gap is visible. Rows: your inputs;
-       the current loans on file; the debt service actually paid in the
-       books; and what a new loan sized on today's T12 would look like, which
-       is the answer for a property with no loan. Every DSCR is on the same two
-       NOIs: trailing 12 months and best NOI, latest. */
-    var LN = D.loans, longest = TW.windows.length ? TW.windows[TW.windows.length - 1] : null;
-    var dscrOn = function (noi, dsA) { return isNum(noi) && noi > 0 && dsA > 0 ? noi / dsA : null; };
-    var ratePct = function (r) { return isNum(r) ? (Math.round(r * 100) / 100) + '%' : null; };
-    var crow = function (label, o, key) {
-      var dT2 = o.dT !== undefined ? o.dT : dscrOn(trailing, o.ds), dB = o.dB !== undefined ? o.dB : dscrOn(optimized, o.ds);
-      return { label: label, kind: key ? 'key' : '', band: !!key, cells: [
-        { v: o.loan, f: 'money', style: '' },
-        { v: ratePct(o.rate), f: 'text', style: isNum(o.rate) ? '' : C('muted') },
-        { v: o.ds, f: 'money', style: '' },
-        { v: dT2, f: 'ratio', cls: 'sep', style: isNum(dT2) ? dscrStyle(dT2) : C('muted') },
-        { v: dB, f: 'ratio', style: isNum(dB) ? dscrStyle(dB) : C('muted') },
-        { v: isNum(dT2) ? (dT2 >= req ? 'Yes' : 'No') : null, f: 'text', style: !isNum(dT2) ? C('muted') : dT2 >= req ? C('ok') : C('bad') },
-        { v: o.note || '', f: 'text', cls: 'l sep', style: C('muted') + ';font-weight:400;white-space:normal;min-width:300px;max-width:440px' },
-      ] };
-    };
-    var cmp = [crow('Assumptions', { loan: loan, rate: rate ? rate * 100 : null, ds: ds,
-      note: edited ? 'Your inputs (changed, not saved)' : 'Standard values; loan and debt service from ' + (D.debtService ? D.debtServiceSource.toLowerCase() : 'nothing on file') }, true)];
-    if (LN) {
-      var lnNote = LN.count + (LN.count === 1 ? ' loan' : ' loans') +
-        (LN.balanceKnown < LN.count ? ', balance on ' + LN.balanceKnown + ' of ' + LN.count : '') +
-        (LN.debtServiceKnown < LN.count ? ', debt service on ' + LN.debtServiceKnown + ' of ' + LN.count : '') +
-        (LN.ratesKnown < LN.count ? ', rate on ' + LN.ratesKnown + ' of ' + LN.count : '') +
-        (LN.maturity ? '; first maturity ' + dayLong(LN.maturity) : '');
-      cmp.push(crow('Current loans, on file', { loan: isNum(LN.balance) ? LN.balance : D.loan, rate: LN.rate, ds: LN.debtService > 0 ? LN.debtService : null, note: lnNote }));
-    } else {
-      cmp.push(crow('Current loans, on file', { loan: null, rate: null, ds: null, note: 'No current loan on file' }));
-    }
-    /* only a payment the books actually carry is "actual"; where the monthly
-       figure falls back to the loan record, this row would repeat the one above */
-    var srcCode = D.debtServiceMonthlySourceCode;
-    var inBooks = srcCode === 'income_statement' || srcCode === 'interest_only_books';
-    var paidA = inBooks && longest && isNum(longest.dsPaid) && longest.dsMonths ? longest.dsPaid * 12 / longest.dsMonths : null;
-    var srcTxt = srcCode === 'interest_only_books' ? '; interest only, no principal recorded, so coverage is overstated' : '';
-    var paidNote = !longest ? 'No NOI on file' :
-      srcCode === 'loan_record' ? 'The payment is not in the books; monthly coverage uses the loan record (the row above)' :
-      paidA === null ? 'No debt service in the books' :
-      'Paid ' + (longest.k === 1 ? ymShort(longest.to) : ymShort(longest.from) + ' to ' + ymShort(longest.to)) + ', annualized' +
-      (longest.dsMonths < longest.k ? ' from the ' + longest.dsMonths + ' of ' + longest.k + ' months with debt service in the books' : '') +
-      (isNum(longest.dscrAll) && isNum(longest.dscr) && Math.abs(longest.dscrAll - longest.dscr) >= 0.005 ? '; all debt ' + longest.dscrAll.toFixed(2) : '') + srcTxt;
-    cmp.push(crow('Actual, from the books', { loan: null, rate: null, ds: paidA,
-      dT: paidA !== null ? longest.dscr : null, dB: paidA !== null && bw && isNum(bw.dscr) ? bw.dscr : null, note: paidNote }));
-    var byDscr = k2 && trailing > 0 ? trailing / req / k2 : null;
-    var valueT = cap && trailing > 0 ? trailing / cap : null;
-    var byLtv = ltv && valueT ? valueT * ltv : null;
-    var newLoan = byDscr !== null && byLtv !== null ? Math.min(byDscr, byLtv) : (byDscr !== null ? byDscr : byLtv);
-    var curLoan = LN && isNum(LN.balance) ? LN.balance : D.loan;
-    var ltvBinds = byLtv !== null && (byDscr === null || byLtv < byDscr);
-    var newNote = newLoan === null ? (trailing > 0 ? 'Needs a rate, amortization and cap rate' : 'NOI is not positive; no loan can be sized') :
-      'Limited by ' + (ltvBinds ? cur.ltv + '% of ' + money(valueT) + ' value at ' + cur.cap + '% cap' : 'DSCR ' + req.toFixed(2)) +
-      '; ' + cur.rate + '%, ' + cur.amort + ' yrs' +
-      (isNum(curLoan) && curLoan > 0 ? '; ' + (newLoan - curLoan >= 0 ? '+' : '') + money(newLoan - curLoan) + ' against current loans' : '');
-    cmp.push(crow('New loan today, sized on T12', { loan: newLoan, rate: rate ? rate * 100 : null, ds: newLoan !== null && k2 ? newLoan * k2 : null, note: newNote }));
-    var cmpT = { title: 'Assumptions against what is real today', firstW: 220,
-      heads: [{ label: 'Side by side' }, { label: 'Loan balance' }, { label: 'Rate' }, { label: 'Annual debt service' },
-              { label: 'DSCR, T12 NOI', cls: 'sep' }, { label: 'DSCR, best NOI' }, { label: 'Meets ' + req.toFixed(2) + '?' }, { label: 'Basis', cls: 'l sep' }],
-      rows: cmp };
-    return { cards: cards, tables: [cmpT, scenT, heatT], cur: cur, edited: edited, cmpT: cmpT, wEdited: wRaw !== undefined, wInput: wRaw !== undefined ? wRaw : String(Math.round(W)),
+    var actual = [[bw, 'Best NOI'], [pw, 'Previous best'], [win(12), 'T12']].filter(function (x) { return x[0]; }).map(function (x) {
+      var w = x[0];
+      return { label: x[1] + (x[1] === 'T12' ? '' : ' (T' + w.k + ')'), months: wLab(w), dscr: w.dscr, dscrAll: w.dscrAll, paid: w.dsPaid !== null ? w.dsPaid * 12 / w.k : null };
+    });
+    return { cards: cards, tables: [scenT, heatT], cur: cur, edited: edited, actual: actual, actualEnd: TW.end, actualSrc: D.debtServiceMonthlySource, wEdited: wRaw !== undefined, wInput: wRaw !== undefined ? wRaw : String(Math.round(W)),
              loanPh: D.loan ? 'On file' : 'Not on file', dsPh: D.debtService ? D.debtServiceSource : 'Not on file',
              period: L12[0] + ' to ' + L12[L12.length - 1], scenT: scenT, heatT: heatT };
+  }
+  /* Actual DSCR, from the books: the row under Assumptions. NOI over debt
+     service actually paid, for the best NOI runs and T12. */
+  function actualHtml(M) {
+    var item = function (a) {
+      return '<span class="lw-act"><span class="lw-act-k" title="' + esc(a.months) + '">' + esc(a.label) + '</span>' +
+        '<b style="' + dscrStyle(a.dscr) + '">' + (isNum(a.dscr) ? a.dscr.toFixed(2) : DASH) + '</b>' +
+        (isNum(a.dscrAll) && isNum(a.dscr) && Math.abs(a.dscrAll - a.dscr) >= 0.005 ? '<span class="lw-act-sub">all debt ' + a.dscrAll.toFixed(2) + '</span>' : '') + '</span>';
+    };
+    var t12 = M.actual.filter(function (a) { return a.label === 'T12'; })[0] || M.actual[M.actual.length - 1];
+    return '<div class="lw-actual">' +
+      '<span style="font-weight:600;color:var(--ink)">Actual DSCR, from the books</span>' +
+      (M.actual.length ? M.actual.map(item).join('') : '<span>No NOI on file</span>') +
+      '<span style="margin-left:auto">' + (M.actualEnd ? 'Through ' + esc(ymLong(M.actualEnd)) : '') +
+      (t12 && isNum(t12.paid) ? ', debt service paid ' + esc(money(t12.paid)) + ' a year' : ', no debt service in the books') +
+      (M.actualSrc && M.actualSrc !== 'Not on file' ? ' (' + esc(M.actualSrc.charAt(0).toLowerCase() + M.actualSrc.slice(1)) + ')' : '') + '</span></div>';
   }
   function optimizedHtml(p) {
     var M = optimizedModel(p);
@@ -899,16 +857,15 @@
       '<section class="frame" style="margin-top:16px;overflow:hidden">' +
       '<div style="display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;padding:12px 16px;background:var(--band);border-bottom:1px solid var(--rule);font-size:13px;color:var(--muted)">' +
       '<span style="font-weight:600;color:var(--ink)">Assumptions</span>' +
-      inp('Required DSCR', 'req', '0.05') + inp('New loan rate', 'rate', '0.125', '%') + inp('Amortization', 'amort', '5', 'yrs') + inp('Cap rate', 'cap', '0.25', '%') + inp('Max LTV', 'ltv', '5', '%') +
+      inp('Required DSCR', 'req', '0.05') + inp('New loan rate', 'rate', '0.125', '%') + inp('Amortization', 'amort', '5', 'yrs') + inp('Cap rate', 'cap', '0.25', '%') +
       inp('Loan balance', 'loan', '1000', '', true, M.loanPh) + inp('Annual debt service', 'ds', '1000', '', true, M.dsPh) +
       '<label>What-if NOI <input class="inp wide" type="number" step="1000" value="' + esc(M.wInput) + '" data-in="wnoi"></label>' +
       '<span style="margin-left:auto">' + (M.edited || M.wEdited ? 'Changed, not saved' : 'Standard values') + '</span>' +
       (M.edited ? '<button class="link" data-a="oareset">Reset</button>' : '') + (M.wEdited ? '<button class="link" data-a="wreset">Reset what-if</button>' : '') +
-      '</div>' + tableHtml(M.cmpT).replace('class="scroll frame"', 'class="scroll"') +
-      '<div style="border-top:1px solid var(--rule)">' + tableHtml(M.scenT).replace('class="scroll frame"', 'class="scroll"') + '</div></section>' +
+      '</div>' + actualHtml(M) + tableHtml(M.scenT).replace('class="scroll frame"', 'class="scroll"') + '</section>' +
       '<h2 class="h2" style="margin-top:20px">NOI heat map</h2><div style="margin-top:8px">' + tableHtml(M.heatT) + '</div>' +
       '<div class="lw-legend"><span><span class="lw-sw" style="color:var(--ok)">●</span>Months in the best NOI run</span><span>Bold: above the 12-month average</span></div>' +
-      '<p class="note" style="margin-top:8px">A month is good when its NOI is above the 12-month average. Best NOI is the unbroken run of good months ending at the latest month, annualized: T2 if August and September, T1 if September alone; none if September is below the average. Previous best is the most recent run of good months before it. Side by side puts the assumptions next to the current loans on file, the debt service actually paid in the books (actual DSCR is NOI divided by what was paid over the same months), and a new loan sized today on the trailing 12 months: the smaller of what that NOI supports at the required DSCR and the max LTV of its value at the cap rate. DSCR is NOI divided by annual debt service. Max loan is what that NOI supports at the required DSCR, with payments at the new loan rate and amortization. Value is NOI divided by the cap rate, an estimate, not an appraisal. Inputs are what-if only and are never saved.</p></div>';
+      '<p class="note" style="margin-top:8px">A month is good when its NOI is above the 12-month average. Best NOI is the unbroken run of good months ending at the latest month, annualized: T2 if August and September, T1 if September alone; none if September is below the average. Previous best is the most recent run of good months before it. Actual DSCR is NOI divided by the debt service paid in the books over the same months. DSCR is NOI divided by annual debt service. Max loan is what that NOI supports at the required DSCR, with payments at the new loan rate and amortization. Value is NOI divided by the cap rate, an estimate, not an appraisal. Inputs are what-if only and are never saved.</p></div>';
   }
 
   /* ---- Asset management fee -------------------------------------------- */

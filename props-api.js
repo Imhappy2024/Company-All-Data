@@ -486,29 +486,14 @@ async function optimizedData(tenantId, id, p, knownThrough) {
   let ds = null, dsSrc = 'Not on file';
   if (num(s.annual_debt_service) > 0) { ds = num(s.annual_debt_service); dsSrc = 'Loan record'; }
   else if (num(s.annual_debt_service_paid) > 0) { ds = num(s.annual_debt_service_paid); dsSrc = 'Paid in the books, annualized'; }
-  /* current loans on file (every loan not closed: most carry status 'none',
-     which means not recorded, not paid off), for the side-by-side with the
-     assumptions. Rate is weighted by balance; rpt_loan.interest_rate_pct is
-     already a whole percent. */
-  const L = (await q(`
-    select count(*)::int n, sum(latest_balance) balance, count(latest_balance)::int n_bal,
-           sum(interest_rate_pct * latest_balance) filter (where interest_rate_pct is not null and latest_balance > 0)
-             / nullif(sum(latest_balance) filter (where interest_rate_pct is not null and latest_balance > 0), 0) rate,
-           count(*) filter (where interest_rate_pct is not null)::int n_rate,
-           sum(annual_debt_service) ds, count(annual_debt_service)::int n_ds,
-           to_char(min(maturity_date) filter (where maturity_date >= current_date), 'YYYY-MM-DD') maturity
-      from public.rpt_loan where tenant_id = $1 and property_id = $2::uuid and coalesce(status, '') <> 'closed'`,
-    [tenantId, id]))[0] || {};
-  const loans = L.n ? { count: L.n, balance: num(L.balance), balanceKnown: L.n_bal, rate: num(L.rate), ratesKnown: L.n_rate,
-                        debtService: num(L.ds), debtServiceKnown: L.n_ds, maturity: L.maturity } : null;
   const col = k => months.map(m => (m in byM ? num(byM[m][k]) : null));
   const noi = col('noi'), dsM = col('debt_service'), dsAllM = col('debt_service_all');
   const src = rows.map(r => r.debt_service_source).filter(Boolean).pop() || null;
   return { months, labels: months.map(ymShort), noi, debtServiceMonthly: dsM, debtServiceAllMonthly: dsAllM,
-           debtServiceMonthlySource: src ? dsSourceText(src) : 'Not on file', debtServiceMonthlySourceCode: src,
+           debtServiceMonthlySource: src ? dsSourceText(src) : 'Not on file',
            trailing: trailingWindows(months, noi, dsM, dsAllM),
            best: bestRuns(months, noi, dsM, dsAllM),
-           debtService: ds, debtServiceSource: dsSrc, loan: p.debt, loans };
+           debtService: ds, debtServiceSource: dsSrc, loan: p.debt };
 }
 
 /* Best NOI (Jay, 2026-10-13). A month is GOOD when its NOI is above the
@@ -534,16 +519,15 @@ function bestRuns(months, noi, dsM, dsAllM) {
     if (!good && start >= 0) { runs.push([start, i - 1]); start = -1; }
   }
   const shape = ([a, b]) => {
-    let n = 0, d = 0, da = 0, dc = 0, nCov = 0, nCovAll = 0;
+    let n = 0, d = 0, da = 0, dc = 0;
     for (let i = a; i <= b; i++) {
       n += noi[i];
-      if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dc++; nCov += noi[i]; }
-      if (dsAllM[i] !== null && dsAllM[i] !== undefined) { da += dsAllM[i]; nCovAll += noi[i]; }
+      if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dc++; }
+      if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
     }
     const k = b - a + 1;
-    /* actual DSCR only over the months the books carry debt service for */
-    return { k, from: months[a], to: months[b], noi: n, annual: n * 12 / k, dsMonths: dc,
-             dsPaid: dc ? d : null, dscr: d > 0 ? nCov / d : null, dscrAll: da > 0 ? nCovAll / da : null };
+    return { k, from: months[a], to: months[b], noi: n, annual: n * 12 / k,
+             dsPaid: dc ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null };
   };
   const li = runs.findIndex(r => r[1] === last);
   const latest = li >= 0 ? shape(runs[li]) : null;
@@ -561,16 +545,15 @@ function trailingWindows(months, noi, dsM, dsAllM) {
   for (let i = noi.length - 1; i >= 0; i--) if (noi[i] !== null && noi[i] !== undefined) { last = i; break; }
   if (last < 0) return { windows: [], end: null };
   const out = [];
-  let n = 0, d = 0, da = 0, dCount = 0, nCov = 0, nCovAll = 0;
+  let n = 0, d = 0, da = 0, dCount = 0;
   for (let k = 1; k <= 12 && last - k + 1 >= 0; k++) {
     const i = last - k + 1;
     if (noi[i] === null || noi[i] === undefined) break;
     n += noi[i];
-    if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dCount++; nCov += noi[i]; }
-    if (dsAllM[i] !== null && dsAllM[i] !== undefined) { da += dsAllM[i]; nCovAll += noi[i]; }
-    /* actual DSCR only over the months the books carry debt service for */
-    out.push({ k, from: months[i], to: months[last], noi: n, annual: n * 12 / k, dsMonths: dCount,
-               dsPaid: dCount ? d : null, dscr: d > 0 ? nCov / d : null, dscrAll: da > 0 ? nCovAll / da : null });
+    if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dCount++; }
+    if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
+    out.push({ k, from: months[i], to: months[last], noi: n, annual: n * 12 / k,
+               dsPaid: dCount ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null });
   }
   return { windows: out, end: months[last] };
 }
