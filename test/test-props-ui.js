@@ -207,23 +207,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     const scen = fopt.names.slice(fopt.names.indexOf('Best NOI, latest (T4)'), fopt.names.indexOf('What-if') + 1);
     assert.deepStrictEqual(scen, ['Best NOI, latest (T4)', 'Previous best NOI (T1)', 'What-if']);
   });
-  /* Side by side (Jay, 2026-10-13): assumptions next to the current loans,
-     the books and a new loan sized today, in the Assumptions frame */
-  const side = ['Assumptions', 'Current loans, on file', 'Actual, from the books', 'New loan today, sized on T12'];
-  check('side by side rows sit together, before the earnings table', () => {
-    const i = fopt.names.indexOf('Assumptions');
-    assert.deepStrictEqual(fopt.names.slice(i, i + 4), side, JSON.stringify(fopt.names));
-    assert.ok(i < fopt.names.indexOf('Best NOI, latest (T4)'));
-  });
-  check('Franklin Court pays outside its books: no "actual" figures, says the loan record is used', () => {
-    const r = rowNamed(/^Actual, from the books$/) || [];
-    assert.ok(r[3] === '–' && r[4] === '–' && /loan record/.test(r[7]), JSON.stringify(r));
-  });
-  check('new loan today is sized on T12 and says what limits it', () => {
-    const r = rowNamed(/^New loan today/) || [];
-    assert.ok(/^\$[\d,]+$/.test(r[1]) && /Limited by (DSCR 1\.25|75% of)/.test(r[7]), JSON.stringify(r));
-  });
-  check('the old Actual DSCR strip is gone', () => assert.strictEqual(fopt.act, ''));
+  check('actual DSCR row: Best NOI (T4) 1.30, Previous best (T1), T12 1.07, from the books', () => assert.ok(/Actual DSCR, from the books/.test(fopt.act) && /Best NOI \(T4\)\s*1\.30/.test(fopt.act) && /Previous best \(T1\)/.test(fopt.act) && /T12\s*1\.07/.test(fopt.act), fopt.act));
   /* what-if recomputes and marks itself unsaved */
   await pg.fill('[data-in="wnoi"]', '1200000'); await pg.press('[data-in="wnoi"]', 'Tab'); await pg.waitForTimeout(200);
   const wi = await text();
@@ -271,14 +255,6 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   for (const [tab, nm] of [['buildings', '09-dakota-buildings'], ['fee', '10-dakota-fee'], ['optimized', '11-dakota-optimized'], ['rent', '12-dakota-rent'], ['capex', '13-dakota-capex'], ['overview', '14-dakota-overview'], ['attention', '15-dakota-attention']]) {
     await open('lvl=property&prop=' + ID['Dakota Bend'] + '&ptab=' + tab);
     await shot(nm);
-    if (tab === 'optimized') {
-      /* Dakota Bend's payments ARE in its books (income_statement): 12 of 12
-         months, NOI / paid = 1.23, paid 158,582 a year (queried directly) */
-      const books = await pg.evaluate(() => [...document.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent.trim()))
-        .find(r => r[0] === 'Actual, from the books'));
-      check('Dakota Bend actual from the books: $158,582 paid a year, DSCR 1.23 on T12 NOI', () =>
-        assert.deepStrictEqual(books && [books[3], books[4]], ['$158,582', '1.23'], JSON.stringify(books)));
-    }
   }
 
   /* ---- the seeded custom view ------------------------------------------- */
