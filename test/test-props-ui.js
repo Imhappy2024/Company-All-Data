@@ -270,6 +270,22 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   check('builder live preview shows the formula result', () => assert.ok(/\$579,376/.test(bld)));
   await pg.click('[data-a="cvcancel"]');
 
+  /* LeavenWealth's default page (Jay, 2026-10-13): a reload stays on the page,
+     but leaving the business and coming back opens Properties > Portfolio */
+  await open('lvl=property&prop=' + ID['Franklin Court'] + '&ptab=monthly');
+  await pg.reload({ waitUntil: 'domcontentloaded' }); await settle();
+  const afterReload = await pg.evaluate(() => document.querySelector('#reportingNative main').getAttribute('data-k'));
+  check('reload stays on the property page', () => assert.strictEqual(afterReload, 'property:' + ID['Franklin Court']));
+  await pg.evaluate(() => goHome());
+  await pg.waitForTimeout(300);
+  await pg.evaluate(() => setBrand('leavenwealth'));
+  await settle();
+  const back = await pg.evaluate(() => ({ k: document.querySelector('#reportingNative main').getAttribute('data-k'), hash: location.hash }));
+  check('leaving LeavenWealth and coming back opens Properties > Portfolio', () => {
+    assert.strictEqual(back.k, 'portfolio:entities');
+    assert.ok(/view=properties/.test(back.hash) && /lvl=portfolio/.test(back.hash) && !/prop=/.test(back.hash), back.hash);
+  });
+
   check('no page errors', () => assert.deepStrictEqual(errs, []));
   /* the only non-GET the screens sent were the builder's preview and the export */
   check('no writes to property data', () => assert.ok(writes.every(w => /\/api\/props\/(views\/preview|export)$/.test(w)), writes.join(', ')));

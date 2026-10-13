@@ -1657,6 +1657,15 @@
     S.data = {}; S.errors = {}; S.pending = {}; S.cv.localKey = ''; paint();
   }
 
-  window.PortalProps = { mount: mount, invalidate: invalidate, urlParams: urlParams, _state: S,
+  /* back to the section's front door: Portfolio > Entities. The shell calls
+     this when someone comes INTO LeavenWealth from elsewhere; loaded data and
+     the period stay (they are caches and preferences, not a place). */
+  function reset() {
+    ensureUrlRead();
+    S.level = 'portfolio'; S.l1 = 'entities'; S.ent = null; S.prop = null; S.ptab = 'overview';
+    S.q = ''; S.asOf = null; closeMenus();
+  }
+
+  window.PortalProps = { mount: mount, invalidate: invalidate, urlParams: urlParams, reset: reset, _state: S,
                          _internal: { monthlyModel: monthlyModel, optimizedModel: optimizedModel, sentence: sentence, fmt: fmt } };
 })();

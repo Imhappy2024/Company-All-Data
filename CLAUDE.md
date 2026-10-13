@@ -175,6 +175,10 @@ icon at the top right. No search box, no notifications bell.
 ### Memory and URL
 - Memory: `localStorage['lwShell:<staff id>']` holds the last business and the last
   page per business. A URL fragment wins over it.
+- **Default page on entering a business** (`DEFAULT_PAGE` in portal.html):
+  LeavenWealth opens on Properties > Portfolio whenever you come into it from another
+  business or Home (`PortalProps.reset()`); a reload keeps the exact page (it comes
+  back through the URL). Other businesses return to their last page.
 - URL: `#brand=<home|leavenwealth|folio|leadli|liquid>&view=<page>&sub=<tab>`, plus
   Properties' own params and `who=` for the Team filter. Back, refresh and shared
   links must land in the same place.
