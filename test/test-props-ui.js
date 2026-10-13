@@ -189,23 +189,25 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await shot('06-franklin-optimized');
   const fo = await pg.evaluate(() => document.querySelector('.lw-card .lw-card-v').textContent);
   check('Franklin Court Optimized NOI status Fixable', () => assert.strictEqual(fo, 'Fixable'));
-  /* Optimized NOI = best TRAILING period ending at the latest month (Jay, 2026-10-13):
-     T2 to T12, never one month alone. Franklin Court: T2 (Aug + Sep) x 6 = 1,026,501 */
+  /* Best NOI (Jay, 2026-10-13): the run of months above the 12-month average
+     ending at the latest month. Franklin Court averages $69,027 a month; Jun
+     to Sep are all above it and May is not, so T4 x 3 = 1,006,943. The run
+     before it is April alone (T1, 83,195.42 x 12 = 998,345). */
   const fopt = await pg.evaluate(() => {
     const rows = [...document.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent.trim()));
     const act = (document.querySelector('.lw-actual') || {}).textContent || '';
-    return { key: rows.find(r => /^Optimized NOI, best trailing period/.test(r[0] || '')), names: rows.map(r => r[0]), act };
+    return { rows, names: rows.map(r => r[0]), act };
   });
-  check('optimized row is the best trailing period ending at the latest month (T2, Aug to Sep 26)', () => {
-    assert.ok(fopt.key, JSON.stringify(fopt.names));
-    assert.deepStrictEqual(fopt.key.slice(0, 4), ['Optimized NOI, best trailing period (T2)', 'Aug 26 to Sep 26', 'x 6', '$1,026,501']);
+  const rowNamed = re => fopt.rows.find(r => re.test(r[0] || ''));
+  check('Best NOI, latest = the run of above-average months ending Sep 26 (T4)', () =>
+    assert.deepStrictEqual((rowNamed(/^Best NOI, latest/) || []).slice(0, 4), ['Best NOI, latest (T4)', 'Jun 26 to Sep 26', 'x 3', '$1,006,943'], JSON.stringify(fopt.names)));
+  check('Previous best NOI = the run before it (April, T1)', () =>
+    assert.deepStrictEqual((rowNamed(/^Previous best NOI/) || []).slice(0, 4), ['Previous best NOI (T1)', 'Apr 26', 'x 12', '$998,345']));
+  check('only Best NOI, Previous best and What-if: no T2/T3/T6/T12 rows', () => {
+    const scen = fopt.names.slice(fopt.names.indexOf('Best NOI, latest (T4)'), fopt.names.indexOf('What-if') + 1);
+    assert.deepStrictEqual(scen, ['Best NOI, latest (T4)', 'Previous best NOI (T1)', 'What-if']);
   });
-  check('trailing rows T2, T3, T6, T12; no one-month or best-anywhere rows', () => {
-    assert.ok(fopt.names.indexOf('Trailing 1 month (T1)') < 0);
-    ['Trailing 2 months (T2)', 'Trailing 3 months (T3)', 'Trailing 6 months (T6)', 'Trailing 12 months (T12)'].forEach(n => assert.ok(fopt.names.indexOf(n) >= 0, n));
-    assert.ok(!fopt.names.some(n => /^Best /.test(n || '')), JSON.stringify(fopt.names));
-  });
-  check('actual DSCR row under Assumptions, T12 1.07 from the books', () => assert.ok(/Actual DSCR, from the books/.test(fopt.act) && /T12\s*1\.07/.test(fopt.act), fopt.act));
+  check('actual DSCR row: Best NOI (T4) 1.30, Previous best (T1), T12 1.07, from the books', () => assert.ok(/Actual DSCR, from the books/.test(fopt.act) && /Best NOI \(T4\)\s*1\.30/.test(fopt.act) && /Previous best \(T1\)/.test(fopt.act) && /T12\s*1\.07/.test(fopt.act), fopt.act));
   /* what-if recomputes and marks itself unsaved */
   await pg.fill('[data-in="wnoi"]', '1200000'); await pg.press('[data-in="wnoi"]', 'Tab'); await pg.waitForTimeout(200);
   const wi = await text();

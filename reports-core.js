@@ -221,23 +221,23 @@ async function rentRollSection(tenantId, p) {
 
 async function optimizedSection(tenantId, p, through) {
   const od = await P.optimizedData(tenantId, p.id, p, through);
+  const BR = od.best || {};
   const TW = od.trailing || { windows: [] };
-  const win = k => TW.windows.find(w => w.k === k) || null;
+  const t12 = TW.windows.find(w => w.k === 12) || TW.windows[TW.windows.length - 1] || null;
   const lab = w => (w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to));
-  const t12 = win(12) || TW.windows[TW.windows.length - 1] || null;
-  const best = TW.best ? win(TW.best) : null;
-  const rowOf = (name, w, key) => ({
-    label: name, kind: key ? 'total' : '', indent: false,
-    cells: [{ f: 'text', v: w ? lab(w) : 'Not enough months' }, cell(w ? w.annual : null, 'money'),
-            cell(w && t12 && w !== t12 ? w.annual - t12.annual : null, 'money'), cell(w ? w.dscr : null, 'ratio')],
+  const why = BR.end ? 'None: ' + ymShort(BR.end) + ' is below the 12-month average' : 'No NOI on file';
+  const rowOf = (name, w, key, empty) => ({
+    label: w ? name + ' (T' + w.k + ')' : name, kind: key ? 'total' : '', indent: false,
+    cells: [{ f: 'text', v: w ? lab(w) : empty }, cell(w ? w.annual : null, 'money'),
+            cell(w && t12 ? w.annual - t12.annual : null, 'money'), cell(w ? w.dscr : null, 'ratio')],
     tot: null,
   });
-  const rows = [rowOf(best ? 'Optimized NOI, best trailing period (T' + best.k + ')' : 'Optimized NOI', best, true)]
-    .concat([2, 3, 6, 12].map(k => rowOf('Trailing ' + k + (k === 1 ? ' month' : ' months') + ' (T' + k + ')', win(k))));
   return {
-    kind: 'opt', title: 'Optimized NOI',
-    sub: TW.end ? 'Trailing periods ending ' + ymShort(TW.end) + ', annualized; actual DSCR from the books' : 'No NOI on file',
-    table: { heads: ['Months', 'Annual NOI', 'Compared with T12', 'Actual DSCR'], hasTotal: false, rows },
+    kind: 'opt', title: 'Best NOI',
+    sub: BR.end ? 'Runs of months above the 12-month average' + (isNum(BR.average) ? ' (' + P.money(BR.average) + ')' : '') + ', annualized; actual DSCR from the books' : 'No NOI on file',
+    table: { heads: ['Months', 'Annual NOI', 'Compared with T12', 'Actual DSCR'], hasTotal: false,
+      rows: [rowOf('Best NOI, latest', BR.latest, true, why),
+             rowOf('Previous best NOI', BR.previous, false, 'None before the latest run')] },
   };
 }
 

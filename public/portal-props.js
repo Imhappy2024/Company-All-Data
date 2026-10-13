@@ -433,7 +433,7 @@
       }).join('') + '<span style="margin-left:auto">' + listP.length + ' of ' + scope.length + ', sorted by NOI</span></div>' +
       '<div style="margin-top:10px">' + tableHtml({ firstW: 260, maxH: Math.max(400, window.innerHeight - 260),
         heads: [{ label: 'Property' }, { label: 'Units' }, { label: 'Physical occupancy' }, { label: 'Economic occupancy' }, { label: 'Total income', cls: 'sep' }, { label: 'Total expenses' },
-                { label: 'NOI, trailing 12 mo' }, { label: 'Optimized NOI' }, { label: 'Expense ratio' }, { label: 'Cash flow after debt and capex' },
+                { label: 'NOI, trailing 12 mo' }, { label: 'Best NOI' }, { label: 'Expense ratio' }, { label: 'Cash flow after debt and capex' },
                 { label: 'DSCR, mortgage', cls: 'sep' }, { label: 'Manager', cls: 'l' }], rows: rows }) + '</div>' +
       '<p class="note" style="margin-top:8px">' + ECON_NOTE + ' Click a property to open it. Cash flow is after debt service and capex, so it is shown without color; red is kept for NOI and coverage.</p></main>';
   }
@@ -539,7 +539,7 @@
       { label: 'Units', value: cnt(p.units), sub: usrc },
       { label: 'Physical occupancy', value: pct(p.occ), sub: H.rentRollAsOf ? 'Latest rent roll' : 'No rent roll on file', style: occStyle(p.occ) },
       { label: 'NOI, trailing 12 mo', value: money(p.noi), sub: per, style: p.noi < 0 ? C('bad') : '' },
-      { label: 'Optimized NOI', value: money(p.opt), sub: p.opt ? 'Best trailing period to the latest month' : 'No NOI on file', style: p.opt ? C('ok') : '' },
+      { label: 'Best NOI, latest', value: p.opt ? money(p.opt) : 'None', sub: p.opt ? 'Months above the 12-month average, to the latest month' : 'Latest month is not above the 12-month average', style: p.opt ? C('ok') : C('muted') },
       { label: 'Cash flow after debt and capex', value: money(p.cf), sub: 'NOI less fee, debt service and capex' },
       { label: 'Market value', value: p.value ? money(p.value) : DASH, sub: p.value ? (p.valueAsOf ? 'On file, ' + dayLong(p.valueAsOf) : 'On file, no date') : 'No valuation on file',
         tag: p.value ? 'Outdated' : '', style: p.value ? '' : C('bad') },
@@ -745,12 +745,16 @@
     var avail = NN.map(function (v, i) { return isNum(v) ? i : -1; }).filter(function (i) { return i >= 0; });
     var nA = avail.length;
     var trailing = nA ? sum(NN) * 12 / nA : null;
-    /* Optimized NOI: the best TRAILING period ending at the latest month with
-       data (T2 to T12, never one month alone, annualised), computed by the server (props-api
-       trailingWindows) with the same rule as property_summary.optimized_noi */
+    /* Best NOI (Jay, 2026-10-13): the unbroken run of months above the
+       12-month average that ends at the latest month (none when the latest
+       month is below it), and the most recent such run before it. Computed by
+       the server (props-api bestRuns), the same rule as
+       property_summary.optimized_noi. */
     var TW = D.trailing || { windows: [] };
     var win = function (k) { return TW.windows.filter(function (w) { return w.k === k; })[0] || null; };
-    var bw = TW.best ? win(TW.best) : null;
+    var BR = D.best || {};
+    var bw = BR.latest || null, pw = BR.previous || null;
+    var noneWhy = BR.end ? ymShort(BR.end) + ' is below the 12-month average of ' + money(BR.average) + ' a month' : 'No NOI on file';
     var wLab = function (w) { return w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to); };
     var std = { req: '1.25', rate: '6.5', amort: '30', cap: '7', loan: D.loan ? String(Math.round(D.loan)) : '', ds: D.debtService ? String(Math.round(D.debtService)) : '' };
     var cur = Object.assign({}, std, S.oa[S.prop] || {});
@@ -783,27 +787,26 @@
       ] };
     };
     var mult = function (k) { var x = 12 / k; return 'x ' + (x % 1 ? x.toFixed(1) : x); };
-    var tRow = function (k) {
-      var w = win(k);
-      return w ? srow('Trailing ' + k + (k === 1 ? ' month' : ' months') + ' (T' + k + ')', wLab(w), mult(k), w.annual)
-               : srow('Trailing ' + k + ' months (T' + k + ')', 'Not enough months', '', null);
-    };
-    var scen = [bw ? srow('Optimized NOI, best trailing period (T' + bw.k + ')', wLab(bw), mult(bw.k), optimized, 'key')
-                   : srow('Optimized NOI', 'No NOI on file', '', null, 'key')]
-      .concat([2, 3, 6, 12].map(tRow), [srow('What-if', 'Your number', '', W)]);
+    var scen = [
+      bw ? srow('Best NOI, latest (T' + bw.k + ')', wLab(bw), mult(bw.k), bw.annual, 'key')
+         : srow('Best NOI, latest', 'None: ' + noneWhy, '', null, 'key'),
+      pw ? srow('Previous best NOI (T' + pw.k + ')', wLab(pw), mult(pw.k), pw.annual)
+         : srow('Previous best NOI', 'None before ' + (bw ? wLab(bw) : 'the latest month'), '', null),
+      srow('What-if', 'Your number', '', W)];
     var maxLOpt = k2 && optimized > 0 ? optimized / req / k2 : null;
     var vsOpt = maxLOpt !== null && loan !== null ? maxLOpt - loan : null;
     var cards = [
       { label: 'Status', value: grp.name, sub: ds ? 'Required DSCR ' + req.toFixed(2) : 'Debt service not on file', style: grp.style },
       { label: 'NOI, trailing 12 mo', value: money(trailing), sub: nA < 12 ? 'Annualized from ' + nA + ' months' : L12[0] + ' to ' + L12[11] },
-      { label: 'Optimized NOI', value: money(optimized), sub: bw ? 'T' + bw.k + ', ' + wLab(bw) : 'No NOI on file', style: optimized !== null ? C('ok') : '' },
+      { label: 'Best NOI, latest', value: bw ? money(optimized) : 'None', sub: bw ? 'T' + bw.k + ', ' + wLab(bw) : (pw ? 'Previous best T' + pw.k + ', ' + wLab(pw) + ', ' + money(pw.annual) : noneWhy), style: bw ? C('ok') : C('muted') },
       { label: 'DSCR, trailing', value: dT === null || trailing <= 0 ? DASH : dT.toFixed(2), sub: ds ? '' : 'No debt service on file', style: dT === null || trailing <= 0 ? (ds ? '' : C('bad')) : dscrStyle(dT) },
-      { label: 'DSCR, optimized', value: optimized === null || dOf(optimized) === null ? DASH : dOf(optimized).toFixed(2), sub: ds ? '' : 'No debt service on file', style: optimized === null || dOf(optimized) === null ? (ds ? '' : C('bad')) : dscrStyle(dOf(optimized)) },
-      { label: 'Max loan, optimized', value: money(maxLOpt), sub: rate && yrs ? cur.rate + '%, ' + cur.amort + ' yrs' : '' },
+      { label: 'DSCR, best NOI', value: optimized === null || dOf(optimized) === null ? DASH : dOf(optimized).toFixed(2), sub: ds ? '' : 'No debt service on file', style: optimized === null || dOf(optimized) === null ? (ds ? '' : C('bad')) : dscrStyle(dOf(optimized)) },
+      { label: 'Max loan, best NOI', value: money(maxLOpt), sub: rate && yrs ? cur.rate + '%, ' + cur.amort + ' yrs' : '' },
       { label: 'Compared with current loan', value: vsOpt === null ? DASH : (vsOpt >= 0 ? '+' : '') + money(vsOpt), sub: loan ? 'Current ' + money(loan) : 'No loan on file', style: vsOpt === null ? '' : vsOpt >= 0 ? C('ok') : C('bad') },
-      { label: 'Value, optimized', value: cap && optimized > 0 ? money(optimized / cap) : DASH, sub: 'At ' + cur.cap + '% cap, estimate' },
+      { label: 'Value, best NOI', value: cap && optimized > 0 ? money(optimized / cap) : DASH, sub: 'At ' + cur.cap + '% cap, estimate' },
     ];
-    var inOpt = function (i) { return !!bw && D.months[i] >= bw.from && D.months[i] <= bw.to; };
+    var inRun = function (w, i) { return !!w && D.months[i] >= w.from && D.months[i] <= w.to; };
+    var dot = function (w) { return function (i) { var on = inRun(w, i); return { v: on ? '●' : '', f: 'text', html: on ? '●' : '', style: on ? C('ok') + ';text-align:center' : '', exportText: on ? 'Yes' : '' }; }; };
     var vals = avail.map(function (i) { return NN[i]; });
     var hi = Math.max.apply(null, vals.concat([1])), nonneg = vals.filter(function (v) { return v >= 0; });
     var lo = nonneg.length ? Math.min.apply(null, nonneg) : hi;
@@ -811,22 +814,24 @@
     var heatT = { title: 'NOI heat map', firstW: 200,
       heads: [{ label: '' }].concat(avail.map(function (i) { return { label: L12[i] }; })),
       rows: [
-        { label: 'NOI', kind: 'key', cells: avail.map(function (i) { return { v: NN[i], f: 'money2', style: heat(NN[i]) }; }) },
-        { label: 'Optimized NOI period' + (bw ? ' (T' + bw.k + ')' : ''), cells: avail.map(function (i) { return { v: inOpt(i) ? '●' : '', f: 'text', html: inOpt(i) ? '●' : '', style: inOpt(i) ? C('ok') + ';text-align:center' : '', exportText: inOpt(i) ? 'Yes' : '' }; }) },
+        { label: 'NOI', kind: 'key', cells: avail.map(function (i) { return { v: NN[i], f: 'money2', style: heat(NN[i]) + (isNum(BR.average) && NN[i] > BR.average ? 'font-weight:600;' : '') }; }) },
+        { label: 'Best NOI, latest' + (bw ? ' (T' + bw.k + ')' : ': none'), cells: avail.map(dot(bw)) },
+        { label: 'Previous best NOI' + (pw ? ' (T' + pw.k + ')' : ': none'), cells: avail.map(dot(pw)) },
       ] };
     var scenT = { title: 'What it earns, and what that supports', firstW: 260,
       heads: [{ label: 'What it earns, and what that supports' }, { label: 'Months', cls: 'l' }, { label: 'Annualized', cls: 'l' }, { label: 'Annual NOI' }, { label: 'DSCR', cls: 'sep' },
               { label: 'Meets?' }, { label: 'Max loan' }, { label: 'Compared with current loan' }, { label: 'Value at cap rate', cls: 'sep' }],
       rows: scen };
-    var actual = [2, 3, 6, 12].map(win).filter(Boolean).map(function (w) {
-      return { label: 'T' + w.k, months: wLab(w), dscr: w.dscr, dscrAll: w.dscrAll, paid: w.dsPaid !== null ? w.dsPaid * 12 / w.k : null };
+    var actual = [[bw, 'Best NOI'], [pw, 'Previous best'], [win(12), 'T12']].filter(function (x) { return x[0]; }).map(function (x) {
+      var w = x[0];
+      return { label: x[1] + (x[1] === 'T12' ? '' : ' (T' + w.k + ')'), months: wLab(w), dscr: w.dscr, dscrAll: w.dscrAll, paid: w.dsPaid !== null ? w.dsPaid * 12 / w.k : null };
     });
     return { cards: cards, tables: [scenT, heatT], cur: cur, edited: edited, actual: actual, actualEnd: TW.end, actualSrc: D.debtServiceMonthlySource, wEdited: wRaw !== undefined, wInput: wRaw !== undefined ? wRaw : String(Math.round(W)),
              loanPh: D.loan ? 'On file' : 'Not on file', dsPh: D.debtService ? D.debtServiceSource : 'Not on file',
              period: L12[0] + ' to ' + L12[L12.length - 1], scenT: scenT, heatT: heatT };
   }
   /* Actual DSCR, from the books: the row under Assumptions. NOI over debt
-     service actually paid, for trailing periods ending at the latest month. */
+     service actually paid, for the best NOI runs and T12. */
   function actualHtml(M) {
     var item = function (a) {
       return '<span class="lw-act"><span class="lw-act-k" title="' + esc(a.months) + '">' + esc(a.label) + '</span>' +
@@ -859,8 +864,8 @@
       (M.edited ? '<button class="link" data-a="oareset">Reset</button>' : '') + (M.wEdited ? '<button class="link" data-a="wreset">Reset what-if</button>' : '') +
       '</div>' + actualHtml(M) + tableHtml(M.scenT).replace('class="scroll frame"', 'class="scroll"') + '</section>' +
       '<h2 class="h2" style="margin-top:20px">NOI heat map</h2><div style="margin-top:8px">' + tableHtml(M.heatT) + '</div>' +
-      '<div class="lw-legend"><span><span class="lw-sw" style="color:var(--ok)">●</span>Months in the optimized NOI period</span></div>' +
-      '<p class="note" style="margin-top:8px">Optimized NOI is the best trailing period that ends at the latest month with data, from 2 to 12 months (never one month alone), annualized: if August was the best month and September the second best, it is T2 (August and September) x 6. Actual DSCR is NOI divided by the debt service paid in the books over the same months. DSCR is NOI divided by annual debt service. Max loan is what that NOI supports at the required DSCR, with payments at the new loan rate and amortization. Value is NOI divided by the cap rate, an estimate, not an appraisal. Inputs are what-if only and are never saved.</p></div>';
+      '<div class="lw-legend"><span><span class="lw-sw" style="color:var(--ok)">●</span>Months in the best NOI run</span><span>Bold: above the 12-month average</span></div>' +
+      '<p class="note" style="margin-top:8px">A month is good when its NOI is above the 12-month average. Best NOI is the unbroken run of good months ending at the latest month, annualized: T2 if August and September, T1 if September alone; none if September is below the average. Previous best is the most recent run of good months before it. Actual DSCR is NOI divided by the debt service paid in the books over the same months. DSCR is NOI divided by annual debt service. Max loan is what that NOI supports at the required DSCR, with payments at the new loan rate and amortization. Value is NOI divided by the cap rate, an estimate, not an appraisal. Inputs are what-if only and are never saved.</p></div>';
   }
 
   /* ---- Asset management fee -------------------------------------------- */
