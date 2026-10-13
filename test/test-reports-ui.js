@@ -114,7 +114,7 @@ const SHOT = n => path.join(ROOT, 'docs', 'screenshots', 'reports', n + '.png');
   check('preview: Franklin Court NOI 84,177.43 / 78,217.93 / 92,865.54', () => assert.deepStrictEqual(noi.slice(1, 4), ['84,177.43', '78,217.93', '92,865.54']));
   check('preview: the cash flow statement is included', () => assert.ok(doc.rows.some(r => r[0] === 'Net cash flow')));
   check('preview: rent roll cards (172 units)', () => assert.ok(/Units\s*172/.test(doc.text), doc.text.slice(0, 600)));
-  check('preview: optimized NOI rows', () => assert.ok(doc.rows.some(r => r[0] === 'Optimized NOI, best 6 months x 2')));
+  check('preview: optimized NOI is the best trailing period (T2 for Franklin Court)', () => assert.ok(doc.rows.some(r => r[0] === 'Optimized NOI, best trailing period (T2)'), JSON.stringify(doc.rows.map(r => r[0]))));
   if (SHOTS) await pg.screenshot({ path: SHOT('preview'), fullPage: false });
 
   /* a regular range reaching before the data: those months are left out, with a note */

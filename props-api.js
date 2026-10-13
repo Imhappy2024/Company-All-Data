@@ -451,18 +451,52 @@ async function optimizedData(tenantId, id, p, knownThrough) {
   const through = knownThrough || await dataThrough(tenantId);
   const months = ymSpan(ymAdd(through, -11), through);
   const rows = await q(`
-    select to_char(month, 'YYYY-MM') m, noi from public.rpt_property_month
+    select to_char(month, 'YYYY-MM') m, noi, debt_service, debt_service_all, debt_service_source from public.rpt_property_month
      where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash' and has_data
        and month between $3::date and $4::date`, [tenantId, id, months[0] + '-01', through + '-01']);
-  const byM = Object.fromEntries(rows.map(r => [r.m, num(r.noi)]));
+  const byM = Object.fromEntries(rows.map(r => [r.m, r]));
   const s = (await q(`select annual_debt_service, annual_debt_service_paid from public.rpt_property_summary
                        where tenant_id = $1 and id = $2::uuid`, [tenantId, id]))[0] || {};
   /* the loan record first, then the books, as the mockup's standard values */
   let ds = null, dsSrc = 'Not on file';
   if (num(s.annual_debt_service) > 0) { ds = num(s.annual_debt_service); dsSrc = 'Loan record'; }
   else if (num(s.annual_debt_service_paid) > 0) { ds = num(s.annual_debt_service_paid); dsSrc = 'Paid in the books, annualized'; }
-  return { months, labels: months.map(ymShort), noi: months.map(m => (m in byM ? byM[m] : null)),
+  const col = k => months.map(m => (m in byM ? num(byM[m][k]) : null));
+  const noi = col('noi'), dsM = col('debt_service'), dsAllM = col('debt_service_all');
+  const src = rows.map(r => r.debt_service_source).filter(Boolean).pop() || null;
+  return { months, labels: months.map(ymShort), noi, debtServiceMonthly: dsM, debtServiceAllMonthly: dsAllM,
+           debtServiceMonthlySource: src ? dsSourceText(src) : 'Not on file',
+           trailing: trailingWindows(months, noi, dsM, dsAllM),
            debtService: ds, debtServiceSource: dsSrc, loan: p.debt };
+}
+
+/* Optimized NOI (2026-10-13, Jay): the best TRAILING period ending at the
+   property's latest month with data, any length 2 to 12 (never one month
+   alone), annualised; a lender
+   underwrites the most recent months, so a strong stretch that ended earlier
+   does not count. The run must be unbroken: a month with no NOI stops it.
+   Same rule as reporting.property_summary.optimized_noi
+   (migrations/20261016_optimized_noi_trailing.sql), so the tab and every
+   other screen show one number. Each window also carries the ACTUAL DSCR from
+   the books over the same months (NOI / debt service paid). */
+function trailingWindows(months, noi, dsM, dsAllM) {
+  let last = -1;
+  for (let i = noi.length - 1; i >= 0; i--) if (noi[i] !== null && noi[i] !== undefined) { last = i; break; }
+  if (last < 0) return { windows: [], best: null, end: null };
+  const out = [];
+  let n = 0, d = 0, da = 0, dCount = 0;
+  for (let k = 1; k <= 12 && last - k + 1 >= 0; k++) {
+    const i = last - k + 1;
+    if (noi[i] === null || noi[i] === undefined) break;
+    n += noi[i];
+    if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dCount++; }
+    if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
+    out.push({ k, from: months[i], to: months[last], noi: n, annual: n * 12 / k,
+               dsPaid: dCount ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null });
+  }
+  let best = null;
+  for (const w of out) if (w.k >= 2 && (best === null || w.annual > best.annual)) best = w;
+  return { windows: out, best: best ? best.k : null, end: months[last] };
 }
 
 /* ---------------------------------------------------------------------------
@@ -836,4 +870,4 @@ function propsRoutes() {
 
 module.exports = { propsRoutes, cleanAddr,
   data: { q, LIST_SQL, shapeProp, propRow, dataThrough, monthlyData, optimizedData, rentRollAgg, ymAdd, ymSpan, ymShort, ymLong, money },
-  _internal: { nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
+  _internal: { trailingWindows, nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };

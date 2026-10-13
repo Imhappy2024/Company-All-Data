@@ -339,9 +339,12 @@ revision when Jay supplies it.
 - **Optimized NOI:**
   - Cards: status (Safe / Fixable / At risk / Critical), trailing and optimized NOI,
     both DSCRs, max loan, vs current loan, value.
-  - Then the Assumptions row attached to the "What it earns, and what that supports"
-    table. What-if inputs, including What-if NOI, are never saved.
-  - Then the NOI heat map. No slider, no explanatory paragraphs.
+  - Then the Assumptions row; under it **Actual DSCR, from the books** (T2, T3, T6,
+    T12: NOI / debt service paid over the same months, all-debt where it differs);
+    then the "What it earns, and what that supports" table: Optimized NOI (T#), then
+    T2, T3, T6, T12, What-if, all ending at the latest month. No best-anywhere rows,
+    no one-month rows. What-if inputs are never saved.
+  - Then the NOI heat map, marking the optimized period. No slider.
 - **Needs attention:**
   - Rules run server-side: operating loss, DSCR < 1.00, DSCR < 1.25, vacancy ≥ 15%,
     delinquency ≥ 5% of rent, ≥ 10% of occupied leases expiring in 90 days, no
@@ -498,9 +501,13 @@ months AND a loan with a KNOWN non-primary purpose (or 2+ loans).
   - True net income comes from `reporting.income_statement_month`.
   - The old `t12_net_income` column is dropped. The custom-view field KEY
     `t12_net_income` survives in saved configs and reads the new column.
-- **Optimized NOI** = best 6 consecutive months × 2.
-  - Needs 6+ months with data on or after `first_active_month`.
-  - Best 3 × 4 and best month × 12 are shown alongside.
+- **Optimized NOI** = the best TRAILING period ending at the property's latest month
+  with data, 2 to 12 months, annualized (Jay, 2026-10-13). A lender underwrites the
+  most recent months, so a strong stretch that ended earlier does not count, and one
+  month alone is never used. The run must be unbroken; a month with no data stops it.
+  - SQL: `property_summary.optimized_noi` (`migrations/20261016_optimized_noi_trailing.sql`).
+  - Same rule in JS: `trailingWindows()` in props-api.js, used by the Optimized NOI tab
+    and Reports. Keep the two in step.
 - **Partial history:** a report only claims months from its `first_active_month`.
   Months before it show "–", never 0.
 - **Asset management fees:**
