@@ -535,11 +535,22 @@ function render(){
   if(brand==='leadli'&&view==='financials'&&window.PortalLeadliFin) PortalLeadliFin.mount(document.getElementById('leadliFinNative'));
 }
 function goHome(v){brand='home';view=v&&homeViews().some(x=>x[0]===v)?v:homeDefault();render();}
+/* Each business has a default page it opens on when you come INTO it from
+   another business or Home. LeavenWealth's is Properties > Portfolio (Jay,
+   2026-10-13): leaving and coming back starts there, never on the property
+   last open. A reload keeps the exact page, because it comes back through the
+   URL (readState), not through here. Moving around inside a business is
+   unaffected. Other businesses still return to their last page. */
+const DEFAULT_PAGE={leavenwealth:'properties'};
 function setBrand(b){
   if(!allowedBizz().includes(b)) return;
+  const entering=brand!==b;
   brand=b;
-  const last=pagesByBrand[b];
-  view=last&&itemVisible(b,last)?last:firstAllowedView(b);
+  const last=pagesByBrand[b], dflt=DEFAULT_PAGE[b];
+  if(entering&&dflt&&itemVisible(b,dflt)){
+    view=dflt;
+    if(dflt==='properties'&&window.PortalProps&&PortalProps.reset) PortalProps.reset();
+  }else view=last&&itemVisible(b,last)?last:firstAllowedView(b);
   document.getElementById('scroll').scrollTop=0;
   render();
 }
