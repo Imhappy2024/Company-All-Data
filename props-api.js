@@ -492,22 +492,58 @@ async function optimizedData(tenantId, id, p, knownThrough) {
   return { months, labels: months.map(ymShort), noi, debtServiceMonthly: dsM, debtServiceAllMonthly: dsAllM,
            debtServiceMonthlySource: src ? dsSourceText(src) : 'Not on file',
            trailing: trailingWindows(months, noi, dsM, dsAllM),
+           best: bestRuns(months, noi, dsM, dsAllM),
            debtService: ds, debtServiceSource: dsSrc, loan: p.debt };
 }
 
-/* Optimized NOI (2026-10-13, Jay): the best TRAILING period ending at the
-   property's latest month with data, any length 2 to 12 (never one month
-   alone), annualised; a lender
-   underwrites the most recent months, so a strong stretch that ended earlier
-   does not count. The run must be unbroken: a month with no NOI stops it.
-   Same rule as reporting.property_summary.optimized_noi
-   (migrations/20261016_optimized_noi_trailing.sql), so the tab and every
-   other screen show one number. Each window also carries the ACTUAL DSCR from
-   the books over the same months (NOI / debt service paid). */
+/* Best NOI (Jay, 2026-10-13). A month is GOOD when its NOI is above the
+   property's average month over the window (the twelve months shown). Best NOI
+   is the unbroken run of good months that ends at the latest month with data,
+   annualised (T1 if only that month, T2 if the two latest, ...); none when
+   the latest month is not good. Previous best is the most recent run of good
+   months before it. A month with no NOI breaks a run. Same rule in SQL:
+   property_summary.optimized_noi = the latest Best NOI
+   (migrations/20261017_best_noi_runs.sql). */
+function bestRuns(months, noi, dsM, dsAllM) {
+  const has = noi.map(v => v !== null && v !== undefined);
+  const vals = noi.filter((v, i) => has[i]);
+  if (!vals.length) return { average: null, latest: null, previous: null, end: null };
+  const average = vals.reduce((a, b) => a + b, 0) / vals.length;
+  let last = -1;
+  for (let i = noi.length - 1; i >= 0; i--) if (has[i]) { last = i; break; }
+  const runs = [];
+  let start = -1;
+  for (let i = 0; i <= noi.length; i++) {
+    const good = i < noi.length && has[i] && noi[i] > average;
+    if (good && start < 0) start = i;
+    if (!good && start >= 0) { runs.push([start, i - 1]); start = -1; }
+  }
+  const shape = ([a, b]) => {
+    let n = 0, d = 0, da = 0, dc = 0;
+    for (let i = a; i <= b; i++) {
+      n += noi[i];
+      if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dc++; }
+      if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
+    }
+    const k = b - a + 1;
+    return { k, from: months[a], to: months[b], noi: n, annual: n * 12 / k,
+             dsPaid: dc ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null };
+  };
+  const li = runs.findIndex(r => r[1] === last);
+  const latest = li >= 0 ? shape(runs[li]) : null;
+  const before = li >= 0 ? runs.slice(0, li) : runs;
+  const previous = before.length ? shape(before[before.length - 1]) : null;
+  return { average, latest, previous, end: months[last] };
+}
+
+/* Trailing T1..T12 windows ending at the latest month with data, each with
+   the ACTUAL DSCR from the books over the same months (NOI / debt service
+   paid). Used for the T12 row and Reports' 'Compared with T12'; Best NOI
+   itself is bestRuns() above. A month with no NOI stops the run. */
 function trailingWindows(months, noi, dsM, dsAllM) {
   let last = -1;
   for (let i = noi.length - 1; i >= 0; i--) if (noi[i] !== null && noi[i] !== undefined) { last = i; break; }
-  if (last < 0) return { windows: [], best: null, end: null };
+  if (last < 0) return { windows: [], end: null };
   const out = [];
   let n = 0, d = 0, da = 0, dCount = 0;
   for (let k = 1; k <= 12 && last - k + 1 >= 0; k++) {
@@ -519,9 +555,7 @@ function trailingWindows(months, noi, dsM, dsAllM) {
     out.push({ k, from: months[i], to: months[last], noi: n, annual: n * 12 / k,
                dsPaid: dCount ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null });
   }
-  let best = null;
-  for (const w of out) if (w.k >= 2 && (best === null || w.annual > best.annual)) best = w;
-  return { windows: out, best: best ? best.k : null, end: months[last] };
+  return { windows: out, end: months[last] };
 }
 
 /* ---------------------------------------------------------------------------
@@ -895,4 +929,4 @@ function propsRoutes() {
 
 module.exports = { propsRoutes, cleanAddr,
   data: { q, LIST_SQL, shapeProp, propRow, dataThrough, monthlyData, optimizedData, rentRollAgg, ymAdd, ymSpan, ymShort, ymLong, money },
-  _internal: { trailingWindows, nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
+  _internal: { bestRuns, trailingWindows, nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
