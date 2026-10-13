@@ -1,0 +1,3273 @@
+# HISTORY.md — archived CLAUDE.md (superseded)
+
+> **ARCHIVE. Do not take instructions from this file.** This is the full CLAUDE.md as it stood before the 2026-10-12 rewrite, kept verbatim for the reasoning behind past decisions (incident write-ups, verification logs, superseded designs). Where it disagrees with the current `CLAUDE.md`, `CLAUDE.md` wins. Known superseded parts include: the intro (iframes into /ops, per-brand Tasks and Loans), "Properties is a three-level drill-down" (4 portfolio tabs, 11 property tabs), Phase 2 Properties and Saved views screens, the command-center indigo design, Leads/GHL and LeavenWealth Financials as portal screens, the units rule "verified first" (now rent roll first), and "Still baked", "Current state" and "Roadmap" at the end.
+
+---
+
+# CLAUDE.md — LeavenWealth Group "Company-All-Data"
+
+Read this fully before doing anything. It is the source of truth for the project.
+When you change architecture, update this file in the same commit.
+
+## What this is
+An all-company internal portal + dashboards for LeavenWealth Group (one company,
+several brands). Two front ends are merged into ONE Express service:
+
+- `/`     → **portal** (`public/portal.html`) — the shell from `docs/mockup/shell.dc.html`:
+            a business rail (Home, then LeavenWealth / Folio Excel / Leadli AI / Liquid
+            Lending), a sidebar per business, a breadcrumb header. See "The shell" below,
+            which supersedes every older description of the portal's menus in this file.
+- `/ops`  → the existing **operations dashboard** (`public/index.html`) — live ClickUp +
+            Supabase. Tabs: Overview, All Tasks, Needs Review, For Approval, L10,
+            Properties (sub-views: Properties / Property Tasks),
+            Loan Views (sub-views: CapEx Funding / Asset Fees / Escrows / TIF / Variable Rate / Maturities).
+- `/api/*`→ existing routes (ClickUp + Supabase). Do not break these.
+
+**Portal ↔ ops (interim, during the unify-into-one-app migration):**
+- Portal **Properties** is **NATIVE** — the iframe is gone. See "Properties: the command-center
+  port" below. Property Tasks stays out of the Properties view.
+- Portal **Tasks** tab (per brand) is segmented **Overview | All Tasks** (+ **Property Tasks**
+  for LeavenWealth only). **All Tasks is NATIVE** — `public/portal-tasks.js` reads `/api/tasks`
+  and filters by space in the browser; it is no longer an iframe. See "Portal Tasks + live sync"
+  below. Overview still iframes `/ops#tab=overview&embed=1&spaces=<ids>`, and Property Tasks
+  still iframes `/ops#tab=properties&sub=tasks&embed=1&bare=1` (`bare=1` hides the property
+  sub-nav → board only). `spaces=<id,id,…>` sets the ops `filterState.space` on load (in-memory
+  per iframe, never persisted). Brand→space map is `LW_SPACES`/`BRAND_SPACES`/`EXEC_SPACES` in
+  portal.html (Leadli=Leadli space; Folio=Folio Excel space; LeavenWealth=the other 10 including
+  the Chris Mitch Jay space; Liquid=none yet → empty-state).
+- Portal **Loans** tab is segmented **Loan Book | Loan Views**: Loan Book reads `/api/loans`
+  natively (Supabase); Loan Views iframes `/ops#tab=loanviews&embed=1` (CapEx Funding / Asset
+  Fees / Escrows / TIF / Variable Rate / Maturities). Loan/debt views moved off Properties.
+- The ops dashboard reads `#tab=<t>&sub=<s>` on load to deep-link; embed CSS keys off
+  `html.embed-only` / `html.embed-bare` (set in `<head>` before render, no flash).
+- Portal reads live where possible: **Loans** → `/api/loans` (Supabase); **Marketing/Ads** →
+  `meta_ads_insight` via a browser supabase-js client (`window.__sb`, anon key), **session-gated**
+  with a baked fallback until portal auth exists. Other cards are baked demo data for now.
+- **Roadmap:** Properties is done (native). Port Property Tasks and Loan Views the same way,
+  then retire `/ops` and `public/index.html`. Until then the remaining embeds are the bridge.
+
+## The shell (2026-10-11) - supersedes older menu, Tasks and design notes below
+
+`public/portal.html` + `public/portal-shell.css`, built to `docs/mockup/shell.dc.html`.
+Properties (`portal-props.*`) is untouched and still mounts at `#reportingNative`.
+
+- **Rail**: Home, divider, one button per business the person can reach, in
+  `BIZ_ORDER`. Ctrl+0 Home, Ctrl+1..4 the businesses in rail order. With one
+  business the rail is hidden and My tasks / All tasks sit at the top of that
+  business's sidebar instead, so nothing becomes unreachable.
+- **Menus** (`MENUS`): LeavenWealth Properties, Team, Departments, Tools & apps,
+  Documents. Folio Overview, Financials, Plans, Reports, Team, Departments, Tools &
+  apps, Documents. Leadli and Liquid Overview, Financials, Team, Departments, Tools
+  & apps, Documents. **The first rail button is Home for everyone else (My tasks,
+  All tasks) and the Executive board for owners/admins** (`homeViews()`): L10
+  agenda, All tasks, Personal tasks, then **Roles & permissions** below a divider
+  (the only access screen; `portal-access.js`). It lists ONLY people with
+  dashboard access: name, email, role. A click expands the row to show their level
+  per company and the screens it gives, with Update (the edit drawer) and Revoke
+  access (deactivate: dashboard login and Claude connector off together; the owner
+  and yourself cannot be revoked here). Invite user is two steps: name and email,
+  then permissions. **The invite sends ONE email: Supabase's dashboard invitation**
+  (the pre-redesign process), whose link lands on `/invite` to set a password. The
+  Claude connector account is created with the same access but its setup email
+  (n8n "Connector access email") is NOT sent on invite; an admin sends it from
+  Update ("Email Claude connector setup") when the person needs Claude. Invites
+  stay disabled until `MCP_ROLE_SECRET` is set (it is, as of 2026-10-11). Businesses no longer carry an Executive board item; an old
+  `view=exec` link lands on the new one. Leads,
+  Loans, Tasks are gone (GHL is a link on Tools & apps). The old Exec tabs
+  (sample Overview, LeavenWealth cash/debt Financials, Org & departments, Data
+  tracker) were removed by instruction on 2026-10-11; `portal-financials.js`,
+  `financials-api.js` and `/api/tracker` are still deployed but nothing in the
+  portal routes to them. Org and department charts remain under Departments.
+- **L10 agenda** (`mountL10` in portal-home.js, `GET /api/home/l10` in
+  home-tasks.js, admins only, the admin's own ClickUp token): ClickUp list
+  901403327501 (MASTER LIST, Company space), split by the "Appears In" labels field
+  `21ad3d3b-...` into Rocks / Sprint / IDS (label ids in `L10.sections`). An item can
+  appear in several. Columns Item, Status, Owner, Due, Priority, Updated; section in
+  the URL as `sec=`. Rows open the task pop-up.
+- **Gates**: an item shows only when `dash_my_access()` holds its catalog id.
+  The third element of a `MENUS` entry names the id when it differs from the page:
+  Folio Financials rides on `reports` (no `financials` row) and Liquid Departments
+  rides on `team` (no `departments` row). No migration was needed. A page the person
+  cannot open is never listed, so nothing renders "no access".
+- **Memory**: `localStorage['lwShell:<staff id>']` = last business and last page per
+  business. A URL fragment wins over it.
+- **Header**: menu button (hides/shows the left menu, per person,
+  `lwSideHidden:<staff id>`), breadcrumb, then full screen and the light/dark icon at
+  the top right.
+- **Light/dark**: an icon switch (its label says what it will do). Kept per person in `localStorage['lwTheme:<staff id>']`; with none saved
+  the device setting (`prefers-color-scheme`) decides. Before the person is known
+  the pre-paint script uses `lwThemeLast`, then `personTheme()` corrects it.
+- **URL**: `#brand=<home|leavenwealth|folio|leadli|liquid>&view=<page>&sub=<tab>`
+  plus Properties' own params and `who=` for the Team filter.
+- **Home = ClickUp tasks** (`home-tasks.js` at `/api/home/tasks`,
+  `public/portal-home.js`). Only the person's OWN ClickUp OAuth token
+  (`X-ClickUp-Token` / `du_token`); never `CLICKUP_API_TOKEN`. No token = 401 and one
+  Connect ClickUp button. Every page of every workspace is read, tasks are
+  de-duplicated by id, cached per token (fresh 60s, then served stale while it
+  refreshes) and per browser session (`sessionStorage.lwHomeTasks`).
+  **Completed tasks are never shown** on Home or the L10 agenda: ClickUp status type
+  `closed`, or a status named complete / completed / done (by instruction; NOT the
+  wider /ops mapping). The server drops them and flags `done`; the browser applies
+  the same rule, so a task marked complete leaves the list at once and the pop-up
+  stays open.
+- **Task dashboard** (`boardHtml()` in portal-home.js), laid out like the
+  click-up-dashboard repo but with four cards, not six: count cards that filter the
+  table when clicked (Open, Overdue, Due this week, then In review on personal tasks
+  or Unassigned on all tasks), a filter bar (search, assignee, status, priority,
+  space), and the table. The L10 agenda uses the same renderer with Rocks / Sprint /
+  IDS as its cards and its own columns. Filters are in memory per board.
+- **The task pop-up** (portal-home.js `openTask(task, {onChange})`, `openPanel(id)`
+  for Home): a centered modal with a dimmed backdrop; X, Esc or a click outside
+  closes it, Tab is trapped inside, the page behind does not scroll
+  (`html.hm-locked`). Home and the L10 agenda both open it; an edit in one copy of a
+  task is mirrored into Home's. A row click opens it in the
+  dashboard (ctrl/cmd/middle click on the name still opens ClickUp). Ported from
+  the /ops task detail (`openTaskDetail`, `openStatusEditor`, `openDuePicker`,
+  `openAssigneePicker`/`saveAssignees`, `renderComments`/`submitComment` in
+  index.html): status from the list's own statuses with ClickUp colours, editable
+  due date (5 pm, as /ops sets it), assign dialog limited to the list's members,
+  priority, tags, created, updated, comments newest first with attachments as
+  links, Ctrl+Enter posts. Writes are optimistic: the row and its group move at
+  once, and a ClickUp refusal puts the row back and shows ClickUp's own message.
+  Every call is `/api/home/{task,list}/...` in home-tasks.js with the person's
+  own token (`act()`); a ClickUp 401 on a task is returned as 403 so the person
+  stays signed in. The /ops routes (`/api/task/:id`, `/api/list/:id/...`) read
+  with the shared token and are NOT used here. The panel frame is built once per
+  opening and its contents are morphed, so the slide-in plays once and a field
+  being typed in keeps its caret. `test/test-home-panel.js` drives all of it.
+- **Team / Departments / Tools** read `/api/shell/*` (`shell-api.js`) as the
+  person's connector role. Folio Plans reads `/api/folio/financials/plans`.
+- **Tables** (`dataTable()` in portal.html): sortable headers (nulls last), frozen
+  header, Compact/Comfortable density (`localStorage.lwDensity`), CSV export.
+- **Design**: Graphite (dark, default) and Light stone in `tokens.css`, IBM Plex
+  Sans, radii 6/8/8. Sentence case everywhere: `portal-financials.css` ends with a
+  restyle block that removes the old uppercase mono labels inside the money
+  modules. The command-center indigo described under "The design" is history.
+- Still baked: the Executive board Overview's four figures, labelled as samples.
+
+Tests: `test/test-shell.js` (rail, menus, gates, memory, shortcuts, no capitals),
+`test/test-home.js` (a task in two businesses appears once; never the shared
+token). Screenshots: `node tools/shot-pages.js --pages tools/shell-pages-after.json
+--prefix after --clickup test/fixtures/home-tasks.json` and
+`node tools/mockup-shell.js` (renders the mockup without its runtime) write
+`docs/screenshots/shell/`. The harness pins `TZ=UTC`: from UTC+8 a Postgres DATE
+renders a day early and Financials pins to a snapshot that does not exist.
+
+## Stack
+Node 18+, Express, vanilla HTML/CSS/JS (NO framework, NO build step — keep it that way
+unless explicitly told). Postgres via `pg`. Deployed on Railway (nixpacks, `node server.js`).
+
+## Run / deploy
+```
+npm install
+npm start           # http://localhost:3000  (portal at /, ops at /ops)
+```
+Railway: push to the repo connected to the service; it runs `npm install` then `node server.js`.
+`railway.json` already sets the start command. No build step.
+
+## Environment variables (set in .env locally and Railway — NEVER commit secrets)
+Ops dashboard (already in use):
+- `SUPABASE_DB_URL`  postgresql://postgres:PASSWORD@db.lhdpzalqrwepfjoicdiz.supabase.co:5432/postgres
+- `DATA_SOURCE=supabase`  (makes Properties/loans/tasks read from Supabase)
+- `CLICKUP_API_TOKEN`, `CLICKUP_TEAM_ID`, `CLICKUP_LIST_ID`
+- `CLICKUP_OAUTH_CLIENT_ID`, `CLICKUP_OAUTH_CLIENT_SECRET`
+- `CLICKUP_OAUTH_REDIRECT_URI` (optional) — pins the OAuth redirect; see the ClickUp sign-in notes
+- `PORT` (Railway injects this)
+Portal live-data + auth (to be added):
+- `SUPABASE_URL=https://lhdpzalqrwepfjoicdiz.supabase.co`
+- `SUPABASE_ANON_KEY` (publishable key — safe for the browser, RLS enforces access)
+- `SUPABASE_SERVICE_ROLE` (server-side ONLY, never sent to the browser)
+
+## Supabase project
+- Project ref: `lhdpzalqrwepfjoicdiz`  URL: `https://lhdpzalqrwepfjoicdiz.supabase.co`
+- Single tenant. `tenant_id = 72381c81-af95-4e1d-ad0d-20a3a3421119`
+- Brand layer = `company` table (4 brands, fixed UUIDs):
+  - Leadli AI    `c0000000-0000-4000-8000-000000000001`  (entity 8bd3c562-1feb-4e85-b363-bc21aebff616)
+  - Folio Excel  `c0000000-0000-4000-8000-000000000002`  (entity 32bec21a-b52f-49db-93fb-fea5a594b480)
+  - LeavenWealth `c0000000-0000-4000-8000-000000000003`  (entity b30689f0-4d3c-4189-bd4a-f89c74008a94)
+  - Liquid Lending `c0000000-0000-4000-8000-000000000004`
+- Lead providers (`lead_provider`, Leadli only): Closers.io `a1000000-...-001`,
+  AIA `a1000000-...-002`, Organic `a1000000-...-003`.
+
+## Data model (public schema)
+Core (pre-existing): tenant, tenant_member(tenant_id,user_id,role), entity(+company_id),
+property, unit, loan, loan_balance, loan_collateral, property_financials, insurance_policy,
+ownership, vendor, staff(+avatar_url,+description), profiles(+avatar_url,+description),
+contact, deal, communication, task, document, integrations, investor, investor_stake.
+
+Added for this project:
+- `company`, `company_member(company_id,user_id,role)` — per-brand access grants.
+- `financial_account`(+account_type), `account_balance`.
+- `transaction_category`, `transaction` — single-entry ledger (direction in/out/transfer).
+- `statement` — bank / credit_card / loan / pm_income_expense report headers.
+- `meta_ads_insight`, `leadli_marketing_daily` — Meta ads (populated by n8n).
+- `lead`(+provider_id,+company_id), `lead_provider`, `appointment`.
+- `loan`(+`purpose`) — purpose ∈ primary_mortgage / construction_note /
+  primary_plus_construction_note / seller_carry / pace_equity / bridge / pac_due
+  (seniority is the separate `position` column). **`loan.interest_rate_pct` is a decimal
+  FRACTION** (0.035 = 3.50%) — multiply by 100 to display.
+- Read-only loan/debt SQL views served via `/api/views/:key` (grants: `authenticated`):
+  `v_capex_funding` (capex), `v_asset_management_fees` (asset-fees), `v_escrows` (escrows),
+  `v_tif_properties` (tif), `v_variable_rate_loans` (variable-rate), `v_loan_maturities`
+  (maturities). All expose `property_name` + `management_company` (the PM filter). All six
+  are surfaced in the ops **Loan Views** tab.
+
+## Access: ONE model, shared with the Claude connector (2026-10-11)
+
+Supersedes everything below about granting access. The Users & Roles details
+further down (dashboard_permission written by the screen, `/api/access/*`,
+portal-users.js) are history: those write routes now answer 410 and the file
+is gone.
+
+- **Source of truth: `mcp.access_grant`** (+ `mcp.app_user` for active,
+  principal, owner) - the rows the LeavenWealth Database Connector reads and
+  its admin tools write. Levels and their meaning: `mcp.access_level`; where a
+  level may be given: `mcp.level_scope` (admin cannot be given on
+  `leavenwealth` alone - only on `all` or another company).
+- **Screens follow the level**: `mcp.level_module` (one table: level x screen x
+  can_write), `mcp.module_restriction` narrows per person (never widens),
+  `mcp.custom_module` picks screens for the Custom level. `mcp.sync_dashboard()`
+  rewrites `public.dashboard_permission` and `staff.dashboard_access/role`;
+  triggers on grants, restrictions, custom screens and app_user call it, so a
+  change made with the connector's own tools moves the dashboard too.
+  `dash_my_access()` is unchanged - it reads the derived rows.
+  A person is only synced once `app_user.dashboard_synced` is true (set when
+  an admin saves them in Users & Roles, or by migration part 4 for the four
+  approved people). Owner is a person (`dashboard_owner`, Chris), not a level;
+  admin on `all` = dashboard admin.
+- **Same enforcement**: data APIs run as the caller's connector role.
+  `portal-identity.js` `guard()` / `asCaller()` look up `mcp.app_user.db_role`
+  for the staff row and `supabase-db.js` runs every `q()`/`tx()` in that request
+  on a per-role pool whose connections are proven (`SET ROLE` + `current_user`
+  check, destroyed on failure) - so Postgres applies the connector's grants and
+  row rules. No connector account = 403, no data. `adminOnly()` keeps Users &
+  Roles, setup forms and the unrouted legacy APIs on the privileged connection.
+  `/api/loans` and `/api/tracker` run as the caller only when a portal session
+  is present: `/ops` still calls them with a ClickUp token, unchanged, until
+  `/ops` is retired.
+- **reporting.\* through `public.rpt_*` views**: materialised views cannot hold
+  row rules, so each reporting relation has a security_barrier view filtered
+  by the connector's own generated rule (`mcp.class_expr`) for `current_user`
+  (postgres passes). Classified in `mcp.table_class`, granted by
+  `mcp.sync_user_access`. props-api / props-views read only `rpt_*`.
+  `rpt_am_fee_month` reads through `mcp_rls.am_fee_month_rows()` (definer)
+  because `reporting.am_fee_month` is security_invoker over an unclassified
+  table and a matview. Row rules cost real time under a role (Franklin Court's
+  monthly lines ~0.5 s as an lw_user, ~1 ms as postgres) - the same cost Claude
+  pays for the same question.
+- **One person, several emails**: `mcp.app_user_email` (alias list; an address
+  owned by another account is refused), `app_user.staff_id` links the dashboard
+  person. **Audit**: `mcp.access_change` (who - from `mcp.actor`, person,
+  company, old, new) for levels, active, principal, screens.
+- **Users & Roles** (Executive Board only): `people-api.js` at `/api/people` +
+  `public/portal-access.js`. Invite = one transaction (staff, `mcp.add_user`,
+  `mcp.provision_user_role` with the connector's password rule
+  HMAC-SHA256(`MCP_ROLE_SECRET`, role), grants, `sync_user_access`), then the
+  Supabase sign-in invite, then the n8n workflow **"Connector access email
+  (dashboard invites)"** (G6O73UaJOyKNjpMG, Outlook "Jay") emails the token.
+  The token is never returned to the browser; the workflow saves no execution
+  data. **Invites need `MCP_ROLE_SECRET` on this service (same value as
+  lw-data-mcp)**; without it they refuse rather than give the role a password
+  the connector cannot use. Deactivate = `app_user.active=false` +
+  `sync_user_access` (nologin) + dashboard off + Supabase ban.
+- Migrations `20261011_access_1..7_*.sql`; `tools/dry-run-access.js` applies
+  1-4 in a transaction, checks, rolls back. Tests: `test/test-access-parity.js`
+  (same rows via dashboard API and connector role, live), `test/test-access-ui.js`.
+
+## Dashboard access: staff, dashboard_module, dashboard_permission
+Applied 2026-08-12; the ten migrations are in `migrations/2026081219*.sql`.
+**Historical: see "Access: ONE model" above for how access is set now.**
+
+**`staff` IS the dashboard user.** There is no separate user table.
+`staff.dashboard_access` + `staff.dashboard_role` (owner | admin | user), paired by
+the `staff_dashboard_consistent` constraint so a half-configured row cannot exist.
+**`staff_company.role` is the job title** ("Director of Finance") — it is the company
+role and has nothing to do with dashboard access. Never read it for permissions.
+
+`dash_my_access()` is the frontend contract: one call at boot returning
+`{user, companies, access}` with access keyed by `nav_id`, absent meaning no access.
+**Never call `dash_level()` per module from the browser.**
+
+### `/api/access/users` does not embed — it joins in code
+`dashboard_permission` has **two** foreign keys to `staff` — `staff_id` (the subject)
+and `granted_by` (an audit column) — so an unqualified embed is ambiguous. Verified
+against the live API:
+
+| form | result |
+|---|---|
+| `dashboard_permission(...)` | **HTTP 300 `PGRST201`** |
+| `!dashboard_permission_staff_id_fkey` | 200 ✅ |
+| `!staff_id` (column form) | 200 |
+| `!dashboard_permission_granted_by_fkey` | **200 — and silently wrong** |
+
+The last row is the trap. The wrong-direction hint is *accepted*: it joins on who
+granted the row rather than whose row it is, so it returns data and the data is wrong.
+A query that works and is wrong does more damage than a 300. If you ever embed `staff`
+**from** `dashboard_permission`, it is ambiguous the same way and `granted_by` is the
+one you would want there.
+
+**`/api/access/users` therefore uses no embed at all.** It reads `staff`, then reads
+`dashboard_permission` filtered by `staff_id=in.(…)` over just those people, and joins
+them in JavaScript. Two round trips instead of one, on a payload of a handful of rows.
+
+The hinted embed was **not** broken, and the Supabase edge logs say so — read them
+before re-litigating this. Every `PGRST201` the app ever caused came from the
+unqualified form and stopped at `2026-08-12T21:18:14Z`; the hinted request that shipped
+in `390ed53` returned **200 in production at `2026-08-13T00:43:14Z`**. The error still
+on screen three minutes later was a **sticky client-side error string**, not a live
+failure: `ui.error` in portal-users.js survives until something calls `load(true)`, and
+a single-page app gives you no reload to clear it. Hours went into a bug that was
+already fixed, so: when a screen reports a server error, check the server's own logs
+before touching the query. `query_logs` on `source = 'edge_logs'` filtered by
+`log_attributes['request.path']` shows every request and status.
+
+Dropping the embed anyway is a durability choice, not a fix for that error. `PGRST201`
+cannot occur on a request with no embed in it, and this is the screen that fixes
+everyone else's access — the wrong place for a failure mode whose blast radius is
+"nobody can be granted anything".
+
+It is also the safer of the two. The silent-wrongness in the table above is only
+reachable through a hint; a join written out in code cannot pick the wrong foreign key
+quietly. `test-access-api.js` pins it with a fixture where **every grant was handed out
+by Ada**, so a join on `granted_by` gives Ada all three rows and Ute none — and the
+test asserts both that each person gets their own grant and that the granter does not
+collect anyone else's. Mutating the route to join on `granted_by` fails those two
+checks; that was run, not assumed. If you reintroduce an embed here, that fixture is
+what will catch you.
+
+### Users & Roles
+Shows only `dashboard_access = true`. A staff record without access is not a dashboard
+user and belongs on **Team directory**. Exec vs per-business scoping applies on top.
+
+- **`user_id IS NULL` means invited but not yet accepted** — `handle_new_user()` fills
+  `user_id` only on acceptance — and is rendered as a green **"Invite sent"** chip at
+  the right edge of the Person cell, between the name and the role. It clears itself:
+  nothing in the app resets it, because `handle_new_user()` fills `user_id` the moment
+  the person sets a password and signs in. Those rows are
+  **grouped into "Invited — not yet accepted" below the accepted users**, not hidden:
+  an invitation nobody can see is one nobody can chase, and "did that actually send?"
+  stops being answerable from the screen that sent it. The Active heading appears only
+  when both groups exist — one group needs no label saying what it is.
+- **`is_active = false` staff are deliberately NOT filtered out of this list.** They
+  cannot sign in (`current_staff_id()` requires `is_active AND dashboard_access`), but
+  hiding them here would hide access that still needs revoking, on the one screen that
+  can revoke it.
+- **Revoke** sets `dashboard_access = false`; `dashboard_role` **must go NULL in the
+  same UPDATE** or `staff_dashboard_consistent` rejects it. The staff record is not
+  deleted, and grant rows are left in place — they are inert while access is off
+  (`dash_level_for` and `current_staff_id` both require it), so restoring access
+  restores what the person had.
+- **Adding someone is a typed form — first name, last name, email — not a staff
+  picker.** A new hire is not in `staff` yet, and a picker made that the one case the
+  screen could not serve; the form creates the staff record alongside the login.
+  `staff` has a unique index on `(tenant_id, lower(email))`, so an address matching an
+  existing person must **UPDATE** that row, never insert a second one — that guarantee
+  is the server's, and the UI surfaces the match ("already belongs to X") as the
+  address is typed, along with any access they held before a revoke.
+- **Avatars come from `staff.avatar_url` everywhere**, with the initials chip rendered
+  *underneath* the photo so dropping a broken `<img>` reveals it with nothing to
+  re-render — `avatarChip()` in portal-users.js, `staffPhoto()`/`renderIdentity()` in
+  portal.html. The headshots are hotlinked from `static.showit.co`, so that path is
+  live. `object-position: 50% 20%`, because a centred square crop of a portrait cuts
+  the top of the head off. **Test fixtures must use a `data:` URI** — the sandbox has
+  no outbound network, so an http URL fails, the fallback strips the img exactly as
+  designed, and the result is indistinguishable from the feature being broken.
+
+### Team directory reads live staff
+`GET /api/team` returns every **active** staff row; `V.team()` and the profile drawer
+in portal.html render it. `is_active` is filtered here and deliberately *not* on Users
+& Roles: a directory answers "who works here now", while Users & Roles answers "who can
+get in", where a departed person still holding access is the most important row.
+
+The job title is `staff.title`, **not** `staff_company.role` — `staff_company` has one
+row per person per business (Brian Nelson two, Jay Delgado three), so joining it lists
+people two and three times.
+
+Five staff rows have no title, bio, photo or phone, and one has an avatar URL sitting in
+`description`. A description that is only a URL is dropped server-side rather than
+rendered as somebody's About text. The baked `STAFF` array now serves **only** the org
+and department charts, which encode reporting lines the database does not hold.
+
+### Staying current: three layers, none of which covers the others
+1. **A change made here** — invite, save, revoke each call `load(true)`. Works today.
+2. **A change made by someone else** — `staff` and `dashboard_permission` are bound to
+   the `access` view in `TABLE_VIEWS`, and portal.html's realtime `invalidate` calls
+   `PortalUsers.invalidate()`. Both halves are required: the component caches its list,
+   so `rerender()` without dropping the cache repaints the identical rows. **This layer
+   is dead until `migrations/20260810_supabase_webhooks.sql` is applied** — until then
+   nothing POSTs to the hook and no SSE ever fires.
+3. **Returning to a backgrounded tab** — `visibilitychange` in portal-users.js forces a
+   refetch. The stream has no replay buffer, so a client that was disconnected cannot
+   know what it missed; this is also the only layer that works before (2) is applied.
+
+`dashboard_module` is deliberately **not** bound: the catalog is seeded by migration
+rather than edited in the app, and `PortalUsers.invalidate()` does not clear
+`ui.modules`, so binding it would schedule a refresh that could not refresh it.
+
+The focus listener is bound **once**, not per paint. `render()` runs on every
+navigation, and a listener added each time leaves N copies attached firing N refetches
+per focus — the same bug as the old `bindOnce()`. The test asserts one focus is still
+one request after three re-renders.
+
+Every check counts **requests**, not rows: a repaint from cache and a real refetch look
+identical on screen, which is exactly why this went unnoticed.
+
+### Only one staff row has dashboard access
+Verified 2026-08-13: 1 of 14 `staff` rows has `dashboard_access = true` (Chris
+Pomerleau, owner). So this screen correctly shows **one person**, and an empty-looking
+list is the data, not a bug. The other 13 reach it through the Invite user picker,
+which lists `dashboard_access = false` staff. Confirmed as intended: the screen lists
+dashboard users only.
+
+`current_tenant_ids()` reads **`staff`**, not `tenant_member` — it returns
+`tenant_id from staff where user_id = auth.uid() and is_active and dashboard_access`.
+There are zero `tenant_member` rows in this project and RLS works fine without them, so
+do not "fix" that absence. Impersonating the owner through RLS reads 14 staff, 49
+modules.
+
+**Users & Roles is role-gated, not permission-gated** — visible when `dash_role()` is
+owner or admin, so an admin cannot lock themselves out of the screen that fixes
+access. This is the **one exception** to "add a nav item, add its catalog row":
+`access` exists in `dashboard_module` only under Executive Board, so requiring the
+grant would hide the per-brand item from everyone including the owner. **Do not seed
+per-brand `access` rows** to make it symmetrical — a catalog row means grantable, and
+grantable means an owner could hand the screen to a plain user.
+
+### Invite and the Auth admin API
+There is no authoritative REST reference for the Auth admin endpoints. These shapes
+are read from the **auth-js source** (`GoTrueAdminApi.ts`, `lib/fetch.ts`), not guessed:
+
+    POST   /auth/v1/invite?redirect_to=<encoded>   { email, data? }
+    PUT    /auth/v1/admin/users/<uuid>             { ...attributes }
+    DELETE /auth/v1/admin/users/<uuid>             { should_soft_delete: false }
+
+    headers: apikey + Authorization: Bearer  (both the SERVICE ROLE)
+             X-Supabase-Api-Version: 2024-01-01
+             Content-Type: application/json
+
+**The redirect is a QUERY PARAMETER, not a body field.** In auth-js it is generic
+request plumbing — `lib/fetch.ts` builds `qs['redirect_to']` from `options.redirectTo`
+— which is why it reads like a body option. Put it in the body and nothing errors: it
+is ignored and the link falls back to Site URL, so the invite arrives, works, and
+lands in the wrong place. The same silent failure happens if the URL is not on the
+allow list in **Authentication → URL Configuration**. DELETE carries a body, which is
+unusual but is what auth-js sends.
+
+**Leave the email templates alone.** `{{ .ConfirmationURL }}` already resolves to
+`<ref>.supabase.co/auth/v1/verify?token=…&redirect_to=…`; replacing it with
+`{{ .SiteURL }}/invite` strips the token.
+
+### auth.users cannot be deleted while anything references it
+**~38 columns in `public` reference `auth.users` with `ON DELETE NO ACTION`** —
+`staff.user_id` plus `created_by` / `updated_by` / `uploaded_by` on `property`,
+`loan`, `entity`, `transaction`, `document`, `statement`, `unit`, `task` and others.
+Only **three cascade**: `profiles.id`, `tenant_member.user_id`, `company_member.user_id`.
+
+So **any Auth user who has ever created or updated a record cannot be deleted** —
+from the Supabase dashboard or anywhere else — until those columns are nulled. Someone
+will eventually try to delete a departed employee and hit a wall of foreign keys.
+
+This lands directly in the invite rollback. `handle_new_user()` fires on Auth user
+creation and immediately sets `staff.user_id` by email match, so by the time the
+staff/grant write fails, the staff row **already points at the new Auth user** and
+deleting it first fails with a foreign key violation — leaving exactly the orphan the
+rollback exists to prevent. The order must be:
+
+1. null `staff.user_id` and restore `dashboard_access` / `dashboard_role`
+2. **then** delete the Auth user
+
+For a fresh invite only `staff.user_id` is involved, because nothing else has been
+written yet. The rollback runs with the **service role**, not the caller's JWT: the
+caller's own permissions may be why the write failed, and a rollback that can itself
+be refused is not a rollback. `test/test-invite.js` forces the failure and asserts
+both that the Auth user is gone and that no half-configured staff row remains; its
+fake enforces the foreign key, and one check proves that enforcement is live.
+
+## Verify the DEPLOYED artifact, never a local copy of it
+
+This cost two days, from both directions, and it is the single most useful habit in
+this repo.
+
+**What happened.** A patched `supabase-properties.js` existed in a sandbox and was
+described in a brief as "the data layer already exposes the new fields". The pushes
+carrying it had 403'd, so the repo still had the pre-SOV version. Three commits of
+correct Properties UI were built against payload keys the server has never emitted.
+They rendered empty and read as filter bugs, so two further rounds were spent
+diagnosing the filters — "options built from filtered rows", then "a loan attribute
+looked up at property level". Both were plausible. Both were wrong.
+
+**What settled it in one command:**
+
+```js
+fetch('/api/properties').then(r => r.json()).then(d => {
+  const p = d.entities.flatMap(e => e.properties)[0];
+  console.log(Object.keys(p));                       // no ownership_status/parcels/deal
+  console.log(Object.keys(p.buildings[0].fields));   // no 'occupancy / type of asset'
+});
+```
+
+**The rule.** When a screen is empty or wrong, read what the server actually returns
+before reasoning about the code that consumes it. A missing key fails SILENTLY as an
+empty string — it never throws — so it is indistinguishable from a logic bug by
+inspection, and reasoning will produce a confident wrong answer every time.
+
+The same rule caught two other faults this week: a `Cache-Control: no-store` header
+proved a build was current when reasoning said it could not be, and Supabase
+`edge_logs` showed a query returning 200 while the screen displayed its error, which
+turned out to be a cached HTTP 300 replayed from disk with no request reaching the
+server at all.
+
+**It is silent in BOTH directions, which is why it has to be reflexive.**
+
+| Described artifact | What you get instead of an error |
+|---|---|
+| A payload key that is not emitted | `''` — reads as an empty filter, a blank field, a short list |
+| A column that is null on 72 of 75 rows | a filter that matches nothing, forever |
+
+Neither throws. Both look exactly like a logic bug in the consuming code, so the
+instinct to "read the code more carefully" is precisely the wrong move — it produces a
+confident wrong answer, twice in a row, as it did here.
+
+This runs both ways between people too. One side asserted a file's contents from a
+local copy and the other built on it; the other side asserted a column's contents from
+memory and the first checked before building. Same failure, opposite directions, one
+rule: **do not build on a described artifact — query it.** A `select count(*)` or a
+`fetch()` costs one command and settles what an hour of reasoning cannot.
+
+**Corollaries.**
+- Fingerprint a deployment by something only the new build has — a header, a file, a
+  string — rather than by whether the fix "should" be live.
+- `query_logs` on `source = 'edge_logs'`, filtered by `log_attributes['request.path']`,
+  shows every request and status. Read it before touching a query.
+- If a payload label is renamed, move BOTH sides in one commit. `propNorm(label)` is
+  the key the UI reads; splitting the rename reproduces exactly this failure.
+
+## Properties + the SOV data model (imported Aug 2026)
+
+**The vocabulary changed and the old table names lie.** Read this before touching
+`/ops#tab=properties`.
+
+| Concept | Lives in | Trap |
+|---|---|---|
+| Property | `property` | 168 rows, only **79 held**. 84 sold, 4 demolished, 1 not owned. |
+| Building | `unit` (badly named) | `unit_identifier` = "Building 1". **268 rows.** |
+| Apartment | `unit.current_total_units` | **2,434 total.** Counting `unit` ROWS as apartments is wrong. |
+| Parcel | `property_parcel` | Many per property (one has 47). `property.parcel_id` was DROPPED. |
+| Offering | `deal` (42 rows) | The old pipeline table was renamed to `acquisition`. |
+
+Verify UI work against: **Copperleaf** 5 buildings / 87 apartments (incl. a garage and
+a street shed at 0), **Sierra Gardens** 235 + 0, **Bancroft Place** 8 + 8 garages,
+**Boulder Pointe** 13 + 13. `test/test-sov-properties.js` pins all four.
+
+### Ownership status defaults to `held`
+84 of 168 properties are sold. Without the default, every list, count and roll-up is
+dominated by assets the group no longer owns. **Clear returns to `held`**, not to all
+168, and the default deliberately does NOT count as an active filter — otherwise the
+screen looks filtered the moment it loads and people clear it without knowing why.
+
+`property.status` (Under Development / Stabilized) is **operational** and unrelated to
+`ownership_status`; a sold property can still read Stabilized. Both are shown, labelled
+distinctly.
+
+### "Residential only" is defined by EXCLUSION
+`SOV_OUTBUILDING` lists garage, street shed, flood insurance, vacant land, clubhouse,
+corporate office, HOA unit. **56 buildings have a NULL `structure_type` and hold 123
+apartments between them**, so an inclusion list would silently drop them from exactly
+the unit maths the toggle exists to serve. Unknown stays visible.
+Dropdowns are built from the data, never a constant — the live set contains a bare
+`Residential` value that no hand-written list had.
+
+### Rendering rules that are easy to get wrong
+- **Apartments = SUM(`current_total_units`)**, never the building count.
+- **Buildings sort residential-first with a NATURAL comparator.** Plain string order
+  puts "Building 10" before "Building 2" — visible across Boulder Pointe's 13.
+- **`0` units on a garage is COMPLETE data**, not missing. Null is different, and the
+  sheet usually carries `unit_count_note` ("Industrial", "2 Bed / 1 Bath") instead.
+- **Outbuildings have `location_street = NULL` on purpose** — they share the parent's
+  address. Fall back to it and say so; never render blank.
+- **Insurance limits are a BASIS plus sometimes a number.** 142 of 262 Business Income
+  rows are `actual_loss_sustained` (uncapped). Render the number alone and a fully
+  populated policy looks like an empty form. The composed fields are suppressed from
+  the generic grid via `SOV_RAW` so they are not printed twice.
+- **Wind/hail is a percentage with a floor**, often per building: `3% / $25,000 min
+  (per building)` from the structured columns.
+- **Tri-state flags** (fire alarm, sprinklered, escrow): true / explicitly-false /
+  never-stated are three different answers. A dashed outline carries the third.
+- **`unit_count_verified` leads**; `unit_count_reported` shows as a secondary only when
+  it disagrees — it is often just the first building's count.
+- Parcel numbers keep their dashes and periods (`216-13-0-10-01-007.00-0`) and render
+  verbatim in a mono chip.
+
+### Escrow: the verification targets, and why the obvious query is wrong
+
+`loan_collateral` holds **both levels** — 42 rows keyed by `property_id`, 15 by
+`unit_id`. A loan can be secured against a property OR against a building inside it,
+so a property "has an escrowing loan" when either is true. `p.loans` unions both; that
+is the BUG-1 behaviour, and it is correct.
+
+Joining only `loan_collateral.property_id` under-counts and looks authoritative while
+doing it. **Bancroft Place settles it**: zero property-level collateral rows, one
+unit-level. The narrow query reports "Bancroft has no tax escrow" while its eight
+buildings demonstrably do.
+
+**Correct targets** (property → collateral at EITHER level → loan). Identical with or
+without the held filter, because every matching property is held:
+
+| Filter | Properties | Loans |
+|---|---|---|
+| Taxes | **16** | 20 |
+| Insurance | **3** | 4 |
+| Replacement reserve | **10** | 11 |
+| Any (`has_escrow`) | **19** | 23 |
+
+`has_escrow` and "any of the three booleans" agree at 19 (and at 23 on loans), so the
+separate Any toggle cannot disagree with the multi-select beneath it.
+
+Superseded figures — `Taxes 9 · Insurance 1 · Replacement 6 · Any 12` — are
+property-collateral-only. They are recorded here because they were circulated as
+expected values: **read against correct behaviour they look like failures.**
+
+Escrow lives ONLY on `public.loan`. Two decoys are empty and must not be read:
+`loan.escrow_types` (0 rows, deprecated) and `unit.tax_escrow` /
+`insurance_escrow` / `replacement_reserve` (0 rows each, legacy).
+
+**A near-matching count is disconfirmation, not confirmation.** Reaching loans through
+`borrower_entity_id` gives 13 properties against an observed 16 — close enough to look
+like the cause, and it was not. Seven of the sixteen have no escrowing loan naming
+their entity at all, which rules that path out entirely. Both times a plausible
+mechanism nearly matched here, it was wrong; check the mechanism, not the proximity.
+
+### Known data quirks — do NOT "fix" these in the UI
+- `property.dog_park` is CORRUPTED in the source (contains addresses). Do not display
+  it; use `dog_park_count` once the sheet is realigned.
+- `Flood Insurance` structure types are insurance lines, not physical buildings.
+- **`unit.year_renovated` does not exist** — only `property.year_renovated`. The
+  original brief asked for it per building; there is no column to read.
+- Only **6 loans** carry `lender_id`, so the mortgagee clause is rare. `loan.lender` is
+  free text kept for the old label; `lenderRecord` is the normalised row and is joined
+  in code (not embedded) so a loan without one still renders.
+
+## Three screens specified but NOT built (database layers done)
+
+Data Tracker, Cash & Debt quarterly, and the SOV editor. Every view exists and every
+figure below was verified live before any UI work started.
+
+| Object | Rows |
+|---|---|
+| `v_tracker_megan` | 36 |
+| `v_tracker_mitch` | 10 |
+| `v_sov` | 268 (one per building) |
+| `v_sov_tax_filers` / `v_sov_entities` / `v_sov_properties` / `v_sov_buildings` | 34 / 110 / 168 / 268 |
+| `v_cash_debt_summary` | 2026 Q1 cash $6,291,363.69 debt $229,329,779.11 (168/58); Q2 $5,073,105.35 / $225,424,320.06 (160/55) |
+| `account_balance` unverified | **441 of 441** |
+
+### The tracker badges count OUTSTANDING work, not rows
+The spec asked for badges of 36 and 10 "from `v_tracker_counts`". Those are different
+numbers, and the view is the correct one:
+
+```
+Megan  36 rows = 32 open + 4 resolved                    -> megan_open = 32
+Mitch  10 rows = 3 open + 4 blocked + 1 waiting + 2 done -> 8 outstanding
+```
+
+`v_tracker_counts` excludes finished items; the list views return everything. A badge is
+a workload signal, so it must count what needs doing — building to the row totals puts
+resolved and done items in it. Use `megan_open` and `mitch_exceptions + mitch_tasks`,
+and expect the badge to be SMALLER than the list it opens. That is correct, not a bug.
+
+### Cash & Debt: every balance is a draft
+All 441 rows are `is_verified = false`, from a source marked "DRAFT REQUIRES MITCH
+HAGEN VERIFICATION". The screen must say so. `v_cash_debt_summary` exposes
+`all_verified` (currently false) so the badge can be driven from data rather than
+hard-coded.
+
+Only 2026 Q1 and Q2 exist. Offer only quarters present in the data — rendering an empty
+Q3 as zeroes states a fact nobody has.
+
+`cash_source` is Bank (192), Buildium (42), PM-Bank (17), AppFolio (5). Buildium and
+AppFolio are property-management systems, so those accounts legitimately have no
+institution or last4; that is not missing data.
+
+### SOV editor: `v_sov` is a VIEW — never write to it
+It returns `building_id`, `property_id` and `entity_id` on every row so each column can
+be routed to its own table: entity (tax filer, quarterly reports, tax projection),
+property (name, purchase, market value, manager, ownership), unit (address, units,
+occupancy type, sqft, year built, stories, alarms, construction, counts),
+insurance_policy (carrier, renewal, deductibles, premium, limits, TIV), loan (lender,
+escrow, DSCR), property_parcel (parcel id).
+
+**Never write `property.unit_count_reported`** — it is the immutable source-document
+figure, and it is the column that produced the wrong 1,355 unit total. Corrected counts
+go to `unit_count_verified` with `_by`, `_at` and `unit_count_note`.
+
+Every cell change logs to `sov_edit_log` (target_table, target_id, column_name,
+old_value, new_value, edited_by).
+
+Insert conventions, all recorded in `schema_changelog`: a building is identified by
+`(property_id, unit_identifier)` and never by address, because several buildings share
+one address and outbuildings have none; outbuildings get `location_street = NULL` and 0
+apartments rather than a copy of the parent's address; parcels split on `A / B` into
+separate rows keeping dashes and periods; insurance limits carry a basis, and where
+there is no number the basis IS the value.
+
+## The design, and where it came from
+
+The whole service now wears command-center's design: indigo on a near-black indigo
+ground, Space Grotesk / Instrument Sans / JetBrains Mono, 8/11/16 radii, and mono
+uppercase micro-labels on every chip, pill and small button.
+
+All of it lives in `public/tokens.css`. That is the point of the file — one edit
+re-themes the portal, `/ops`, `login`, `invite` and `portal-properties.css`
+together, and nothing downstream needs to know a colour changed.
+
+| | |
+|---|---|
+| Ground / card / raised | `#0E1120` / `#161A2C` / `#1D2238` |
+| Accent (was `--brass`) | `#7C6CFF` |
+| Good / bad / warn | jade `#35D0A5` / rust `#FF5A45` / amber `#FFB020` |
+| Ink, four levels | `#EDEFF8` `#C7CCE4` `#9BA2C2` `#828AB0` |
+| Radii | `--r-sm 8` `--r-md 11` `--r-lg 16` |
+
+### Four levels of ink, not three
+The source design has `--cream --text --dim --dimmer` and uses all four; this file
+had three. `--ink-4` was added rather than collapsing dimmer into `--ink-3`,
+because every label/value pair on the page relies on that fourth step and
+flattening it makes labels compete with their own values.
+
+### Status and series share hues here — that has a cost
+command-center uses ONE colour set for both, so `--s3` and `--good` are both jade,
+`--s2` and `--crit` are both rust. That contradicts this file's older rule that
+status colours are never reused as series colours, and it was adopted knowingly:
+a chart in this palette **must not lean on colour alone** to say good or bad,
+because the same jade means "category three" two panels over. Label the series.
+
+The four series hues do still separate under colour-vision deficiency, which was
+checked rather than assumed — violet / red-orange / green-cyan / yellow. Under
+deuteranopia the last three collapse toward the yellow band, so they separate by
+lightness instead: rust dark, jade mid, amber bright. Swapping a hue means
+re-checking that.
+
+### The light theme is derived, not inverted
+command-center is dark-only, so there was nothing to copy. The light block keeps
+the same indigo and the same status hues, re-stepped for a light ground. Inverting
+the dark values instead would make one theme a photographic negative of the other
+rather than two members of one family.
+
+Dark is the portal's default (`theme='dark'` in portal.html), so the adopted
+palette is what loads.
+
+### `--shadow` stayed a hairline ring
+The source design's shadow carries an inset top highlight and a deep drop. Plenty
+of surfaces here use `--shadow` **instead of** a border, and giving them a drop
+shadow alone strips their outline and adds a glow. Depth went into `--shadow-pop`,
+which is the token that carries the inset highlight. Do not "finish the job" by
+moving it into `--shadow`.
+
+### Typography is applied in portal.html, not in tokens.css
+A variable can carry a typeface; it cannot carry how the type is used, and that is
+most of what makes the design recognisable. The adoption block at the end of
+portal.html's `<style>` is where headings take `--font-display`, micro-labels take
+tracked uppercase mono, and the active nav row becomes an indigo edge plus a tint
+rather than a solid fill. It **layers over** the existing component rules instead
+of rewriting them, so the diff says exactly what changed and a rule that was
+already right is left alone.
+
+Space Grotesk is wider-set than Inter, so the display sizes carry less negative
+tracking (`-.006em` where Inter had `-.012em`). Keep Inter's value and the
+counters close up at 19px.
+
+### login.html and invite.html are surfaces too
+Both load `tokens.css` and both had their own hard-coded Inter link and
+`font-family:Inter`, so they inherited the new palette but kept the old typeface —
+a half-adopted look that is easy to miss because nothing errors. They were found
+by measuring, not by reading: a headless check of `/` kept reporting Inter, which
+turned out to be the **login page**, because `/` bounces there without a session.
+If a design change looks like it did not land, check which document you are
+actually measuring before touching the CSS.
+
+## Properties: the command-center port
+
+Portal Properties is the implementation from `Imhappy2024/command-center`, running
+natively. The `/ops` iframe is gone.
+
+| Piece | command-center | here |
+|---|---|---|
+| List + tree + roll-ups | `routes/properties.js` | `portfolio-list.js` |
+| One record + every write | `routes/property-detail.js` | `portfolio-detail.js` |
+| Section CSS (`pr-` prefix) | inline in `public/index.html` | `public/portal-properties.css` |
+| Section JS + markup | inline in `public/index.html` | `public/portal-properties.js` |
+
+### It is mounted at `/api/portfolio`, NOT `/api/properties`
+This service **already serves a different Properties payload** at `/api/properties`
+to `/ops` and the SOV screens, and already has `/api/properties/:taskId/comments`.
+Two shapes on one path is the exact failure "Verify the DEPLOYED artifact" opens
+with: the key the caller wants is simply absent, which reads as an empty string and
+never as an error. When `/ops` is retired the path can shorten; until then, do not
+merge them.
+
+### What changed on the way over, and nothing else
+1. **The nine fetch URLs** point at `/api/portfolio`.
+2. **`escS` / `toast` / `tkRel` are defined in the module.** command-center is one
+   16k-line `index.html` where those are page-level helpers; the portal is split
+   across files, so the module carries its own rather than depending on a load
+   order it cannot see. `toast` builds its own `#pr-toasts` host on first use —
+   command-center's wrote into a `#so-toasts` that only exists on that page, and a
+   failed save reporting nothing is worse than an unstyled notice.
+3. **An IIFE exposing `window.PortalProperties`**, because `PR`, `PD` and ~38 `pr*`
+   functions would otherwise sit in the same global scope as portal.html's.
+4. **`mount(host)`.** command-center wired itself at parse time against markup
+   already in the document. The portal builds a view on navigation, so the two
+   element-level listeners from the bottom of the original file moved into
+   `mount()`, and the boot fetch is deferred to first mount.
+
+`ghlQuery(sql, params)` → `db.q(sql, params)`: same signature, same `{rows}`.
+
+### `.onclick =`, not `addEventListener`
+`mount()` runs on **every** navigation back to Properties. `addEventListener` there
+stacks a fresh copy per visit — N listeners, N refreshes per click. That is the
+same bug the Users screen hit with its focus listener. The document-level Escape
+handler binds once behind a `keysBound` guard for the same reason.
+
+### The palette is shimmed, not pasted
+command-center is dark-only and names colours `--brass --cream --jade --rust
+--panel2/3 --edge/2 --ink2`. The top of `portal-properties.css` maps those onto
+tokens.css names. Paste the hex values in instead and Properties is a dark
+rectangle in a light page, and it silently stops tracking the design system the
+moment anyone retunes it. `--i` and `--c` are deliberately absent from the shim:
+the JS sets both inline, per row.
+
+### The numbers keep their original guards
+These came across intact and are the reason the port was worth doing rather than
+rebuilding:
+- **Apartments are `SUM(unit.current_total_units)`.** `unit_count_reported` holds
+  only the FIRST building's count — one property reads 26 against a real 87.
+- **A loan reaches a property directly OR through one of its buildings**
+  (`loan_collateral.property_id || unitOwner.get(unit_id)`). Counting only the
+  former misses real debt. Same union the escrow section argues for.
+- **The roll-up deduplicates by property id via a Set.** Co-ownership otherwise
+  counts one property once per owner — $124M against a real $31M.
+- **Debt is the latest balance per loan**, never the origination amount.
+- **`loanRate()` prefers `interest_rate_pct`** and parses `interest_rate` text only
+  when it is a plain percentage. Guessing at a spread over an index would be
+  inventing a number.
+- **`problems[]` distinguishes a missing TABLE from a missing COLUMN.** The `q()`
+  wrapper tolerates the first and rethrows the second, so an empty screen says
+  which it is instead of looking the same either way.
+
+### The maturity wall: two bugs found by MEASURING, not by reading
+
+Reported as "there's a big empty space in the middle of the dash" on
+Properties > Debt. Two independent faults, both reproduced in a browser before
+either was touched — `test/test-maturity-wall.js` is that reproduction, kept.
+
+**1. The axis ran to the furthest maturity.** One column per year from the first
+maturity to the last:
+
+    for (let y = Math.min(thisYear, keys[0]); y <= keys[keys.length - 1]; y++)
+
+The live data has a loan due in **2056**, so that drew **31 columns of which 26
+were empty**, each bar 22px wide, with the year labels overlapping because
+thirty of them do not fit an 846px card.
+
+It now shows `PR_WALL_YEARS` (10) years of detail plus **one bucket** carrying
+everything later, labelled `2037+`. **No dollar leaves the chart** — the
+bucket's title lists the years and amounts inside it, and the hint says the
+column is not a filter. It is a `<span>`, not a `<button>`, because `PR.year`
+filters ONE year and a control that cannot do what its neighbours do should not
+look like them.
+
+The tallest bar scales against everything on the chart including the bucket, or
+a large tail renders taller than the axis.
+
+**2. The bars were called `.col`, and portal.html owns that name.** Its Property
+Tasks board defines
+
+    .col{background:var(--panel-2);border:1px solid var(--border);
+         border-radius:var(--radius);padding:10px}
+
+so every bar carried 20px of padding and a 2px border. That **floors every bar
+at 22px** and adds 22px to every real one. Twenty-six empty columns rendered as
+22px bordered panels side by side is the continuous band across the middle of
+the card in the screenshot. The inline style said `height:2px`; the browser
+reported **22px**.
+
+Renamed to `.prbar`, with `padding:0;border:0;box-sizing:border-box` stated
+explicitly so a future collision cannot re-inflate it.
+
+**This is the same failure as the GHL port's unscoped `.card`/`.view`.**
+`portal-properties.css` was shimmed for COLOURS (see "The palette is shimmed,
+not pasted") but never scoped for class names, so a generic name in it silently
+inherits whatever portal.html means by that name. **Prefix new class names in
+that file.** One more is still generic: `.tkgrid>.col` in the task overlay is
+picking up the same panel background, border and padding. Left alone because it
+may read as intentional there — check it against a screenshot before changing
+it.
+
+**Why reading the CSS could not find this.** The rule that broke it is in a
+different file, and the symptom is a height, not an error: nothing throws,
+nothing logs, and the file that renders the bar says `2px` right there in the
+markup. The first two attempts at the harness were also wrong about the payload
+shape (properties are a FLAT array plus a `tree`, not nested under entities),
+which the browser reported as "0 of 0 properties" rather than as a failure.
+Measure the box.
+
+    node test/test-maturity-wall.js   # 7 checks, needs playwright
+
+It asserts geometry rather than markup — an empty column is 2px tall, the
+column count is bounded, bars are proportional, columns are wide enough for a
+label, nothing overflows. Mutation-tested both ways: restoring `.col` fails
+three checks and names the class, and removing the horizon fails four and
+reports 31 columns at 19px wide.
+
+### Rendering, and where the write goes
+Field labels come from the **server**, not from a snake_case-to-Title-Case
+function: `dba_name` is "DBA Name / Name of Apartment Complex", the name the people
+who maintain this data use, carried over from the ClickUp fields it was migrated
+out of. Types come from `information_schema`, and that same lookup is what stops a
+column name arriving from the browser from reaching a query.
+
+Each field id encodes its own destination — `p:<col>`, `u:<unitId>:<col>`,
+`l:<loanId>:<col>`, `f:<finId>:<col>`, `i:<insId>:<col>`, `ownerentity`,
+`loanstatus:<propId>` — so the panel never has to know which table anything lives
+in, and a column added in Supabase appears without touching the front end.
+
+### In portal.html
+`V.properties()` returns `<div id="propertiesNative"></div>` and `render()` calls
+`PortalProperties.mount()` after `innerHTML` — the same arrangement as Tasks and
+Users & Roles, and for the same reason: the module needs the element to exist
+before it can wire it. Properties also takes the `wide` class (it was getting that
+free as an embed; a 12-column grid in a narrow column is unreadable) and
+suppresses the generic `page-h`, because it renders its own header and one screen
+should carry one title.
+
+`PortalProperties.invalidate()` is wired into the realtime `invalidate` callback.
+It forces past **two** caches — the module's payload and the server's five-minute
+one — because `property`, `unit`, `loan`, `ownership` and `entity` are all already
+bound to the `properties` view in `TABLE_VIEWS`, and a stale read on this screen is
+a wrong debt figure rather than a slow one.
+
+## Financials: cash and debt
+
+`/api/financials` (`financials-api.js`) + `public/portal-financials.{js,css}`.
+Replaces the baked `V.financials()` KPI block — Cash $770,785 across "5
+accounts", plus income, expenses and net. Three of those four could not have
+been made live even in principle: `transaction` and `transaction_category` are
+both **0 rows** pending the Buildium/AppFolio sync, so there is deliberately no
+income statement, expense breakdown, category chart or NOI trend on this
+screen. `property_financials` has 28 rows, which is not a portfolio.
+
+### Read-only is enforced twice, because nothing downstream would catch it
+The router refuses any method that is not GET/HEAD (405), and every SQL string
+is checked against a write-verb pattern before it reaches the pool. That second
+guard is not paranoia: `supabase-db` connects with `SUPABASE_DB_URL`, which is
+the **postgres superuser**, so a stray write would simply succeed.
+
+**Tenant scoping is this module's job for the same reason.** RLS never runs on
+that connection — `current_tenant_ids()` is never called — so every query
+filters `tenant_id` explicitly. A test asserts that every statement issued
+against a relation carrying the column has the filter in it.
+
+### The capability probe is the answer to "verify against the live database"
+The brief says to verify every column live rather than trusting its list. That
+was impossible while writing it: the repo has no `.env`. So the **server** does
+the verification, once, at first use, against `information_schema.columns`, and
+`problems[]` rides on every response.
+
+That turns the silent failure into a sentence. A column named here that the
+database lacks yields `undefined` → empty string, which on screen is
+indistinguishable from "no data for this quarter" — the exact trap the
+"Verify the DEPLOYED artifact" section opens with.
+
+`caps` also does real routing work. `v_debt_by_account_quarter` is documented
+with **names but no ids** (`entity`, `deal_name`, `lender`), while
+`v_cash_by_entity_quarter` has both. Filtering by id is correct; filtering by
+name is a guess when two entities share one. Each filter prefers the id form
+and falls back to the name form only where the view leaves no choice.
+
+### Two debt numbers that do not agree, and both are right
+
+| Source | Q2 2026 | Grain |
+|---|---|---|
+| `v_debt_by_account_quarter` (**Debt** tab, default) | $225,424,320.06 / 55 accounts | loan-kind rows in `account_balance` |
+| `v_debt_by_quarter` (**Loans** tab) | $15,223,209.45 / 3 loans | per-loan rows in `loan_balance` |
+
+`loan_balance` is sparse and its dates are ragged, so quarter-filtering it drops
+almost everything. Separate tabs, each with a note saying what it measures.
+**They are never added, and neither is cash and debt** — different account
+kinds, and the sum is a meaningless nine-figure number. There is no helper in
+either file that could produce one, and a test asserts no field in the summary
+payload equals cash + debt.
+
+Coverage is printed beside the loan total (**54 of 75 loans** have any balance
+row) because a bare total implies the other 21 are paid off. They are
+unpopulated.
+
+### Every balance is a draft — and the screen no longer says so anywhere
+All 441 rows are `is_verified = false`. There is **no Verified column, no
+Verified filter, no draft banner and no Source column**: on a dataset where the
+value never varies, each was repeating one fact 441 times. Source read
+"Master Reference 260630 (draft)" on every row.
+
+`is_verified`, `source` and the DRAFT line **all still ride on every export**
+(via `PROVENANCE`), and that is deliberate rather than an oversight. On screen
+the reader has the context that these are quarterly draft snapshots; in a
+spreadsheet mailed to someone else they have nothing. That is where the caveat
+earns its place. `ab.source` is still selected by the query — drop it and the
+export column stays in the header but goes empty in every row, which reads as
+"no source recorded" rather than as a missing column.
+
+**The test that was supposed to guarantee this was vacuous.** It asserted
+`header.indexOf('Source') >= 0`, and the cash tab has a **"Cash Source"**
+column, which contains the word — so it passed with the provenance entry
+deleted. Proven by deleting it: the suite stayed green. It now splits the
+header and matches whole columns, and re-running that mutation fails it. If you
+assert a column is present, compare the column, not the line.
+
+### Leadli and Folio are excluded, on a WORD BOUNDARY
+This screen is LeavenWealth's. Leadli AI and Folio Excel are excluded from the
+tables, the tiles, the filter option lists and the exports, with no toggle — a
+control that could put them back would make every figure mean two things
+depending on a checkbox nobody remembers setting.
+
+**The word boundary is the whole design decision.** A plain `%folio%` also
+matches "Portfolio Reserve" and "Portfolio Loan Escrow" — entirely plausible
+account names here — and would drop real LeavenWealth money out of every total
+with nothing on screen to say it happened. The pattern is
+`y(leadli|folio)y` with `~*`.
+
+Two independent tests, because either alone leaks:
+- **by company**, catching a Leadli entity whose own name says nothing about
+  Leadli. The ids are resolved *by name at boot*, not hardcoded, so a renamed
+  or re-seeded company still resolves.
+- **by name**, catching a row hanging off a NULL `company_id` — the one row the
+  company test cannot see.
+
+The company test is written `company_id is null or not (… = any(…))`, never
+`<>`: a NULL has to survive, and SQL quietly turns "not one of these" into
+false for it.
+
+There is also **no Brand filter**. Deal and Entity already scope to one brand and
+name it beside each option; a third control selecting the same rows another way
+is a way to contradict yourself.
+
+### The tiles do NOT come from `v_cash_debt_summary`
+They are aggregated from the same relations and the same exclusion the tables
+use. That view has no brand dimension, so reading it would put Leadli and Folio
+money in a tile above a table that excludes them — two numbers on one screen,
+both labelled Total Cash, disagreeing. **Expect the tiles to sit below the
+brief's figures** ($5,073,105.35 / $225,424,320.06); that is the exclusion
+working, not a fault.
+
+### A date RANGE — and the tiles pin to one date inside it
+From and To, both free-form and both optional, replacing the quarter dropdown.
+Clearing both shows every snapshot.
+
+**The table may span several snapshots; the tiles may not.** Every row carries
+its own As Of Date, so reading Q1 beside Q2 is a real thing to want. But summing
+a range covering both counts every account twice and yields roughly double the
+truth while looking entirely plausible. So `/summary` pins the tiles to the
+**latest snapshot inside the range**, and the header says which one whenever the
+range holds more than one.
+
+"As at" falls out of this for free: leave **From** empty, set **To**, and the
+tiles land on the newest snapshot at or before it. A range containing no
+snapshot yields no tiles at all rather than borrowing a balance from outside it,
+which matches the empty table beneath. A backwards range is swapped, because
+that is a slip rather than a request for nothing.
+
+An account present in an earlier snapshot but absent from the pinned one is
+therefore not in the tiles. With two snapshots that is rare, and the
+alternative — a latest-per-account roll-up — **cannot be done on
+`v_debt_by_account_quarter`, which carries no account id at all.**
+
+`as_of=X` is still accepted and means a single day (`from = to = X`).
+
+The URL uses `?q=` when both bounds are the same day and `?from=&to=`
+otherwise, so the common case stays a short link.
+
+### `account_purpose`, not `account_type`
+`account_purpose` is free text holding the original source labels (Operating,
+Loan, MM, Sec Dep, Reserve, CD, Savings, ICS, Other). `account_type` is the
+lossy CHECK-constrained version: CD and Savings both become `savings`, MM and
+ICS both become `money_market`. Both are offered as separate filters. When
+someone asks for a source label, it is `account_purpose`.
+
+`(none)` is a real selectable value under Institution, matched through
+`coalesce(institution, '(none)')`, so the **six** accounts whose source showed
+the bank as "?" stay reachable. Any nullable filter column gets the same
+treatment — a value nobody can select is a row nobody can find.
+
+### The two array-param forms are NOT equivalent
+`deal[]=a&deal[]=b` is the contract and each value is taken **verbatim**.
+`deal=a,b` is the compact form the page hash uses and it is **lossy on
+purpose**: Express decodes query values before the module sees them, so by then
+a percent-encoded comma and a literal comma are the same character and nothing
+downstream can separate them. "Maples, Phase II" is a real deal name.
+
+So the browser module uses the repeated form for every request, and reserves the
+comma form for the hash — where it does its own split-**before**-decode and the
+ambiguity never arises. When both are present, repeated wins.
+
+### Exports carry provenance, and never credentials
+Every export includes `as_of_date`, `source`, `is_verified`, `exported_at`,
+`exported_by` and a human-readable `filters_applied`, regardless of which
+columns are on screen. A figure that leaves this system without its as-of date
+and its draft flag gets quoted back as fact.
+
+The file is the **full filtered result set, not the current page** — the export
+route ignores `page`/`per_page`. CSV gets a `#` comment block; XLSX gets an
+`About` sheet instead, because a comment block above the header breaks every
+pivot the person downloading it is about to build.
+
+`NEVER_EXPOSE` (`portal_url`, `portal_username`, `portal_password`,
+`mfa_method`, `mfa_required`, `bank_contact_email`) is applied to every row on
+the way out, as a second line behind the per-tab column lists — so a column
+added to a list by name cannot smuggle one through. **`portal_password` was
+dropped from the schema on 2026-09-07; never reintroduce it in any form.**
+
+### `.onclick =`, not `addEventListener` (again)
+`paint()` re-renders the whole subtree on every filter change and `mount()` runs
+on every navigation back. `addEventListener` there stacks a copy per paint and
+fires N requests per click — the same bug the Users screen hit with its focus
+listener. The one document-level listener (click-outside to close a filter
+panel) binds once behind a guard.
+
+Filter panels toggle an explicit `.open` class, never the `hidden` attribute.
+The ops dashboard's multi-selects hit exactly that: the attribute flipped
+correctly, a `display` rule elsewhere won, and the panel stayed invisible with
+nothing in the console.
+
+### Tests
+    node test/test-financials.js     # 83 checks, no database needed
+
+The brief's acceptance checks that need live figures ($5,073,105.35, 160 cash
+accounts, 154 Operating) are Jay's to run. What this pins is everything that
+would still be wrong if the figures were right: that the feature cannot write,
+that tenant filtering is in the statement, that no filter emits an empty
+`IN ()`, that two selections union rather than intersect, that an export
+matches the on-screen filters and contains all rows rather than one page, that
+a comma / quote / newline inside a value survives, that money exports as a bare
+number and a measured zero as `0`, and that no credential field appears in any
+response or file.
+
+Two of those caught real bugs during the build: the summary was matching the
+selected quarter against an `as_of_date` column that `v_cash_debt_summary` does
+not have, so `current` came back null and every tile rendered "no data" over
+data; and `arrayParam` was comma-splitting repeated params, which would have
+torn "Maples, Phase II" into two filters matching nothing.
+
+## Cash & Debt Summary: the entity rollup
+
+The **By Entity** tab (default) on Financials. One row per entity, cash beside
+debt: "which LLCs are holding cash, and what do they owe". The other three tabs
+are the account-level detail underneath it.
+
+`GET /api/financials/summary/entities`, `/:id/accounts`, `/export`.
+
+### The join is a FULL OUTER JOIN and that is the whole point
+At Q2 2026: 45 entities have both cash and debt, 15 have cash only, and **one
+has debt only**. A LEFT JOIN from cash silently drops that one — the count reads
+60 instead of 61, and an entity carrying debt with no operating account
+disappears from a debt report. Nobody notices until the entity totals fail to
+reconcile to the portfolio.
+
+`coalesce(..., 0)` is on the **balances** but never on the entity join. An
+entity with no bank accounts genuinely holds zero cash; an entity that does not
+exist is a different problem and must not read as a zero.
+
+### Accounts with no owner entity are REPORTED, not silently dropped
+`financial_account.owner_entity_id` is nullable, and the rollup joins entity on
+`coalesce(cash.entity_id, debt.entity_id)` — so an account with no owner is
+dropped by that join. The Cash column then **cannot** sum to the account-level
+tile, and nothing would say why.
+
+`fetchEntityRows` measures that gap separately and returns it as
+`unattributed`; the screen states it and so does every export. This is the
+difference between a number someone can explain and a number someone finds with
+a calculator.
+
+### Cash can be negative; net position is meant to be about -$220M
+Eight entities carry a negative cash balance. Nothing calls `abs()`, the sort
+uses `nulls last` so a -$40,000 entity sits at the bottom of a descending sort
+rather than dropping off an end, and negatives render in parentheses in the crit
+colour per accounting convention — but **export as raw negatives**, because a
+spreadsheet needs `-40000`, not `(40,000.00)`.
+
+Net position across the portfolio is roughly **-$220M**. That is what a
+leveraged property portfolio looks like: it is not an error state, the column is
+not painted red, and there is no health indicator implying distress. It is
+labelled **Net Cash Position** and it is **not equity** — property values are
+nowhere in this calculation.
+
+### Debt is loan-KIND ACCOUNTS, never `loan_balance`
+`account_balance` where `account_kind = 'loan'` gives $225.4M across 55
+accounts; `loan_balance` gives $15.2M across 3 loans. This view uses the first
+and there is deliberately **no toggle** — `loan_balance` is sparse with ragged
+dates and has its own tab.
+
+### One row per entity means ONE snapshot
+The view pins to the latest snapshot inside the date range, exactly as the tiles
+do. A range covering both dates would otherwise give every entity two rows and a
+totals line counting every account twice. The screen says which date it pinned
+to whenever the range holds more than one.
+
+### Institution and Purpose narrow the ACCOUNTS, before the rollup
+Picking Dundee Bank shows each entity's **Dundee-only** cash, not its full
+balance. That is deliberate and the UI says so under the chips — without the
+note the totals look wrong to anyone checking them against the account view.
+
+### Two spec bullets deliberately not followed
+The brief lists a **Brand filter** and a **Verified column**. Both were removed
+from the sibling account-level view by later instruction, and Leadli/Folio are
+excluded from this screen entirely, so:
+- there is no Brand filter (Deal and Entity already scope to one brand, and the
+  option lists name it);
+- there is no Verified column, but `is_verified` **is** in every export — which
+  is what the brief's §2.6 actually requires.
+
+The same brand exclusion applies here as everywhere else on the screen, so the
+row count and totals will sit **below** the brief's figures (61 entities,
+$5,073,105.35). That is the exclusion working.
+
+### `has_cash` / `has_debt` are THREE states
+Yes, No, and not filtering. A plain boolean collapses the last two, so an
+untouched control would mean "hide everything that has debt". They test
+`*_accounts > 0`, not `balance <> 0` — an entity with a loan account sitting at
+zero still has debt on file.
+
+## Leads (GHL): the command-center port, brand-scoped
+
+`/api/ghl` (`ghl-api.js` + `ghl-data.js`) and `public/portal-ghl.{js,css}`.
+Replaces the baked `V.leads()` — six hardcoded rows grouped by lead provider.
+
+| Piece | command-center | here |
+|---|---|---|
+| Data layer | `lib/ghl-data.js` | `ghl-data.js` |
+| Routes | `routes/ghl.js` (918 lines) | `ghl-api.js` (read-only, rewritten) |
+| Section JS | the LEADS block of `public/index.html` | `public/portal-ghl.js` |
+| Section CSS | inline in `public/index.html` | `public/portal-ghl.css` |
+
+The data layer and **the whole front end are transplants**, not rewrites. The
+routes were rewritten, because command-center's file drags in its webhook
+receiver, rate limiter, OAuth provider stack and send path and none of that can
+work here.
+
+### The front end is BUILT, not hand-written — regenerate it, do not edit it
+    node tools/build-ghl.cjs                       # public/portal-ghl.js
+    CC_ANALYZE=<cc checkout> node tools/build-ghl-css.cjs   # public/portal-ghl.css
+
+`tools/ghl-source/` holds the exact slices lifted out of command-center: the
+1,214-line LEADS block, its markup, and the four helpers it reaches for
+(`initials`, `makeSplitter`, `api`/`banner`, `loadThread`). The build script IS
+the diff — every adaptation is one `edit()` call with a comment saying why, and
+it **fails loudly** if a needle stops matching rather than silently skipping it.
+
+Editing `public/portal-ghl.js` by hand works until the next regeneration
+silently discards it.
+
+**This screen was first written from scratch to "the same layout" and that was
+wrong** — a hand-made approximation of a layout is not that layout, and it did
+not look like it. If a future port is tempting to rewrite, transplant it.
+
+What the build changes, and only this:
+1. `api()` injects `company_id` into every `/api/ghl` URL — the brand scope, in
+   the one helper all ten call sites already go through.
+2. `post()` throws; the composer becomes a line saying why. No GHL credential.
+3. The `EventSource` on `/api/ghl/events` is a stub — that route is a Postgres
+   NOTIFY fan-out this service does not run, and an EventSource pointed at a 404
+   retries forever. portal-realtime.js drives the refresh instead.
+4. `CAL.demo` folds to `false`; `mountLeadSubnav` moves the sub-account list
+   inside the section, because it hung off command-center's own left nav.
+5. `money()` renders **dollars, not pesos** — command-center prices in ₱, and a
+   value with the wrong symbol is a wrong number.
+6. An IIFE exposing `window.PortalGHL` plus `mount(host, {companyId, brandName})`,
+   and the parse-time wiring moves into `wireLeads()` because the portal builds
+   a view on navigation.
+7. The section ships with `class="view on"`. `.view` is `display:none` until
+   something adds `.on`, and command-center's view switcher is what did — here
+   the whole screen would render and be invisible.
+
+### The CSS is extracted and SCOPED
+539 rules, every selector prefixed `#ghlNative`. command-center styles `.card`,
+`.btn`, `.empty`, `.thread` and `.view` at the top level and so does the portal;
+unscoped, these restyle the whole application. Rules are matched by class name
+against the transplanted source rather than parsed out of it, because the JS
+builds most of its markup by concatenation.
+
+### It reads the same Supabase project
+command-center's `ghlDbUrl()` is `SUPABASE_DB_URL` — the same
+`lhdpzalqrwepfjoicdiz` this portal uses. That is why the port works at all: the
+24 `ghl_*` tables are already there, populated by the n8n pipeline.
+
+### Verified live 2026-09-07 (not probed — queried)
+
+| Brand | location | leads | opps | messages |
+|---|---|---|---|---|
+| LeavenWealth | `r7zMur27ESvHGQpOWI2F` | 1,231 | 31 | **0** |
+| Leadli AI | `sR79W8mCX3gd5pWKG5wU` | 2,538 | 0 | **0** |
+| Folio Excel | `xvWwoC1KQ1cOtw8Qf3Ez` | 4,643 | 8 | 111 |
+| Liquid Lending | **none** | 8 (company-only) | 0 | 0 |
+
+`ghl_location.company_id` is populated on all three and points at the same
+`company` table `BRAND_COMPANY_ID` uses, so brand scoping is a column filter.
+
+**Only Folio has messages.** An empty Messages tab under LeavenWealth is the
+ingest, not a broken screen, and the empty state says so.
+
+**Most leads have no stage** — 28 of LeavenWealth's 1,231. Stage belongs to an
+opportunity, not a person; the chip is absent rather than defaulted to "new".
+
+### EVERY brand has a Financials item; only some have a Financials SCREEN
+The built screen is LeavenWealth's — it excludes Leadli and Folio from every
+table, tile and export — so pointing another brand at it showed that brand's
+name above another brand's money: "Leadli AI / Financials" over $225.42M of
+LeavenWealth debt.
+
+The nav item is back on all five menus, because every brand is getting a view.
+What gates the SCREEN is `FINANCIALS_BUILT` in portal.html (`{all, leavenwealth}`
+today). A brand not in it gets a placeholder that names what is missing and
+**carries no figures at all** — a test asserts the placeholder contains no
+`$`, because the failure being prevented is a real total under the wrong name.
+
+Add a brand to `FINANCIALS_BUILT` the day its own view ships, not before.
+
+`finNative` is declared at the top of `render()`, above `content.className` —
+the first version declared it fourteen lines lower and `let` in a block is
+hoisted but not initialised, so every render threw a ReferenceError.
+
+### Folio Excel has no `financials` catalog row — the item cannot appear
+A nav item only shows when `dash_my_access()` returns a level for it, which
+comes from a `dashboard_module` row. Verified 2026-09-07: `financials` exists
+for exec, LeavenWealth, Leadli AI and Liquid Lending — and **not for Folio
+Excel**, which never had the item so was never seeded.
+
+**That is no longer a gap to close.** Folio's one Financials item sits on the
+`reports` nav id instead — the id it actually has a row for — so the screen is
+reachable today with no migration. The migration that would have added a
+`financials` row was deleted: with no `financials` entry in Folio's menu, the
+row would grant access to nothing.
+
+See "One Financials item per brand" below.
+
+This was found by a test, not by reading: the per-brand loop passed for Leadli
+and Liquid and failed for Folio, and the difference was in the catalog rather
+than the code. The test now asserts the gap explicitly and leaves Folio out of
+the loop, so a green suite still means something — and applying the migration
+makes that assertion fail, which is the reminder to move Folio in.
+
+### There is NO sub-account selector, and the title is the brand
+command-center is one dashboard over an agency's several sub-accounts, so it
+needs "All locations" and a picker. The portal is not: the workspace switcher
+already chose the brand, the server scopes every request to it, and each brand
+resolves to exactly ONE sub-account. The list rendered "All locations" above a
+single row naming the same thing, and offered a filter whose only other option
+was the one already selected.
+
+`mountLeadSubnav` is a no-op rather than deleted — `drawLeadSubnav` is called
+from `drawLeads()` on every repaint, and a null `ldSubEl` makes it return on its
+first line. `LD.loc` stays `'all'`, which is correct: within one brand, all of
+its locations IS that brand.
+
+### The two lead counts have to agree, or say why they do not
+The header prints the brand's total; the list holds at most `limit` rows (400).
+Both were correct and they contradicted each other on one screen — "2,538 leads"
+above "400 leads".
+
+The cap stays: it is why the search box exists, and it searches every lead in
+scope rather than the page on screen. What was missing was the sentence. The
+list counter now reads **"400 of 2,538 leads"**, and both numbers come from
+`brandTotal()` so they cannot drift apart again.
+
+`leadTotal(ids, companyId)` counts what `leadRows` would return without a limit,
+**including the company-only leads**. Counting by location alone made Liquid
+Lending read "0 leads" above eight of them.
+
+### The gate is `allowedLocationIds(companyId)`, not the list
+Every per-lead read (`/thread`, `/detail`) resolves its lead through that
+function, so scoping it scopes all of them. Scope only the list the sidebar
+renders and `/leads/:id/thread` still answers for any location anyone guesses —
+and the location is **in the lead id**, so guessing is trivial.
+
+**An absent or malformed `company_id` scopes to NOTHING, never everything.**
+`subAccounts(null, null)` legitimately returns every location (it is the
+unscoped call), so falling through to it meant a request that merely *omitted*
+the parameter answered with all three brands at once. `test-ghl.js` caught
+that, because it asserts the promise in the header comment rather than the
+behaviour of the code. Executive Board has no Leads item, so nothing in the
+portal makes an unscoped request.
+
+`?location=` narrows **within** the brand and can never widen past it: the
+requested id has to already be in the brand's resolved set.
+
+### 33 leads know their brand but not their location
+Verified live: Leadli 18, Liquid 8, LeavenWealth 5, Folio 2 — rows with a
+`company_id` and a NULL `ghl_location_id`. command-center's predicate is
+location-only, so **it hides every one of them**, and all 8 of Liquid Lending's
+leads are in that set: the brand would read "no sub-account" while holding real
+leads.
+
+`leadRows` takes an optional `companyId` and widens to
+`ghl_location_id IS NULL AND company_id = $7`. Those leads have no messages and
+no opportunities by construction (both are keyed by location), so they carry a
+`noLocation` flag and the client shows the contact header with an honest reason
+instead of firing two requests that would 404.
+
+### Sending: the one call that reaches GHL
+
+`ghl-send.js` + `POST /api/ghl/leads/:id/message`. Everything else on this
+screen reads the Supabase mirror; GHL owns delivery, so a send has to go to it.
+
+**Credentials come from the environment**, in the pairs command-center
+established and that are already set on Railway:
+
+    GHL_TOKEN_<NAME>  paired with  GHL_LOCATION_<NAME>=<ghl_location_id>
+
+The suffix is arbitrary and only joins the two halves. A pair missing either
+half is named in the log and skipped rather than failing boot, because reading
+works with no token at all. A Private Integration Token is not OAuth: nothing
+renews it, so a 401 is surfaced as "rotate the token", never retried.
+
+**The router is read-only apart from this one route.** `SEND_PATH` names the
+exception explicitly so the default stays closed; every other non-GET is 405.
+
+### It sends as the signed-in person, and the identity is VERIFIED
+`emailFrom` is the caller's own address, read by asking Supabase Auth
+(`GET /auth/v1/user`) to validate the bearer token — **not** by decoding the
+JWT. A JWT payload is base64, not a signature; anyone can craft one, and this
+decides whose name goes on a message to a customer. (`exportedBy` in
+financials-api.js can afford an unverified read because it only labels a
+spreadsheet. This cannot.) No session means 401, never a send as nobody.
+
+The browser sends the same address on the composer's From line, but only as a
+label — the server takes it from the session and ignores whatever arrives.
+
+### The sender address is NOT validated locally, deliberately
+command-center checks `emailFrom` against the sub-account's mirrored addresses
+first. Doing that here would refuse every send this screen exists to make:
+
+| | |
+|---|---|
+| `ghl_location.email` for LeavenWealth | `lauren@wellspentconsulting.com` |
+| `ghl_user` rows for LeavenWealth | **0** |
+| `jay@leavenwealth.com` in `ghl_user` | absent from every location |
+
+The mirror simply cannot answer "is this a verified sender". GHL is the only
+authority, so the send is attempted and **GHL's own refusal is passed back
+verbatim** — its messages are specific ("Invalid emailFrom") and actionable,
+where a local guess would just be wrong.
+
+**Expect email sends to be rejected until the address is verified in GHL**, or
+until the ingest fills `ghl_user` for LeavenWealth. SMS is unaffected: it has no
+From to verify and GHL uses the sub-account's own number.
+
+### A failed send says why, next to the send
+The reason reaches `banner()`, which writes to `#ld-banner` at the TOP of the
+section — and the composer sits at the bottom of a scrolled panel, so the
+explanation was off screen at the exact moment it was needed. The failed bubble
+already said "not sent"; it now carries the reason too.
+
+The reader also has a **close button**. command-center closes it by clicking the
+selected row again, which is not discoverable and leaves no exit at all on a
+narrow screen where the list has scrolled away.
+
+### A send is recorded, but only when GHL returns a conversation id
+`ghl_message.ghl_conversation_id` is NOT NULL and `conversationId` is a
+response-only field, so when GHL omits it there is nowhere to put the row. It is
+**skipped rather than invented** — a fabricated id splits one conversation in
+two — and the OutboundMessage webhook inserts it later, which is correct, just
+slower. `ON CONFLICT DO NOTHING` on GHL's own message id is what makes that
+webhook a no-op rather than a duplicate.
+
+If the insert fails, the request still succeeds: the message **is** sent, and
+reporting failure would have the operator send it twice.
+
+### Tests
+    node test/test-ghl.js     # 31 checks, no database needed
+
+Each brand sees only its own sub-account; a lead id naming another brand 404s
+on both `/thread` and `/detail`; `?location=` cannot widen; an unscoped or
+malformed request returns nothing; a brand with no sub-account still returns
+its company-only leads; sender HTML is flattened; a one-character search is
+ignored **and says so**; a malformed `?since` is refused rather than silently
+meaning "everything".
+
+## Folio Excel: Reports & Financials, App Users, and Whop billing
+
+`/api/folio/financials` (`folio-financials-api.js`) + `public/portal-folio-fin.js`.
+Three screens, **one module, one set of endpoints**:
+
+| Screen | Mount | What it shows |
+|---|---|---|
+| **Financials** (nav id `reports`; also Folio's **Overview**) | `mountReports()` | three cards, one table |
+| App Users | `mountUsers()` | the same table, no cards |
+| *(unrouted)* | `mount()` | the wider table with filters + CSV export |
+
+One module because the alternative already happened: Folio reported **$2,369
+MRR** on App Users and one subscriber at **$1,000** on Reports, a nav click
+apart. The third screen is routed from nowhere — see "One Financials item per
+brand" below.
+
+Built to `FOLIO_FINANCIAL_DASHBOARD_SPEC`, which arrived in **three revisions**
+on 2026-09-07. Where they disagree, the last one wins and this section
+describes what actually ships.
+
+### It is a separate module because Folio shares no tables with the property screens
+Except `transaction`. Verified: 0 `financial_account` reachable from Folio, 0
+`deal`, 0 `statement`. A brand parameter on `financials-api.js` would have
+produced a *working* screen showing zeros forever, which reads as "Folio has no
+money" rather than "those are the wrong tables". `FINANCIALS_BUILT` in
+portal.html is a **map**, not a boolean, so it names which module serves each
+brand.
+
+### The three cards, and what is not on them
+
+| Card | Today | Source |
+|---|---|---|
+| Total monthly subscription | **$1,000.00** | `sum(subscription_amount)` where active |
+| Total app users | **1** | `count(*)` of active `subscription_client` |
+| Total units managed | **Not set** | `sum(number_of_units)` — NULL today |
+
+**No percentage, arrow or period-over-period figure on any of them.** One
+customer and one month of payment history leaves nothing to compare against.
+`kpiCard()` deliberately has no delta slot at all: `kpi()` in portal.html takes
+a fifth argument that colours a figure green or red, and this one takes four.
+
+Gone with the page they were on, and **not replaced with real versions**:
+
+| | why not |
+|---|---|
+| MRR trend | four invented months (Apr–Jul 2600/2900/3100/3308) |
+| ARR | would be MRR × 12 off a billing period nobody has confirmed |
+| NRR | needs a prior period to retain |
+| Funnel | pipeline stages and lead counts are CRM data → Leads page |
+
+### What the page it replaced actually was
+`V.reports()` ran **no query at all**. MRR $2,369, ARR $28.4K, NRR 104% and
+"Active users 4" were computed from six invented subscribers in a `SUBS` array
+(Bluebird Property Mgmt, Redwood Residential, Cornerstone Realty, Harbor Homes,
+Prairie Rentals, Elm Street Holdings) with invented Starter/Growth/Scale plans
+and 774 units. Two tells were visible without reading the code, and both are
+worth knowing how to spot:
+
+- **The bars looked identical.** `barChart` scales to the maximum, so those
+  four values render at 79/88/94/100% of a 150px box — ~10px apart, which reads
+  as one placeholder shape. The only real payment is dated **17 Aug 2026**.
+- **"Active users 4"** is the same number as `lead.is_client`, which the spec
+  forbids counting. It was **not** that query — the page issued none — it was
+  four of six invented rows landing on 4. Same remedy, different diagnosis, and
+  the diagnosis matters: the figure was not wired to anything at all.
+
+`SUBS` is deleted. App Users renders the real subscriber table.
+
+### NULL is "Not set", NEVER 0
+`units_managed` is the live case. Nobody has recorded a unit count for this
+business; that is a different statement from "they manage none", and a card
+reading `0` makes the wrong one. The API returns **null** rather than
+coalescing, and a test asserts `units_managed` is never `|| 0`-ed in the client.
+
+`units_known` (a count of rows that *do* carry a value) is allowed to be 0 —
+that genuinely is zero, and it is what picks the card's branch. A partial total
+states its own coverage (`from 1 of 3 subscribers`) rather than quietly
+under-reporting.
+
+### The visual language is the portal's own
+`.kpis`/`.kpi` cards, `.card`, a plain table and `.pill` badges — the markup
+`kpi()`, `card()`, `tbl()` and `pill()` emit in portal.html, which every other
+screen uses. Badge colours are App Users' own: **active** green, **trialing**
+grey, **past_due** and **cancelled** rose; **paid** green, **due** amber,
+**trial** grey, **overdue** rose. A state nobody has defined falls through to
+grey rather than to a colour that would assert something about it.
+
+The only additions in `portal-financials.css` are `.fin-sortable` and its
+caret. Sorting is client-side on all five columns, default **amount per month
+descending**, with **nulls last in both directions** — `number_of_units` is
+null on every row, and a null at the top of a descending column reads as the
+largest value.
+
+### The table has five columns and NO join to `lead`
+Business name, Number of units, Amount per month, Status, Payment status.
+
+**The business name is plain text, not a link.** The spec asked for it to link
+through to the lead record; that was dropped by instruction. The whole row is
+clickable and opens the payment history, so a link inside it was two different
+actions in one cell anyway. `lead_id` still rides on the payload — it is a
+column on `subscription_client` and costs nothing — so a link is one line away
+if it is ever wanted, and no join is needed either way.
+
+The join used to be there for `pipeline_stage` and a count of the lead's GHL
+custom fields; both went with the funnel. **If anything ever reads
+`lead.custom_fields` again it must be guarded with
+`jsonb_typeof(custom_fields) = 'array'`** — the column is mixed type (4,642
+Folio rows hold an array, 3 hold an object) and `jsonb_array_length` on an
+object row throws for the whole query, not just that row. The test is written
+as "never read *unguarded*" rather than "read, and guarded", so it survives the
+column not being read today and still fires the day someone reads it again.
+
+### `1600` is never shown as units
+The value appears to sit in a GHL custom field on the linked lead, keyed by an
+**opaque id with no name**:
+
+    2ICAHRTHWtVPT6rELUb8 = 1600        HtnwUTtIbLQEsBsTfXLp = "Monthly"
+    gXnY5XUvVrlDguatm3nS = "Founding Customer"
+
+The likely reading is units 1600 and period Monthly, **inferred from the values
+and never confirmed from a field name**. No table anywhere holds the mapping;
+getting it needs a `/locations/{id}/customFields` call the sync does not make.
+A test asserts 1600 appears in no payload and in no card.
+
+### Never count `lead.is_client`
+It reads **4** for Folio and one of those is a paying customer: the others are
+a test record ("jay test"), an internal contact (Liquid Lending) and someone
+whose status is still `open`. Only `subscription_client` knows who pays. Two
+tests: **no count in any payload equals 4**, and no statement references the
+column.
+
+### The two $1 card tests are excluded, and the filter is PROVISIONAL
+With them in, one payment becomes three and $1,000 becomes $1,001.
+
+`sales_payment` has **no `is_test` column**. The tests are identifiable only by
+`TEST TRANSACTION` in free-text `notes` plus a Whop-anonymised email
+(`225faa5e0c7253c4@deleted.com`). Both conditions are applied together —
+`IS_TEST` is written once so the definition cannot drift — and both agree on the
+same two rows today. **A string match on a notes field will break the first
+time someone edits a note**, silently, in the direction of inflating revenue.
+`sales_payment` needs an `is_test` boolean; that is Jay's call.
+
+Neither test carries an `external_subscription_id`, so a plain join on the
+membership id excludes them whatever the toggle says. `include_test` therefore
+widens to the brand's *unattached* test rows, which is what makes it add
+exactly those two and nothing else.
+
+### The monthly total is the plain sum, and says when that is an assumption
+`monthly_subscription` is `sum(subscription_amount)`, which is what "total
+monthly subscription" means. `mrr` (normalised by `billing_period`) is also
+returned and the two are **equal today** — they can only diverge once a period
+is recorded as something other than monthly, which is what `non_monthly` is
+for: the card's sub-line then says the total is not a monthly figure instead of
+labelling an annual amount "monthly".
+
+Never from summing `sales_payment`: two of three rows are $1 tests, and a sum
+conflates a renewal with an annual prepayment. A test asserts the MRR statement
+does not read that table at all, and that no summary field equals 1001 or 2002.
+
+**A contradiction still to settle:** `sales_payment.notes` on the real payment
+says *"BILLING PERIOD CONFIRMED MONTHLY from GHL custom field
+HtnwUTtIbLQEsBsTfXLp"*, while the spec says the mapping is inferred and not
+confirmed. A free-text note is not a column — the fix either way is to populate
+`subscription_client.billing_period`, at which point the caveat disappears on
+its own.
+
+### Payment history, on row expand
+Gross, fee and net as three columns. Whop's cut is **4%** ($40.37 on the one
+real payment) and it is the difference between what the customer paid and what
+landed; one figure alone invites the other question.
+
+`usd_total` is null until money moves, so a failed payment shows an em dash
+under Gross with "charged $1.00" beside it — never `$0.00`, which would claim
+it was free — and `totalsOf` skips it rather than coalescing. **Failed payments
+stay in the list**, greyed, with the decline reason from
+`raw->>'failure_message'`: a failed renewal is the earliest churn signal there
+is.
+
+### Dates are sliced off the ISO string, never formatted through the viewer's timezone
+`paid_at` is a **timestamptz** and the real payment is `2026-08-17T19:06:40Z`,
+so `toLocaleDateString` on that instant renders **18 Aug 2026** for any reader
+east of UTC — including Manila, where this is read. A payment's date is a
+business fact, not a moment converted into wherever the browser happens to be,
+and the acceptance check says 17 Aug.
+
+Caught by rendering under `TZ=Asia/Manila`, not by review. A test asserts
+`toLocaleDateString` appears nowhere in the module.
+
+### `transaction` has NO `company_id`
+Not an oversight to work around — the column does not exist. Folio's ledger rows
+are reached by `entity_id` (or `financial_account_id`), and `q()` **throws on
+any statement mentioning `transaction.company_id`**, because the alternative is
+a 42703 rendered as a 500 on a screen.
+
+**The ledger line is not on the screen.** It read "Ledger: 1 Whop transaction,
+$1,000.00 in — reconciles with collected payments", and was removed by
+instruction along with the note about the provisional test filter. Neither fact
+is lost: the reconciliation is asserted by the test suite against
+`summary.ledger.reconciles`, so a drift between the payment stream and
+`transaction` fails a test rather than waiting for a reader to notice a
+sentence, and the test-filter caveat rides in the provenance block of every CSV
+export — which is where a figure leaving this system needs its caveats.
+`/summary` still returns `ledger` and `test_filter` for those two consumers.
+
+**The Whop account is `account_kind = 'processor'`, deliberately not `bank`.**
+That is what keeps Folio revenue out of `v_cash_by_entity_quarter` and
+`v_debt_by_account_quarter`. Verified still true: Q2 2026 cash reads
+$5,073,105.35 across 160 accounts. **Do not "fix" that account kind.**
+
+    Whop (Folio Excel)   b8e55fa7-8967-4bea-9b71-57c5498136ff
+    Whop (Leadli)        fdefb5bc-e511-4688-bfc0-c8e20b7f52da
+    Subscription Revenue 8999bd8d-d05f-4a9b-b9ab-2ef94ef8c141   income
+
+### The business name is `subscription_client.company`
+GHL-sourced and authoritative: **J & M Property Management, Inc.**
+`sales_payment.customer_name` is Whop's billing-address version — *"J & M Real
+Estate and Property Management Brandi"* — and must never be shown as the
+business. A test asserts that string reaches no subscriber payload.
+
+That name is also why every filter uses **repeated array params**
+(`status[]=a&status[]=b`) and never a comma list, and why an export test asserts
+`"J & M Property Management, Inc."` comes back quoted rather than split across
+two columns.
+
+### The spec said "6 in pipeline" and the answer was 8
+Recorded because it was asserted three times and will come up again. Two spec
+revisions said "Six have a pipeline stage" and then listed five stages summing
+to **eight**; the live database agreed with the list:
+
+    Closed Won 3 · Demo Complete 2 · Demo Scheduled 1 · Onboard Initiated 1 · Qualified 1
+
+Most likely a stale count from before two leads gained a stage. It is moot on
+this page now — the funnel moved to Leads — but if it is built there, **compute
+the figure and print the breakdown beside it** rather than writing either down.
+
+### One Financials item per brand — and Folio's id is `reports`
+Folio used to carry two entries: `reports` labelled "Reports & Financials" and
+`financials` labelled "Financials". Only the first could ever appear, because
+**Folio has a `reports` dashboard_module row and no `financials` one** (verified
+live, not inferred). So by instruction the menu collapsed to one item, and the
+label moved onto the id that works:
+
+| brand | nav id | label |
+|---|---|---|
+| Executive Board, LeavenWealth, Leadli AI, Liquid Lending | `financials` | Financials |
+| **Folio Excel** | **`reports`** | **Financials** |
+
+**The id and the label differ for this one brand, and that is deliberate.**
+Pointing Folio's menu at `financials` to make it symmetrical makes the screen
+disappear — that id has no grant. `test-portal-nav.js` pins both halves: every
+brand shows exactly one item matching /financial/i, and Folio's resolves on
+`reports` while `view=financials` degrades to Overview.
+
+`FINANCIALS_BUILT` no longer has a `folio` key, so `V.financials()` and the
+`mount()` branch behind it are gone from portal.html. **That leaves
+`PortalFolioFin.mount()` — the wider table with filters and CSV export —
+routed from nowhere.** It is kept because `/export` is live and tested and
+reaching it again is one nav entry, and it is marked UNROUTED in the module
+header. If it is still unrouted next time someone reads this, delete it.
+
+`migrations/20260907_folio_financials_label.sql` renames the catalog label to
+match, for the one place that renders it rather than the MENUS map: Users &
+Roles prints `m.label` when listing what can be granted, so until it is applied
+an admin sees "Reports & Financials" beside a nav that says "Financials". The
+nav is correct either way.
+
+### `relation "s" does not exist` — and why 61 green tests missed it
+The filter-options query was five scalar subqueries in the select list, each
+`(select array_agg(...) from s)`, over a subquery aliased `s` in the FROM.
+**That is not legal**: a sub-select in the target list cannot reference a
+sibling FROM item as a relation. Postgres answered
+`relation "s" does not exist`, `/subscribers` 500'd, and Reports & Financials
+rendered nothing but that sentence.
+
+It is now a CTE with the aggregates taken directly — no sub-selects at all.
+
+**The whole test suite was green**, because `test-folio-financials.js` stands a
+fake in for Postgres and a fake never parses SQL. That is the same blind spot
+as "Verify the DEPLOYED artifact" at the top of this file, one level down: the
+tests verify the code around the query and cannot verify the query.
+
+Two guards were added, and they are different in kind:
+
+1. **A relation lint in the suite** (no database needed): every name used as a
+   relation in every statement the module issues must be `public.<table>` or a
+   CTE declared in the same statement. Mutation-tested — reintroducing the
+   `from s` shape fails it by name. It catches exactly one class of bug, which
+   is the class that shipped.
+
+2. **`tools/check-folio-sql.js`** — the real answer. It mounts the router
+   against a recording stub, calls every route plus the filter combinations
+   that change the SQL, and **EXPLAINs each of the 20 distinct statements**
+   with its real parameters. EXPLAIN plans without reading a row, so it is
+   read-only twice over. Exit code 1 if anything fails to plan, so it can gate
+   a deploy.
+
+       SUPABASE_DB_URL=... node tools/check-folio-sql.js
+       node tools/check-folio-sql.js --print   # dump the statements, no DB
+
+   Two details in that tool are load-bearing. The recorder **answers the
+   subscriber lookup with a row**, or `/subscribers/:id/payments` 404s before
+   issuing the statement most worth checking (the payment predicate widens
+   past the subscription join when test rows are asked for). And it returns
+   **one row for an ungrouped aggregate**, as Postgres does, so the routes
+   that destructure `const [m] = await q(...)` complete instead of throwing.
+   Both were found by running it, not by writing it.
+
+All 20 statements were verified against the live database on 2026-09-07,
+including every filter predicate shape.
+
+### Tests
+    node test/test-folio-financials.js   # 62 checks, no database needed
+    node tools/check-folio-sql.js        # every statement EXPLAINed (needs the DB URL)
+
+Mutation-tested: removing the test-payment default from `paymentWhere` fails
+three of them. Several checks read the front-end SOURCE rather than a payload,
+because "no chart" and "no delta" are properties of the screen that no API
+response can enforce — and those checks strip comments first, or they read the
+prose explaining why a thing is absent and conclude it is present.
+
+## Leadli AI: Financials — the payment stream, and an honest empty state
+
+`/api/leadli/financials` (`leadli-financials-api.js`) + `public/portal-leadli-fin.js`.
+The THIRD money model in the portal, and the reason `FINANCIALS_BUILT` is a map:
+
+| brand | reads | module |
+|---|---|---|
+| LeavenWealth, Executive Board | balance snapshots (`account_balance`) | `PortalFinancials` |
+| Folio Excel | subscriptions (`subscription_client`) | `PortalFolioFin` |
+| **Leadli AI** | **the payment stream (`sales_payment`)** | **`PortalLeadliFin`** |
+
+### Leadli has NO payment data, and the empty state IS the feature
+Verified live 2026-09-08, not assumed:
+
+    sales_payment        0 rows for Leadli  (all 3 in the table are Folio's)
+    subscription_client  0 rows for Leadli
+    transaction          0 rows for Leadli
+    service_client       0 rows, whole table
+    lead                 2,557 rows, 0 with is_client
+
+So all four cards read `$0.00` / `0` and the table renders ONE centred message
+naming where revenue will arrive from (the Whop webhook, n8n workflow "Whop to
+database (payment success)") plus the pipeline count that explains the blank:
+**2,557 leads in the pipeline · 0 converted**.
+
+That replaced the "Leadli AI financials are not set up yet" placeholder, which
+was the right answer while nothing was built and the wrong one afterwards:
+there is no record yet, but there should still be a dashboard.
+
+**Nothing seeds a placeholder row.** A test asserts the screen contains none of
+`Bluebird`, `Redwood`, `Cornerstone`, `Harbor Homes`, `Prairie Rentals`,
+`Elm Street`, `Sample`, `Demo` or `Acme` — named because Folio's page shipped
+with six invented businesses in it.
+
+`empty` comes from the server's own `payment_count`, never a hardcoded flag, so
+**one inserted payment flips the whole screen with no code change**. That is the
+spec's real acceptance check, and the suite runs every assertion twice: once
+against no payments, once against one.
+
+### The four cards, and what each actually counts
+
+| Card | Counts |
+|---|---|
+| Total amount | `sum(usd_total)` on collected, non-test rows — money RECEIVED |
+| Total clients | DISTINCT PAYERS, `coalesce(external_customer_id, customer_email)` |
+| Subscriptions | recurring PAYMENTS, not customers |
+| One-time payments | one-off PAYMENTS |
+
+**Cards 3 and 4 are payment counts.** One subscriber paying monthly for a year
+contributes 12, and the sub-line says so; where the distinct-subscription count
+differs it is named beside it ("payments, across 1 subscription") rather than
+quietly swapped in. Pick one and label it honestly — this picks payments.
+
+`external_customer_id` is the Whop `user_` id and is the reliable identity;
+email is the fallback only where that is null.
+
+No percentage, arrow, MoM, ARR, NRR, churn or trend anywhere. `kpiCard()` takes
+**four** arguments where portal.html's `kpi()` takes five — the fifth is the
+class that colours a delta, so there is nowhere to put one. A test asserts the
+argument count.
+
+### Never count `lead.is_client` as clients
+It reads **0** for Leadli today and **4** for Folio, where only one customer
+pays — the flag drifted across earlier sessions. `converted` in the empty-state
+payload is derived from the payment stream, and `converted_source` says so on
+every response. Two tests: no statement reads the column, and no count in any
+payload equals 2,557 except `pipeline.total_leads` itself.
+
+### `product_name` is NOT joined to the `service` catalogue
+`service` holds 7 Leadli offerings (Ad Management, AI Automation & Workflows,
+AI-Powered Front-End, Data & Integration Layer, Email Marketing Campaigns,
+Smart Back-End Systems, Strategy Call / Free AI Audit) and **every one has a
+NULL price**. `sales_payment.product_name` is the Whop product title — on Folio
+it reads "Chris Pomerleau-Standard", which matches no catalogue entry.
+
+There is no key between them, and a fuzzy name match would silently mislabel
+revenue. A test asserts no statement touches `public.service`. Linking them
+needs a real `external_product_id` on `service`, which is Jay's call.
+
+### The customer name needs a FALLBACK CHAIN, and says which link it used
+Whop sends `user.name` as null routinely — it was null on the one real Folio
+payment, restored by hand from `raw.billing_address.name`. The chain is
+
+    customer_name → raw.billing_address.name → raw.user.username → customer_email
+
+and `customer_source` rides along so the client can mark a Whop username as a
+**handle** rather than passing it off as a person's name. An email fallback is
+marked too. No cell is ever blank.
+
+### The is_test filter is PROBED, not hardcoded
+`sales_payment` has no `is_test` column (verified). Until it does, test rows are
+matched on `TEST TRANSACTION` in free-text `notes` **and** a Whop-anonymised
+`@deleted.com` email — both together, per the spec.
+
+`testPredicate()` asks `information_schema` **once** and switches to `is_test`
+the moment the column appears, which is what makes "no code change" true in
+both directions. A test clears the cache and asserts both branches: the
+provisional one names the notes string, the real one stops matching it.
+
+A string match on a notes field breaks the first time someone edits a note, and
+it breaks toward inflating revenue. That column is worth asking for.
+
+### Two gaps the front end cannot fix
+1. **Leadli is not wired into the Whop n8n workflow.** It routes payments to a
+   brand by Whop company id; Folio's is confirmed (`biz_wmvLWNZSgmchCw`) and
+   **Leadli's is blank**, as is its GHL location id in the same map. Until both
+   are set, a Leadli payment would be booked to Folio Excel — wrong brand,
+   wrong entity, wrong processor account. The Leadli processor account already
+   exists: `fdefb5bc-e511-4688-bfc0-c8e20b7f52da`, `account_kind = processor`.
+2. **`sales_payment` wants an `is_test` boolean**, per above.
+
+Both are Jay's; nothing on this screen can work around either.
+
+### No pipeline stages and no funnel
+CRM data belongs on the Leads page. The ONE lead count inside the empty-state
+message is the deliberate exception, and only because it is what explains an
+empty table. A test asserts no statement groups by `pipeline_stage`.
+
+### Tests
+    node test/test-leadli-financials.js   # 38 checks, no database needed
+
+Every check runs against both fixtures. The suite also lints that every
+relation named in every statement is `public.<table>` or a CTE — the guard that
+came out of `relation "s" does not exist` on the Folio module — and all four
+statements were run against the live database before shipping, because a fake
+never parses SQL.
+
+One check is worth copying: the "no invented metric" assertions use **word
+boundaries**. A substring test for `ARR` matches "revenue **arr**ives" in the
+empty-state copy, which is the same trap as "Cash Source" containing "Source"
+on the LeavenWealth export.
+
+## Removed screens: Investors, Insurance / Risk, Integrations, Plans & Pricing, Overview
+
+Removed 2026-09-07 by explicit instruction — the nav entries AND the `V.*`
+functions behind them. All three were placeholders or baked demo data:
+`investors` rendered a five-row hardcoded `INVESTORS` array, `insurance` and
+`integrations` rendered a "coming soon" placeholder naming the table each would
+one day read.
+
+The view functions went with the nav entries rather than being left in place. A
+screen with no route to it is one somebody eventually wires data into without
+noticing nothing links to it.
+
+**The data is untouched.** `insurance_policy` (257 policies, 21 carriers,
+$435M TIV), `investor`, `investor_stake` and `integrations` are all still
+there, and `/ops` still surfaces the loan/debt views. Only the portal screens
+went.
+
+`TABLE_VIEWS` in portal-realtime.js was cleaned in the same commit: bindings to
+a view that no longer exists can never match, which is not a live bug but reads
+as coverage that is not there. `insurance_policy` lost its last binding when the Overview screens went - it was
+bound to those cards alone.
+
+**Still present, deliberately:** the Executive Board overview keeps its baked
+"Investors" card, because it is a card on a dashboard rather than a menu. Say
+the word and it goes too.
+
+### The per-brand Overview items, 2026-09-07
+Removed from **all four** brands (LeavenWealth, Leadli AI, Folio Excel, Liquid
+Lending) along with `V.overview()` and the `{lbl:'Overview'}` section label
+above each one. **Executive Board is untouched** - its landing screen is
+`exec`, labelled "Executive", and it is still where the portal opens.
+
+Every brand's version was baked, and it was the biggest single block of
+invented figures left in the app:
+
+| brand | what it showed |
+|---|---|
+| LeavenWealth | 66 properties, 92% occupancy, $72K NOI, $2.04M debt / 3 loans, plus a three-row "Cash & accounts" table and a five-row Investors table |
+| Leadli AI | 37 open leads, 4 appointments, $5,370 ad spend, $38 CPL |
+| Liquid Lending | $3.2M active loans / 12 notes, 9 applications, 11.4% yield, $4.8M deployed |
+| Folio Excel | returned `V.reports()` - the live Financials view - so it lost only a second door to one screen |
+
+Three of LeavenWealth's four were known to be wrong (75 loans, ~$106.5M, and
+occupancy not derivable at all). This was the top item under "Still baked".
+
+**The three `|| 'overview'` fallbacks had to move with it.** `readState()`,
+`setBrand()` and the boot gate each fell back to `'overview'` when
+`firstAllowedView()` returned null - a caller who can open no screen in the
+workspace. That id no longer exists, so they would have named a view the app
+cannot render. They now fall back to **`V.noaccess()`**, which says so and
+points at Users & Roles.
+
+Anything unrecognised still degrades to the brand's **first** screen, which is
+no longer Overview: LeavenWealth → Properties, Leadli → Leads, Folio → App
+Users, Liquid → Loan Pipeline. Three nav tests asserted `['folio','overview']`
+for exactly that fallback and now assert `['folio','subscribers']`.
+
+`TABLE_VIEWS` lost four bindings: `property`, `property_financials`, `loan` and
+`lead` all dropped `'overview'`, and **`insurance_policy` lost its only
+binding** - it was bound to the Overview cards alone, so the key is gone
+entirely with a comment saying its 257 policies are still there for whatever
+screen reads them next.
+
+The `overview` `dashboard_module` rows are **left alone**, and
+`test-portal-nav.js` still grants the id for every brand - which is what makes
+its check meaningful: a live grant cannot put a removed item back.
+
+### Plans & Pricing (Folio) went the same way, 2026-09-07
+Also baked: a three-tier `PLANS` array (Starter $99, Growth $4.50/unit, Scale
+$4.00/unit) that no table behind it agrees with — `subscription_plan` is **0
+rows**, and the one real `subscription_client` row has a NULL
+`subscription_plan_id`. The nav entry, `V.plans()`, the array, the `.tilegrid`
+/ `.ptile` rules that only it used, and the `card` icon that only it named all
+went in one commit.
+
+`subscription_plan` was bound to `['plans', 'financials']` in `TABLE_VIEWS` and
+is now `['financials']` alone. A binding to a view that no longer exists can
+never match, so it is not a live bug — it just reads as coverage that is not
+there.
+
+**The plan tiers also lived on Reports & Financials**, which is the screen Folio
+actually looks at — `V.overview()` renders it for that brand — and they survived
+the first pass. A "Revenue by plan" card split $3,308 of MRR across the same
+Scale / Growth / Starter, two clients each. That card is gone too, and its grid
+dropped from `g2` to a single column so the surviving MRR trend is not left at
+half width.
+
+### Removing the `card` icon broke App Users, silently
+Worth reading before deleting any icon. The nav declares its glyph as
+`ic:'card'`, but **the views pass icon names as plain string arguments** —
+`kpi('card','Past due',…)` on App Users, `card('card','Revenue by plan',…)` here
+— so grepping the nav form counted one use and there were three. `I['card']`
+became `undefined`, which renders as nothing: no throw, no console line, just a
+tile that quietly lost its glyph on a screen nothing happened to assert against.
+
+The icon is restored, and `test-portal-nav.js` now reads portal.html and checks
+that **every icon named anywhere** (`ic:'x'`, `kpi('x'`, `card('x'`, `I.x`)
+exists in the `_svg` map. That check was mutation-tested: deleting the glyph
+makes it fail with `["card"]`. It reads the source rather than the DOM on
+purpose — the failure is an empty string on whichever screen you did not visit.
+
+**The `plans` catalog row is left alone**, and `test-portal-nav.js` still
+*grants* it. A `dashboard_module` row outliving a screen is normal here; what
+is worth pinning is that a live grant cannot put a removed item back, and that
+a stale `#brand=folio&view=plans` link degrades to Overview rather than
+blanking the page.
+
+Folio's real billing lives on **Reports & Financials** and **App Users** — see
+"Folio Excel: Reports & Financials, App Users, and Whop billing" above.
+
+## Curated datasets (`reporting` schema) - Phase 1, APPLIED 2026-10-11
+
+`migrations/20261011_reporting_schema.sql` + `config/datasets.js` + `am-fee-rules.js`.
+Six views that encode the data rules once, so no screen reads `t12_monthly`,
+`rent_roll_line` or `loan` directly. **Applied 2026-10-11** after a dry run
+over all four files in one transaction: 42 fee schedules, 43 property links,
+42 receipts, 7 reporting views, 0 fee rows without a property.
+
+### The schema was discovered by PROBING, because no credential was available
+There is no `.env` in this repo, the Supabase and database connectors were
+disconnected, and Railway returns variable names with `valuesRedacted: true`
+over OAuth. So the column lists were established by asking PostgREST for one
+column at a time with the publishable anon key: a missing column answers
+`42703`, a missing table answers `PGRST205`, and a table that exists but is
+RLS-closed answers `[]`. **No row was read** - anon has no grant, which is
+correct and is also the reason the content checks below could not be made.
+
+That technique is worth keeping. It settles whether a column exists in one
+command, and this file's opening rule is that a described artifact must be
+queried rather than believed.
+
+### Two of the three "missing" things were a PROBE ARTEFACT, not a gap
+Corrected 2026-10-11 against the live database. The wrong version was
+circulated, so both versions are recorded:
+
+| First reported | Actually |
+|---|---|
+| principal not derivable; `balance_sheet_change` does not exist | **the table does not exist, but principal does.** AppFolio books it in `other_cash_items` as loan/mortgage lines with NEGATIVE amounts (negative = principal paid); Buildium books it in `non_operating_expense` as a positive `Mortgage Principal`. `v_gl_balance_sheet` was a red herring. |
+| `rent_roll_line` has no tenant name | **the column is `tenant_names`**, which the probe's candidate list did not contain. |
+| `property_financials.non_recurring_fee_income` absent | **correct.** Stays NULL. |
+
+**The lesson is about the method, not the data.** A column probe can only
+disprove the names it thinks to try, so "absent from my candidate list" is not
+"absent from the table" - and it reads exactly like a finding. The probe was
+right about every name it tested and wrong about the two it did not think of.
+Use it to confirm a name you have reason to expect; do not use a null result
+from it to conclude a capability is missing.
+
+### The property name is a LINK, and the row was always clickable
+The row carried the click from the day it shipped, but nothing on screen said
+so - no colour, no underline, no cursor - so the eleven property tabs behind
+it were effectively undiscoverable from an entity page. The name is now an
+`<a class="rp-link">` with a real `href` (so it opens in a new tab and can be
+pasted), and the row handler preventDefault()s a plain click while leaving
+ctrl/cmd/middle click alone.
+
+An affordance is not decoration here: it is the only route to Monthly
+financials, Optimized NOI and DSCR.
+
+### Units have a THIRD fallback, and the screen names which one it used
+`unit_count_verified` leads, the sum of buildings' `current_total_units` is
+next, and the **latest rent roll's unit count** is the new third step. Both of
+the first two are NULL on a lot of properties - Modern Heights, 500 S Dakota,
+Adventureland, Aksarben and BG Flats all have either no `unit` rows at all or
+rows whose `current_total_units` was never filled - so the page showed a dash
+for properties whose rent roll names 160, 22, 72, 24 and 42 units.
+
+The rent roll is LAST on purpose: it is a snapshot of what was leasable on one
+date, where `unit_count_verified` is a deliberate statement about the asset.
+Where they disagree the verified figure still wins and `units_rent_roll`
+carries the other number, so the disagreement is visible rather than resolved
+silently. **Altoona Terrace is the live case: 84 verified against 83 on the
+rent roll**, shown as an amber `rr 83` tag. `unit_count_reported` is still
+never used.
+
+`units_source` is on every row ('verified' | 'buildings' | 'rent_roll').
+
+### The reporting views are MATERIALISED, and must be refreshed after a sync
+`reporting.property_summary` read the monthly spine four times and took
+**1,147ms in Postgres** for the 170 rows the section opens on.
+
+    reporting.property_month_mv     the monthly spine
+    reporting.property_summary_mv   the Properties page's front door
+    reporting.refresh_reporting()   refreshes both, in that order
+
+Execution is now **0.082ms**. Both carry a unique index so the refresh runs
+CONCURRENTLY and the screen stays up, and the function falls back to a plain
+refresh when a view has never been populated - CONCURRENTLY is rejected
+against an unpopulated matview, and a refresh that throws on a fresh database
+is one nobody can run.
+
+    node tools/refresh-reporting.js      # after a T12 export or rent roll import
+
+**Measure the SERVER, not your own latency.** The original symptom was "2.9
+seconds", of which roughly 1.8s was the round trip from a laptop far from the
+Supabase region. `explain (analyze)` reports execution time and is the number
+worth optimising; the wall clock at a remote client is not.
+
+### A skeleton, never a blank page
+Every loading state renders a table-shaped skeleton rather than the word
+"Loading" or nothing at all: the shape is itself information, so the wait
+reads as a wait. It shimmers unless `prefers-reduced-motion` is set.
+
+It reuses `.rp-tbl` for its rows, which **broke the test harness** - a wait
+that keyed on `.rp-tbl` settled on the placeholder, and the row looked up a
+moment later was detached when the real table replaced it. The harness now
+waits for `.rp-skel` to be gone.
+
+### Interest has THREE spellings that count, and three that do not
+Verified against the live data, not guessed:
+
+| Label | Properties | Counted? |
+|---|---|---|
+| `Mortgage Interest` | 42 | **yes** |
+| `Interest Exp` | BG Flats, Champion Villas, Doral | **yes** |
+| `Interest Payment` | The Whitney, Uptown Flats | **yes** |
+| `Other Interest Expense` | Cedar Haven, Estrella, Heston Pointe, Sierra Gardens, The Beverly | no |
+| `Other interest` | Franklin Court, Lions Gate | no |
+| `Interest Expense` | Ash Street Place only, 2023-09 to 2024-03 | no |
+
+**The test is whether the property also has a `Mortgage Interest` line.**
+Every property using `Interest Exp` or `Interest Payment` has none, so those
+spellings ARE its interest. Every property with `Other Interest Expense` or
+`Other interest` also carries a real mortgage interest line, so those are
+other debt - a line of credit or similar - and adding them would inflate debt
+service and depress DSCR on seven properties.
+
+`Interest Expense` is in neither list. It is one property's only interest
+line and its data ends in March 2024, before the current reporting period, so
+excluding it moves no live figure. It is surfaced rather than quietly folded
+in either direction, and `property_month.other_interest` exposes the excluded
+amounts so they can be looked at without ever being summed in.
+
+The anchors are load-bearing: `^interest exp$` must not reach
+`Interest Expense`.
+
+### Debt service is a THREE-step fallback, decided per property
+```
+a) books carry principal or an unsplit payment -> income_statement
+b) else every loan states an annual figure     -> loan_record
+c) else the books carry interest               -> interest_only_books
+```
+Step (c) exists because of **Doral**: interest every month from May 2026, no
+principal line and no loan record, so the first two steps both yielded NULL
+and the screen showed a blank debt service for a property that demonstrably
+pays one. Interest alone **understates** the real payment rather than
+estimating it, so the source is named and the monthly sheet says
+*"Interest only, from the books … DSCR is correspondingly optimistic."*
+
+Doral: debt service 25,039.72 (May), 24,386.76 (Jun), 22,830.33 (Jul),
+22,830.34 (Aug and Sep) - which sums to the 117,917.49 of `Interest Exp` on
+file - and DSCR 1.67 / 1.91 / 1.64 / 1.01 / 0.78.
+
+Unchanged by the addition, and re-verified: Dakota Bend Jan 2026 is still
+13,539.14 on `income_statement` at 1.11, and Franklin Court is still
+`loan_record` at 774,391.92 / 12.
+
+### Other interest counts as debt service only when a loan explains it
+Classified by RULE, never by name. Both must hold:
+
+* the line appears with a POSITIVE amount in **>= 6 of the last 12 months**, and
+* the property has a loan on file that could explain it - a loan with a
+  **KNOWN** non-primary `purpose`, or two or more loans.
+
+"Known" is load-bearing. `purpose <> 'primary_mortgage'` is TRUE for a NULL
+purpose, and NULL means nobody recorded what the loan is - which is not
+evidence of extra debt. The positive-amount test is what keeps the two CREDIT
+lines (Franklin Court, Lions Gate) out; a negative can never be debt service.
+
+Qualifying today: **Cedar Haven Duplexes** (seller_carry) and **Heston
+Pointe** (pac_due, pace_equity). Both drop below 1.0 once it is counted:
+
+| | DSCR mortgage | DSCR all debt |
+|---|---|---|
+| Cedar Haven Duplexes | 1.18 | **0.92** |
+| Heston Pointe | 0.91 | **0.73** |
+
+**The Beverly is deliberately OUT and is an open question.** $97,500/yr of
+other interest, every month, against one loan of $171,700 with no recorded
+purpose - $7,500 a month cannot be serviced by that balance, so there is debt
+here the loan records do not describe. It stays visible in `other_interest`.
+Estrella and Sierra Gardens are one-off $25,000 rows in April 2026 and fail
+the six-month test.
+
+### Two DSCRs everywhere, and `dscr` keeps its old meaning
+`DSCR, mortgage` and `DSCR, all debt` appear together on Monthly financials,
+the DSCR tab, Totals and the Properties table.
+
+`property_month.dscr` and `property_summary.trailing_dscr` still mean
+**mortgage only**. The saved Coverage watchlist filters on `trailing_dscr`,
+and redefining it would change what that view means without changing a word
+of its config. The all-debt figures are additive columns.
+
+### An estimate has to say so NEXT TO ITSELF
+A caveat in a paragraph above a table is read by nobody scanning a column.
+
+- DSCR from `interest_only_books` carries an **interest only** tag, tooltip
+  "No principal in the books; coverage is likely overstated."
+- Every value shows its **as-of date**, and one older than six months - or
+  **with no date at all** - is tagged **stale**. "We do not know when this was
+  true" is a different claim from "this is current", and only one of them is
+  safe to divide debt by.
+- "Value at cap rate" is always tagged **estimate**, whatever the rate.
+- LTV states which value it used: on file with its date, or the cap-rate
+  estimate.
+
+### QuickBooks will replace the interest-only fallback - NOT YET BUILT
+See `docs/SYSTEM.md` for the detail. Once monthly QuickBooks balance sheets
+exist per property LLC:
+
+1. **loan balances should come from them**, not `loan_balance`, which is
+   sparse and ragged (54 of 75 loans have any row at all); and
+2. **principal paid = the month-over-month DECREASE in the loan balance**,
+   which is a measurement rather than an inference and retires
+   `interest_only_books` entirely.
+
+It also retires the sign test: a refinance RAISES a balance and can never be
+mistaken for a payment, where today a positive `other_cash_items` row has to
+be told from a negative one by rule.
+
+Do not build the import against assumptions - check what the balance sheets
+actually call the loan accounts and how they map to `loan.id` first.
+
+### `loan_proceeds` is money ARRIVING, and is never netted against anything
+The positive side of `other_cash_items`. Four rows exist: Doral's
+**4,326,000.00 refinance in MAY 2026** and its **200,000.00 `Loan - Other` in
+June**, and two 960.40 `Arrow Loan` rows at Capitol City Villas in January and
+February. `loan_proceeds_note` carries the line label, because 4,326,000.00
+with no name beside it invites exactly the question the label answers.
+
+`Loan - Other` IS proceeds even though it is excluded from principal, so it
+is included here and named.
+
+**An earlier note in this repo said April.** It was read off a helper that
+called `toISOString()` on a DATE, which from UTC+8 renders 2026-05-01 as
+2026-04-30 - the same timezone bug recorded against `paid_at`, this time in
+the tool doing the verifying rather than in the product. Worth remembering:
+the instrument needs the same scrutiny as the thing being measured.
+
+### "In Dropbox" is a real per-property answer
+The Properties table's **In Dropbox (T12 / Rent roll)** column first printed
+the SOURCE SYSTEM, which answers a different question and answers it for
+every property that has any data at all - so it read "T12" for 80 of 80 while
+only **50** actually have one filed.
+
+Both chips now come from the document linked to the property's latest report
+of each kind (`t12_report.document_id`, `rent_roll_report.document_id`; 88 of
+89 and 89 of 90 are populated). Live: of 80 held properties, **50 have a T12
+filed and 51 a rent roll**, and 29 have neither. The chip's title names the
+file. A missing one is a dashed outline rather than an absent chip, because
+"no T12 on file" and "we never looked" are different answers.
+
+### Three near-misses the matchers must NOT catch
+All three contain the word Mortgage and none is debt service:
+
+- `Mortgage Escrow Replacement Reserve` is a reserve.
+- `Expense > Mortgage Escrow Expense` is taxes and insurance, an **operating**
+  expense.
+- `Loan - Other`, and anything matching `security deposit|prepaid|clearing`,
+  is excluded from the principal matcher.
+
+Counting any of them inflates DSCR's denominator. The confirming query at the
+bottom of the migration prints the exclusion list specifically, because every
+row in it is money the principal matcher does not count - and anything there
+that really is a mortgage payment is debt service going missing, with DSCR
+reading high.
+
+`Mortgage Payment` and `Mortgage Payment - Seller Carry` ARE debt service:
+interest and principal in one unsplit line.
+
+### The verified column lists
+`t12_monthly` has **no foreign key to `t12_report`** - the newest export is
+already materialised into it, so `first_active_month` joins on
+(property_id, accounting_basis) and takes the EARLIEST on file.
+
+    t12_monthly      tenant_id property_id month accounting_basis section
+                     account_path depth line_label is_total amount sort_order
+    t12_report       tenant_id property_id entity_id period_start period_end
+                     accounting_basis first_active_month source_system
+                     document_id report_type
+    rent_roll_report tenant_id property_id as_of_date source_system document_id
+    rent_roll_line   tenant_id rent_roll_report_id unit_id unit_label beds baths
+                     occupancy_status rent market_rent balance_due lease_start
+                     lease_end move_in move_out square_feet sort_order
+
+### The matchers are Jay's, and they still fail silently
+The content vocabulary in `reporting.t12_tagged` was read off real rows, not
+guessed. It is still isolated in that one view, because every matcher fails
+**silently to NULL** if a spelling drifts - which on screen is
+indistinguishable from "no data this month". The regression query is at the
+bottom of the migration.
+
+Both source systems spell everything differently and both are live:
+
+    Buildium  'Rent Income'           AppFolio  'RENTS'
+    Buildium  'Capital Improvements'  AppFolio  'CAPITAL EXPENSES'
+    Buildium  'Mortgage Principal'    AppFolio  'Principal Payment', or a
+                                                negative balance-sheet line
+
+Rent is a three-tier fallback: the depth-1 TOTAL line, then a depth-1
+non-total, then AppFolio's `Rent - Residential` total under `INCOME - TENANT`.
+
+### `fee_pct` is a WHOLE percent; `loan.interest_rate_pct` is a FRACTION
+2 means 2% in `am_fee_schedule.fee_pct`, and 0.035 means 3.50% in
+`loan.interest_rate_pct`. Two columns ending `_pct` with opposite conventions
+is a trap, so the divisor is a named constant in `am-fee-rules.js` and a CHECK
+constraint (0..100) is on the column. `reporting.loan` multiplies the loan one
+by 100 once, so no screen has to remember.
+
+### `am-fee-rules.js` is the specification; the SQL is what runs
+The fee arithmetic exists twice on purpose: in `reporting.am_fee_month`, which
+the screens read, and as pure functions, which the tests exercise. A rule you
+can only run by standing up Postgres is a rule whose edge cases nobody checks.
+Nothing requires `am-fee-rules.js` in production.
+
+**They are not automatically kept in agreement, and that is the open risk.**
+`tools/check-folio-sql.js` is the pattern for closing it and has not been
+written for this yet. Two divergences were already found and fixed this way:
+the JS read the LOCAL clock while the view reads the database's `current_date`
+(which flips variance between `-expected` and `null` for the first hours of a
+month in Asia/Manila), and the expected-fee CASE was written twice inside one
+view, so its `expected` and `variance` columns could be edited into
+disagreeing with each other while both still ran.
+
+### The registry is an allowlist, and the server has no RLS behind it
+`config/datasets.js` is what stands between a user-authored saved-view config
+and generated SQL. `supabase-db` connects as the **postgres superuser**, so
+RLS never runs and `current_tenant_ids()` is never called - tenant scoping is
+this layer's job, exactly as it is `financials-api.js`'s.
+
+- `safeColumn()` resolves a field key to a quoted column, or null. Null means
+  "drop the field and say it is missing", never "pass it through".
+- `safeView()` exists because `reporting.property_month` has a dot in it and
+  `safeColumn` would reject it - the FROM clause is otherwise the one part of
+  a generated query with no allowlist behind it.
+- `tenantColumn()` **throws** rather than returning null. A missing scope must
+  never degrade into "no filter".
+- `safeOp` / `safeAggregate` / `safeDir` cover the other identifiers that get
+  concatenated. Filter VALUES are always bound parameters.
+- The registry is **deep-frozen**, because `getField` hands back the live
+  object and anything merging a stored config onto it would rewrite the
+  allowlist process-wide - after which `safeColumn` would happily validate the
+  mutated column.
+- A **load-time self-check throws** on a duplicate field, an unusable column,
+  a missing tenant scope, or a `defaultSort` naming a field that does not
+  exist. That last one is silent at runtime: it yields a dropped ORDER BY,
+  which reads as rows in the wrong order rather than as an error. It caught a
+  real one in `rent_roll_unit`.
+
+`hidden: true` is a UI hint, NOT authorization - a hidden field is still
+selectable by a hand-edited config. Anything that must not leave the server
+belongs out of `fields` entirely.
+
+### Tests
+    node test/test-am-fees.js           # 17 checks, the fee arithmetic
+    node test/test-datasets.js          # 10 checks, the allowlist boundary
+    node test/test-acceptance-math.js   # 16 checks, section 2.10's arithmetic
+
+All three mutation-tested. A truthiness check on `amount_received` turns a
+zero receipt into the books figure and fails by name; dropping a dataset's
+tenant scope throws at require time; removing the calendar-adjacency check
+makes `optimizedNoi` report a six-month window that never happened.
+
+**`test-acceptance-math.js` pins the half of section 2.10 that is arithmetic**,
+which is more than a restatement: the brief gives Dakota Bend's income, NOI,
+expense ratio, interest and principal, and those five only agree if all five
+are right. They agree to the cent, and the same January income (48,469.52)
+produces the seeded February fee of 969.39, so the financial check and the fee
+check are reading one number.
+
+The half that is DATA - does `reporting.property_month` actually RETURN
+149,000.29 for Franklin Court in May 2026 - is deliberately **not** in any
+suite. A fixture cannot answer it, and asserting it against one would be the
+vacuous-test failure recorded under Financials above. It needs a live
+connection.
+
+## Properties is a three-level drill-down (docs/PROPERTIES_SPEC.md)
+
+`docs/PROPERTIES_SPEC.md` is the single source of truth for this section and
+supersedes every earlier instruction about Properties and Views. Read it
+before changing anything here.
+
+    Portfolio  ->  Entity  ->  Property
+    tabs: Entities | Properties | Asset management fees | Views
+                    tabs: Properties | Asset management fees
+                              tabs: Overview ... Documents (11)
+
+**There is no sidebar.** The entity tree listed 106 legal entities as
+navigation, which is a directory rather than a route, and it took a third of
+the width from the tables. Navigation is drill-down plus breadcrumb.
+
+**The entity level is the MANAGING entity, not the owner LLC.**
+`entity.manager_entity_id` groups 130 legal entities into 17 managers, which
+is how the portfolio is actually run. 35 held properties have no managing
+entity on file; they are a real group under `?managing=none`, reachable and
+counted, because a property with no manager recorded is a gap to close, not a
+property to hide.
+
+### The URL carries level, entity, property, tab and period
+`lvl`, `ent`, `prop`, `ptab`, `yr`, `fm`, `tm`. portal.html's `writeState()`
+rebuilds the fragment from scratch on every render, so these ride through the
+`PortalReporting.urlParams()` hook; written directly into the hash they were
+stripped by the next render. Navigation inside the section PUSHES, so browser
+Back steps back through the drill-down.
+
+**A bookmarked link was broken by load order, and only a cold load showed
+it.** `writeState()` runs inside `render()` BEFORE `mount()`, and it asked
+`urlParams()` for state the module had not read yet, so it rewrote a property
+URL to the portfolio landing before the module saw it. Every test reached a
+property by clicking, which sets state first, so none could see this.
+`ensureUrlRead()` reads the URL once on first use, and the suite now loads a
+property URL cold.
+
+### Stale responses are dropped (A6)
+Every load carries a sequence number and a response whose number is no longer
+current is discarded. Without it, switching entity while a slower request was
+in flight let the older response land last and repaint the new screen with
+the old entity's rows. Nothing about the response says it is stale; only the
+sequence does.
+
+### Design pass: what each skill caught
+Run against the rendered screens, not the source. Findings were fixed in one
+batch and confirmed with measurements, not by eye.
+
+| Skill | Finding |
+|---|---|
+| ui-ux-pro-max | LeavenWealth link colour **3.90:1**, fails AA on the element people must find to navigate. Now 75% accent + white, **5.89:1** measured. Light theme mixes toward black instead. |
+| impeccable | unicode `▾ ▸` standing in for icons (now the portal's own thin-line set, exposed as `window.PortalIcons`); a 2px left-border callout; unthemed selection, scrollbars and focus rings |
+| Emil Kowalski | nothing seen dozens of times a day animates; hover gated behind a real pointer; every transition names its properties and stays under 300ms |
+| taste | **out of scope for dashboards and data tables by its own rules**, so only its cross-cutting ones apply: no em-dashes in copy, middle dots rationed (the header line had four) |
+
+The `–` not-available marker stays: the spec mandates it (B2).
+
+### Two layout bugs worth knowing the cause of
+- **Labels and values collided** on Overview ("heldUnits"). The
+  `white-space: nowrap` added to keep property NAMES on one line applied to
+  every first column, including the key/value tables; and the key/value
+  cells borrowed `.r` for right-alignment, which carries the numeric columns'
+  nowrap too. Nowrap is now scoped to `.rp-frozen`.
+- **A figure split mid-number**: `overflow-wrap: anywhere` broke
+  "$10,100,000" into "$10,100,00" over "0", which reads as a different
+  amount. Figures are `nowrap` and sized to the TILE with a container query
+  (`cqi`), because viewport units cannot know how much width the portal
+  chrome takes at a given breakpoint. Nine figures sit one row on desktop and
+  3x3 on a phone; nine does not divide by two.
+
+## Properties is the curated-dataset section now (Phase 2), and it is READ-ONLY
+
+`reporting-api.js` + `public/portal-reporting.{js,css}`, mounted at
+`#reportingNative`. **`portal-properties.js` still loads and still exports
+`PortalProperties`, but nothing routes to it** - delete it once this has been
+live a while. `PROPERTIES_READ_ONLY` defaults true and rides on
+`/api/portfolio-flags`; the existing write endpoints are untouched and
+unreachable from these screens, and a test asserts no new screen issues a
+POST, PUT, PATCH or DELETE.
+
+The left menu lists **folders only, never properties**. A menu of 170
+properties is a directory, not navigation, and the entity page already lists
+them in a table that searches and sorts. When a property is open the menu
+shows that one property under its entity, and no others.
+
+### Identity is verified, because RLS is not behind these routes
+`portal-identity.js` establishes who is calling by asking Supabase to run
+`dash_my_access()` **as the caller**, never by decoding the JWT - a JWT
+payload is base64, not a signature. `supabase-db` connects as the postgres
+SUPERUSER, so RLS never runs and `current_tenant_ids()` is never called:
+every statement filters `tenant_id` from the verified identity, and that is
+this layer's job exactly as it is `financials-api.js`'s.
+
+**`guard()` closes over the local `identify` binding**, so reassigning
+`module.exports.identify` does not stub it. `test/test-reporting-ui.js`
+therefore intercepts the one outbound fetch to `/rpc/dash_my_access`
+instead. Worth knowing before writing the next harness: the obvious stub
+fails silently, the real function runs, and the screen reports "Session
+expired" while everything else works.
+
+## Saved views (Phase 3)
+
+`views-api.js` + `public/portal-saved-views.js`, nav id `views`, catalog rows
+in `migrations/20261011_views_catalog.sql` for Executive Board and
+LeavenWealth only. A view stores a QUESTION - dataset key, display type,
+config - and the rows are fetched fresh every time.
+
+**`/data` scopes to the READER's tenant, never the saved row's owner.** That
+one line is what keeps a share from being a privilege grant: a view shared
+with someone may legitimately show them fewer rows.
+
+No free-typed SQL reaches the database. Column, relation, operator,
+aggregate and sort direction each come from an allowlist helper in
+`config/datasets.js`; every value is a bound parameter. Four injection
+attempts are in the suite and all four are dropped with a stated problem.
+
+### SQL grouping happens only when there are AGGREGATES
+A report groups in the **renderer** - sections, subtotals, a grand total -
+and needs detail rows to do it. Grouping in SQL on a report's `group_by`
+collapsed every row to the manager plus whatever was aggregated, so the other
+seven columns came back absent and the screen filled with dashes. `group_by`
+alone is a presentation instruction.
+
+Relatedly: when a query DOES group, `ORDER BY` may only name a grouped column
+or an aggregate. The default sort comes from the dataset and knows nothing
+about the config, so it turned three of the four starter views into 42803.
+Unusable sorts are dropped, not refused.
+
+### Calculated columns: `formula.js` is a security boundary (spec G3)
+A formula is typed by a user and then run as the postgres superuser, so it
+is never concatenated into SQL. It is tokenised, parsed into a tree and
+compiled; every leaf is a registry FIELD (looked up, or the compile fails), a
+NUMBER (bound as `$n`, never inlined) or one of seven FUNCTIONS emitted from a
+fixed template. A quote, a semicolon, a dot outside a number or an unknown
+word is refused by the tokenizer, so `1; drop table x` never parses.
+
+- Division compiles to `a / nullif(b, 0)`: divide by zero is NULL, shown "–".
+- `SUM` / `AVERAGE` total a COLUMN, the way a spreadsheet does. In a per-row
+  column they are a window (`sum(x) over ()`), so `t12_noi / SUM(t12_noi)` is
+  each row's share and the result keeps one row per record. In a grouped
+  view they are plain aggregates, and a bare field outside one is refused.
+  They do not nest.
+- A calculated column may refer to EARLIER ones by key; later ones are not
+  visible yet, which rules out cycles without a graph walk.
+- Number parameters are bound only AFTER the count query has run. Postgres
+  refuses an untyped parameter a statement does not use, so binding them
+  first breaks the count.
+- Sorting by a calculated column orders by its output alias.
+
+**A report subtotal is the formula over the TOTALS, never the sum of the
+rows.** NOI per unit for a group is total NOI / total units: 5,225.73 across
+the portfolio, where adding the rows gives 366,475. The server returns each
+formula's parsed tree (`formulas` on `/data` and `/preview`) and the client
+walks it with a fixed evaluator that mirrors the SQL (NULL propagates, LEAST
+and GREATEST skip NULLs, an IF on NULL takes the else branch).
+
+`POST /api/views/formula` checks a formula as it is typed and runs it on five
+real rows that carry every field it reads. It writes nothing.
+
+**Not built: an admin "promote" of a formula into the dataset registry.**
+The registry is code (`config/datasets.js`); promoting at runtime needs a
+table to hold promoted formulas, which is a schema change for Jay to approve.
+
+### View styling (spec G2): every option is from a fixed list
+Density, text size, theme preset (follow the portal / light / dark), accent
+(six hues from tokens.css), colour rules (field, comparison, value, one of
+good / warn / bad / muted / accent, cell or whole row, first match wins),
+column order, header renames, number formats, widths, dashboard tiles with
+S / M / L size and accent, and a printed header with title, subtitle, logo,
+period, run date and filters. No free colours, no fonts. The server
+allowlists each one in `validateConfig`, so a saved config cannot name a
+formatter or a colour the client does not have.
+
+**A nested `data-theme` does not re-theme by itself.** tokens.css resolves
+its alias layer (`--bg`, `--panel`, ...) once on `:root`, so a wrapper with
+`data-theme="light"` changed the raw tokens and none of the aliases built
+from them. `.sv-themed` re-declares the aliases it uses.
+
+**`--ink-1` does not exist.** The token is `--ink`. Eighteen rules in
+portal-reporting.css used `--ink-1` and silently fell back; they now say
+`--ink`. An undefined custom property never errors.
+
+**A report grouped by a field that is not a visible column put every row in
+one group.** The group field was not selected, so every row's group key was
+undefined. `runDataset` now always selects `group_by` fields. And the
+Subtotal / Grand total label sits in the first column with no total of its
+own: with a numeric column first, the label had been covering its total.
+
+## Adding records (spec H): admins only, insert only, audited
+
+`portfolio-setup-api.js` at `/api/portfolio-setup` + `public/portal-setup.js`.
++ Entity, + Property (guided form) and + Building, plus the H3 setup
+checklist on every property's Overview.
+
+- **Insert only.** No UPDATE or DELETE statement exists in the file, and a
+  test reads the source to keep it that way. Nothing already on file becomes
+  editable.
+- **Admins only**, decided server-side per request from the verified
+  identity (`isAdmin`), mutation-tested: removing the gate fails the suite.
+- **Audited twice.** The `zz_audit_row_log` triggers record every insert but
+  run as the superuser and cannot know who asked, so each record also gets a
+  `sov_edit_log` row (`column_name = '(record created)'`) naming the person.
+- **One transaction per form.** A property whose alias, fee or loan failed is
+  the half-set-up record H3 exists to prevent; any failure writes nothing.
+- No migration was needed: `property_source_alias`, `am_fee_schedule(+_property)`,
+  `loan` and `loan_collateral` already existed.
+
++ Property writes: the property (held; units as `unit_count_verified` in the
+person's name, never `unit_count_reported`), its owner LLC (picked, or
+created in the same transaction under a managing entity), the report-source
+alias the sync matches T12s and rent rolls on (a name already matched to
+another property is a 409 that names it), the Dropbox folder link into
+`property.dropbox_url`, an `am_fee_schedule` covering it, and an optional
+loan (`interest_rate_pct` stored as a FRACTION: 6.5 typed is 0.065) secured
+on it. Then it refreshes the reporting views (~0.5s) so the property shows.
+
+**Not built: adding the Dropbox entity/property folders to the sync's folder
+mapping.** There is no mapping table; the n8n document sync matches folders
+by documents already filed under a property. A real mapping needs a table
+(schema change) and an n8n change. The form stores the folder's share link.
+
+The checklist's four items are the spec's: Sync name matched, Dropbox folder
+set (a link on file or documents filed), Fee set, Loan on file (property or
+building collateral). A fully set-up property shows one line instead of
+four cards.
+
+**The tests never write to the shared database.** `test-portfolio-setup.js`
+swaps `db.tx` for one that runs its assertions INSIDE the transaction and
+then rolls back, and its last check proves nothing was left behind.
+`test-setup-ui.js` answers every POST in the browser.
+
+### Rent roll As-of (spec A4)
+`/:id/rent-roll?as_of=YYYY-MM-DD` reads any rent roll on file; the response
+lists every date (`asOfDates`, as text so no timezone moves them) and the
+tab offers them newest first.
+
+### The breadcrumb names the property's own manager
+Opened by a link, a reload or a new-property save, a property has no
+drill-down behind it, and the crumb read "No managing entity" above a
+property whose manager was on file two lines below. The overview load now
+sets the crumb from the property's own `managing_entity_id`.
+
+## A rent_roll_line is a LEASE, not a unit
+
+This is the correction most likely to be made again. Copperleaf has **494
+lines over 87 units**, and **156 of them are `current` across only 82 units** -
+roommates each get a line and expired leases stay on file.
+
+    occupancy_status: current | past | vacant_unrented | future | notice | vacant_rented
+
+**There is no 'occupied'.** The first version matched that word, found
+nothing, and every occupancy on the portfolio page read **0.0%** - which is
+the silent-NULL trap one level down: the figure was present and wrong rather
+than absent, so nothing looked broken.
+
+`reporting.property_month` folds to one row per unit FIRST (`rr_units`), then
+aggregates: units are `count(distinct unit_label)`, occupied is a distinct
+count of units holding a `current` lease, and rent sums the current leases
+only. Counting rows gives 494 units at a property with 87 and counts every
+roommate's rent separately. Copperleaf now reads 87 units at 87.4%, which
+matches the 87 apartments pinned in `test-sov-properties.js`.
+
+`reporting.rent_roll_unit` carries an `is_current` flag (appended at the end,
+because `create or replace view` cannot rename a column position), and the
+Rent roll tab filters on it rather than listing every expired lease.
+
+## Three browser-level traps, all found by measuring
+
+1. **Repainting inside a `blur` handler throws.** `change` on a text input
+   fires DURING blur, and `paint()` replaces `host.innerHTML`, so the node
+   the browser is mid-blur on is removed from under it:
+   *"The node to be removed is no longer a child of this node. Perhaps it was
+   moved in a 'blur' event handler?"*. The what-if inputs defer by a tick
+   (`setTimeout(paint, 0)`); the search box repaints only the table, which
+   needs no focus restoration at all.
+
+2. **A pending view must say Loading, not "no rows".** Falling back to an
+   empty result while the fetch was in flight rendered *"No rows match this
+   view. 0 of 0 rows"* over a view that has eight - a confident wrong answer
+   in the window before the data arrives, and one a screenshot captures as
+   fact.
+
+3. **`goto()` to a URL differing only by fragment is a same-document
+   navigation.** The module keeps its state, so returning to Properties after
+   the fees tab left `S.tab='fees'` and the assertion looked for property
+   rows on the fee tracker. The harness adds a cache-busting query param;
+   chaining extra navigations to force a reload instead raced the boot chain
+   and left the section unmounted.
+
+## Tests
+
+    node test/test-am-fees.js           # 17, the fee arithmetic
+    node test/test-datasets.js          # 10, the allowlist boundary
+    node test/test-acceptance-math.js   # 16, section 2.10's arithmetic
+    node test/test-portfolio-setup.js   # 26, section H server, every write rolled back
+
+`test-reporting-ui.js` is the opposite of the usual fake: the SQL, the views
+and every figure are the live database, and only the doorman is stubbed.
+CLAUDE.md already records the Folio suite passing 61 green checks over SQL
+that could not parse, because a fake never parses SQL.
+
+It asserts the acceptance figures ARE ON SCREEN - Franklin Court's
+149,000.29, the 970,480 optimized against 828,323 trailing, the max loan
+against the 8,080,000 current balance, and the 4,474.54 / 4,474.99 / +0.45
+fee row - plus that no screen issues a write, that nothing overflows, and
+that a what-if input recomputes and marks itself unsaved.
+
+## Properties v2: the mockup port (docs/PROPERTIES_SPEC.md)
+
+Supersedes the Phase 2 screens for `view=properties`. `public/portal-props.{js,css}`
+(window.PortalProps) is mounted at `#reportingNative`; `portal-reporting.js` and
+`portal-properties.js` still load but nothing routes to them. The approved
+design and reference implementation is `docs/mockup/properties-mockup.dc.html`
+(readable source) and `docs/mockup/properties-mockup-standalone.html` (renders
+on its own, for side-by-side screenshots).
+
+Server: `props-api.js` at `/api/props`, one endpoint per mockup data method
+(list, :id, monthly, optimized, fee, rent-roll, buildings, capex), plus custom
+views, property groups, people, and `POST /export`. `props-views.js` is the
+custom-view engine (FIELDS whitelist, periods, formula terms with standard
+precedence; no eval, no SQL from config). `props-export.js` turns the table
+model the browser sends into xlsx (exceljs), pdf (pdfkit) or zipped csv
+(archiver). Exports read nothing from the database, so a file can never show
+more than its screen.
+
+Rules worth knowing before changing anything here:
+- **Debt service for DSCR and every Needs-attention sentence is what the books
+  paid, annualised** (`property_summary.annual_debt_service_paid`), else the loan
+  record. Optimized NOI's standard value is the loan record first, as the mockup.
+- **Gaps in sentences are taken between ROUNDED figures** ("rise by $113,621 to
+  $890,895"), so the printed numbers add up. Exact: 113,620.38.
+- **Months travel as 'YYYY-MM' text** from SQL (`to_char`), never as Date.
+- Units: rent roll first, then verified, then buildings. Occupied = current + notice.
+- `property_summary.t12_net_income` was a TRANSITIONAL alias, dropped by
+  `20261014_drop_t12_net_income_alias.sql` once v2 was live. The old dataset
+  field KEY `t12_net_income` stays (saved configs) and reads the new column.
+- Names: `property.display_name` where set (seeded from the mockup's DISPLAY
+  map), otherwise the property's name. Applied in props-api and props-views.
+- Header: "Data through" = latest `t12_report.period_end`; "next sync" = next
+  third Thursday 9:00 AM America/Chicago (`nextSync()` in props-api.js).
+- Sharing: a person (`user`), a role (`role`), or a department (`department`,
+  current `department_member` rows). The share check allows all three.
+- The left menu's old "Views" item is gone (its saved views stay in the
+  database; `/api/views` still serves them).
+- portal.html styles `.btn`, `.chip`, `th` and `table` globally (uppercase mono);
+  portal-props.css undoes that under `.lw`. Keep new class names under `.lw`/`lw-`.
+
+### No flicker: render in place, cache per key, load locally
+Every click used to assign the whole section's HTML to `innerHTML`: every node
+new, the fade replayed, scroll reset, and the browser re-laid out the page
+(94% of 1,844 layout objects for a period change, measured). Now:
+- **`paint()` morphs** (`public/portal-morph.js`, `PortalMorph.morph`): only
+  changed attributes, text and rows are touched. A period change re-lays out
+  **1%**; opening Export removes nothing. Identity is tag + `data-k`: the
+  `<main>` carries the page key (`property:<id>`, `entity:<id>`,
+  `portfolio:<tab>`), the tab body `tab:<name>`, the custom view `cv:...`,
+  so a page or tab switch replaces that node (and only then does `.view`'s
+  fade run) while every other render patches in place. Give any new
+  container whose CONTENT changes identity a `data-k`, or positional matching
+  will reuse its node and the fade will not run.
+- **Session cache**: `S.data[key]` per property/period/tab, so going back is
+  instant. `needOr(kind, ...)` keeps the previous period's panel on screen,
+  dimmed (`ld-stale`), with the small loader beside the controls while the new
+  one loads. `invalidate()` keeps answers in `S.old` and refetches behind
+  them; `cur(key)` reads either.
+- **What-if inputs recalculate as you type**, in the browser; morph leaves the
+  focused input alone, so the caret never moves.
+- **The builder's preview runs in the browser.** `public/props-views-core.js`
+  is the ONE copy of the custom-view rules (fields, periods, formulas,
+  validation), required by `props-views.js` on the server and loaded by
+  portal.html. The browser evaluates drafts over `GET /api/props/views/dataset`
+  (every property's plain figures, loaded once). The server preview is only
+  the fallback when a draft names a group this browser has not loaded.
+  `test/test-views-parity.js` asserts both give identical results, live.
+
+### Loading states: one component, everywhere
+`public/portal-loader.{js,css}` (`PortalLoader`), from `docs/mockup/loader.dc.html`
+(SVG and keyframes copied exactly; Graphite colors dark, Light stone light).
+`full(name)`: 88px mark + "Loading <name>", content area only. `small(label)`:
+20px, beside the panel being refreshed, old content kept and dimmed
+(`stale()` / `ld-stale`). Hidden for 250ms (`ldIn` delay) so fast loads never
+show it; `settle()` / `hold(promise)` keep it up 400ms once visible. Used by
+Properties, Financials, Folio, Leadli, Leads (via `tools/build-ghl.cjs`),
+Tasks, Users & Roles, Loans, Tracker, Team and Ads. `ld-stale` dims with
+`filter: opacity()`, not `opacity`: the `.view` fade fills forwards and holds
+opacity at 1, which silently cancelled the dim the first time.
+
+Tests and tools:
+
+    node test/test-props-ui.js [--shots]   # 38 checks, live data, acceptance figures on screen
+    node test/test-props-flicker.js [--baseline]  # 15 checks, Franklin Court: nodes kept, fades, requests, layout from a Chrome trace
+    node test/test-views-parity.js         # builder preview in the browser == server evaluation, live
+    node tools/shot-loader.js              # docs/screenshots/loader/*.png, both themes
+    node tools/side-by-side.js             # docs/screenshots/compare/*.png, live vs mockup
+    node tools/dry-run-migrations.js <files>   # apply inside a transaction, check, roll back
+    node tools/apply-migrations.js <files>     # apply for real, one transaction per file
+
+test-reporting-ui.js, test-views-ui.js and test-setup-ui.js were retired with
+the Phase 2 screens they drove.
+
+## Properties > Reports (2026-10-12)
+
+Third Portfolio tab (Entities | Custom view | Reports), built to the mockup revision
+Jay supplied on 2026-10-12 (its Reports tab; the repo copy of
+`docs/mockup/properties-mockup.dc.html` predates it). Sub-tabs Build report | Saved
+reports | Scheduled.
+
+| Piece | File |
+|---|---|
+| Routes, `/api/reports` | `reports-api.js` |
+| What a report is: config, periods, roll-forward, the document | `reports-core.js` |
+| Document as xlsx (one sheet per report) / pdf (as previewed) / csv zip | `reports-export.js` |
+| Email via n8n "Report email (dashboard reports)" `ghGUvzmOC19PUwMO` | `report-mailer.js` |
+| 9:00 AM America/Chicago sends, every 5 min tick | `report-scheduler.js` (started in server.js; `REPORT_SCHEDULER=off` disables) |
+| UI, rendered inside PortalProps (data-a/data-in `rp*` forwarded) | `public/portal-reports.js` |
+| Tables `report_definition`, `report_schedule`, `report_send_log` | `migrations/20261015_reports.sql` (APPLIED 2026-10-12) |
+
+- **A report stores its definition, never figures**: reports (income / rent roll /
+  optimized NOI), income period type (regular month range, quarterly, bi-annual,
+  annual or T12) and statements (income and/or cash flow), property ids. Every
+  open, export, send and scheduled run builds `buildDoc()` on current data. The
+  preview, the file and the attachment are the same document.
+- **Months with no data are left out** of the income tables and the section's
+  sub-line says how many of how many months have none.
+- **Access**: every route needs the Properties screen; report DATA is read as the
+  caller's connector role (guard), so it only holds properties they can see, and a
+  property they cannot see is counted in `omitted`. Saving, sending, scheduling and
+  RESUMING a schedule need Properties write; read-only levels can build, preview and
+  export. The three tables are server-only (RLS on, no policy, anon/authenticated
+  revoked), read and written on the privileged connection filtered by the verified
+  tenant and staff id. Saved reports and schedules are listed to everyone with
+  Properties; only the creator or an admin deletes, pauses or resumes.
+- **Schedules** run as the OWNER's connector role, after re-checking at every send
+  that the owner is active, has dashboard access and has Properties WRITE; otherwise
+  the send is `skipped` and logged. The period rolls forward to the latest COMPLETED
+  period of the same type, measured against the latest month of data loaded (not
+  the calendar). A send claims its occurrence first (`next_run_at` moved to the next
+  due date with `... where next_run_at <= now()`), so a restart or a slow send never
+  sends twice; missed occurrences are not replayed. Failures set `last_status`,
+  `last_error`, `failure_count`, log a row, and email the owner a notice.
+  `start_date` is read as `to_char(...)` text: a pg DATE becomes local midnight and
+  shifts a day east of UTC.
+- **Email**: `REPORT_EMAIL_SECRET` (Railway, same value as in the workflow's code
+  node). The workflow sends through Microsoft Graph `/me/sendMail` with the Outlook
+  "Jay" credential (the Outlook node sent an empty Cc as a recipient and failed), so
+  every report email comes from Jay's mailbox. Attachments up to **3 MB** (Graph
+  inline limit); larger is refused with a message to export instead. Max 4 To, 3 Cc,
+  3 Bcc. The workflow keeps no execution data.
+- **PDF footers** sit below pdfkit's bottom margin; `page.margins.bottom = 0` before
+  drawing them, or pdfkit adds a blank page after every page (props-export.js had
+  the same bug, fixed in the same commit).
+
+Tests: `node test/test-reports-ui.js [--shots]` (30, live data: build, preview with
+Franklin Court NOI 84,177.43 / 78,217.93 / 92,865.54, months left out, each export
+format, send body, save, schedule, pause; cleans up its rows) and
+`node test/test-report-scheduler.js` (10, live DB, email stubbed: one send per
+occurrence, 9:00 AM Chicago next run, Q1 2025 rolled to Q3 2026, failure recorded and
+owner notified). Screenshots in `docs/screenshots/reports/`.
+
+## Railway variables: what belongs, and what takes the app down
+
+**`PORT` must NOT be set.** Railway injects it. Setting it by hand is the one
+variable that reliably breaks the deploy, in two different ways:
+
+| value | result |
+|---|---|
+| a number Railway is not routing to | boots fine, unreachable — **"Application failed to respond"** |
+| anything non-numeric | `listen EACCES` and the process dies at boot |
+
+This was verified by reproducing both. If the app is up in the logs but the URL
+returns Railway's error page, check `PORT` before anything else.
+
+### Everything this service reads
+`AGENT_TIMEZONE`, `CLICKUP_API_TOKEN`, `CLICKUP_LIST_ID`, `CLICKUP_TEAM_ID`,
+`CLICKUP_OAUTH_CLIENT_ID`, `CLICKUP_OAUTH_CLIENT_SECRET`,
+`CLICKUP_OAUTH_REDIRECT_URI`, `DATA_SOURCE`, `OWNER_EMAIL`, `PORTAL_CACHE_MS`,
+`SSE_COALESCE_MS`, `SSE_MAX_CLIENTS`, `SSE_MAX_PER_IP`, `SSE_PING_MS`,
+`SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`, `SUPABASE_SERVICE_ROLE`, `SUPABASE_URL`,
+`SUPABASE_WEBHOOK_SECRET`, `REPORT_EMAIL_SECRET` (optional `REPORT_EMAIL_WEBHOOK_URL`,
+`REPORT_SCHEDULER`), plus the `GHL_TOKEN_<NAME>` / `GHL_LOCATION_<NAME>`
+pairs.
+
+Regenerate that list rather than trusting this one:
+
+    node -e "const fs=require('fs');const s=['server.js','supabase-db.js','realtime.js','ghl-api.js','ghl-send.js','portal-api.js','portfolio-detail.js'].map(f=>fs.readFileSync(f,'utf8')).join('');console.log([...new Set([...s.matchAll(/process\.env\.([A-Z0-9_]+)/g)].map(m=>m[1]))].sort().join('\n'))"
+
+### command-center's variables are NOT this app's
+Copying that repo's `.env.example` wholesale adds 28 variables this service
+never reads — `AUTH_MODE`, `APP_PASSWORD`, `SESSION_SECRET`, `ENCRYPTION_KEY`,
+`DATABASE_URL`, `PUBLIC_URL`, the Google/Microsoft/Meta/X OAuth pairs,
+`SOCIAL_SCHEDULE*`, `MAIL_FETCH_LIMIT`, `OPUS_*`, `MEDIA_DIR` and the `CLAUDE_*`
+set. They are inert **except `PORT`**, which the two repos genuinely disagree
+about: command-center declares it, this one must let Railway supply it.
+
+Only these overlap: `SUPABASE_DB_URL`, `AGENT_TIMEZONE`, and the GHL pairs.
+
+### What does NOT crash the boot
+Worth knowing, so time is not spent on the wrong variable. A malformed or
+unreachable `SUPABASE_DB_URL` boots fine — the pool is lazy and the failure
+shows up per request. A bad `AGENT_TIMEZONE` boots fine too, and is now
+validated at load in ghl-api.js: an unrecognised zone makes every
+`Intl.DateTimeFormat` throw a `RangeError`, and since those run per request the
+symptom would have been the thread route 500ing rather than a bad setting.
+`CST` is accepted by Intl; `Central` is not, and the difference is not
+guessable — so it falls back to the server zone and logs why.
+
+## Security model (RLS) — DO NOT WEAKEN
+- All tenant tables: RLS on, `authenticated` role, filtered by `current_tenant_ids()`;
+  writes gated by `tenant_role(tenant_id) in ('admin','editor')`.
+- Brand tables (lead, appointment, meta_ads_insight, leadli_marketing_daily, lead_provider):
+  filtered by `current_company_ids()` with a null-company fallback to tenant scope;
+  writes gated by `company_role(company_id)`.
+- Helper fns: `current_tenant_ids()`, `tenant_role(uuid)`, `current_company_ids()`,
+  `company_role(uuid)`. Access rule: a tenant **admin** implicitly sees ALL brands;
+  everyone else sees only brands they have a `company_member` row for.
+- `anon` role has NO read access. Browser reads require a real Supabase Auth session
+  (authenticated JWT) whose user has a `tenant_member` (and optionally `company_member`) row.
+- n8n and server-side scripts write with the **service role**, which bypasses RLS. Never
+  expose the service role to the browser.
+- Migrations must be ADDITIVE and reversible. Never drop/alter a policy without replacing it.
+  After any schema change, run the Supabase security advisor and fix new findings.
+- `appointment` has a trigger that auto-creates a minimal `lead` if none matches
+  `ghl_contact_id`; the later full contact upsert enriches that row. Don't remove it.
+
+## n8n (leavenwealth.app.n8n.cloud) — context, usually edited elsewhere
+- "New GHL Contact to Database": webhook → Normalize (Code) → Upsert Lead (PostgREST upsert
+  on ghl_contact_id) → Has Appointment? → Upsert Appointment. Resolves brand from
+  `body.location.name`, provider from tags. Writes with the Supabase service key.
+- "Leadli FB ads to Spreadsheet Data": has a branch writing to meta_ads_insight +
+  leadli_marketing_daily alongside Google Sheets.
+- If you touch these, keep changes additive (parallel branches, continue-on-fail).
+
+## Conventions
+- No framework, no bundler. One self-contained HTML file per surface.
+- **Design system: `public/tokens.css`** — the shared palette, geometry, type and dark
+  theme, loaded by ALL FOUR surfaces (`portal.html`, `index.html`, `login.html`,
+  `invite.html`) so they read as one product. **The palette, the three faces and the
+  radius steps are adopted from command-center** (see "The design, and where it came
+  from" below). Theme via `data-theme` on `<html>` (ops also honours `body.dark-mode`). Use the
+  token names (`--bg`, `--panel`, `--accent`, `--radius`, `--shadow`, series `--s1..s4`,
+  status `--good/--warn/--crit`, etc.); tokens.css has a shim block mapping the old names.
+  Don't re-add hard-coded colour blocks in the HTML files. (`migrations/` = review-only SQL,
+  not auto-applied.)
+- Money via the `money()`/`moneyk()` helpers; dates ISO in DB.
+- Keep the portal cards mapped to the 5 sections above; don't silently re-add a flat grid.
+- Prefer real Supabase reads over baked demo data once auth exists; until then, baked demo
+  data in portal.html mirrors the seeded rows.
+
+## Portal Tasks + live sync (added 2026-08-10)
+
+**Per-brand Tasks is native, not an iframe.** `public/portal-tasks.js` reads
+`GET /api/tasks` and filters to the brand's ClickUp spaces in the browser. Four
+counter cards (Total Open / Overdue / Due This Week / Completed); clicking one
+swaps the list below it in place. There is no space filter, because the brand is
+already the scope. `public/portal-auth.js` owns ClickUp sign-in state and gates
+**only** the Tasks screens, never the whole app.
+
+Still `/ops` iframes: Tasks > Overview, Property Tasks, Loans > Loan Views, and
+Executive Board > All Tasks. That last one *is* the ClickUp dashboard, which is
+what it is meant to show.
+
+### Counter semantics - do not let these drift apart
+One definition of done (`canonical_status === 'Completed'`) and one time boundary
+(start of today) across all four cards, so no two can disagree about the same
+task. A task due earlier **today** is Due This Week, never Overdue. `/ops` has an
+older inconsistency here (`isOverdue` uses a different done-test and an instant
+comparison) - do not copy it back.
+
+"Open" is `not Completed`, matching `/ops`. Two raw statuses in live use,
+`not reporting` and `quarterly recurring`, are now mapped to Long Term in
+`data/status-mappings.json`; before that they resolved to To Do via ClickUp's
+`status.type = open` and inflated every open figure. They still count as open. If
+that reads too high against real data, the single lever is `NOT_OPEN` at the top
+of `portal-tasks.js` - but adding `'Long Term'` there makes the portal and `/ops`
+disagree about the same task, so treat it as a decision, not a tweak.
+
+### The gate covers every Tasks screen, embeds included
+`clickUpGated()` in portal.html gates `view === 'tasks'` (all three sub-tabs) and
+Executive Board `alltasks`. Property Tasks and Tasks > Overview are `/ops`
+iframes rather than native, and they used to render with no gate at all - the
+embed falls back to the server's shared ClickUp token, so a signed-out visitor
+saw, and could edit, real tasks attributed to nobody. `isEmbedView()` returns
+false while gated so the iframe is never created. Everything outside Tasks stays
+ungated: portal-auth.js still owns Tasks only, never the whole app.
+
+`PortalAuth.onChange` is subscribed twice on purpose - portal-tasks.js re-paints
+`#tasksNative`, portal.html re-renders everything else. Dropping the portal.html
+one leaves a signed-out user still looking at an embedded board.
+
+### Screen state lives in the URL
+`writeState()`/`readState()` in portal.html keep `brand`, `view` and the active
+sub-tab in the fragment (`#brand=…&view=…&sub=…`), so a reload lands where you
+were instead of bouncing to Overview, and a screen can be linked to. `render()`
+calls `writeState()` first, which makes it the single choke point - every setter
+already routes through `render()`.
+
+It is **replaceState**, not pushState: navigating the portal is not browser
+history, and pushState would make Back walk through every tab you touched. A
+`hashchange` listener covers a link pasted into an already-open tab; replaceState
+never fires that event, so it cannot loop. Unrecognised values fall back to the
+brand's first screen - the fragment is user-editable and a stale link must not
+leave the portal blank.
+
+`?v=` is the ClickUp OAuth hand-back. `/auth/callback` appends `#auth=<token>` to
+the return path, so that path **cannot carry a fragment of its own** - a second
+`#` swallows the token and sign-in silently fails. `defaultReturnPath()` in
+portal-auth.js moves the fragment into `?v=`, `readState()` reads it, and the
+next `writeState()` drops it. `safeReturnPath()` in server.js now rejects any
+`#` as a backstop.
+
+### Property Tasks board columns are canonical, not raw
+`PT_COLS` + `ptCanon()` in `public/index.html` group the board by canonical
+bucket. The list carries two spellings of the same state - ClickUp's `To Do` /
+`in progress` next to Supabase-originated `OPEN` / `IN_PROGRESS` - and grouping
+on the raw status string gave each spelling its own column. Cards still show
+their **raw** status in the pill, because that is the value written back to
+ClickUp; only the grouping is canonical.
+
+`toCanonicalFallback()` and `getStatusKey()` now treat `_` and `-` as separators.
+Before that, `in_progress` matched no branch and fell through to To Do, which is
+why the duplicate column was also the wrong colour. `ptIsCounterStatus()` and
+`PT_DRILL.inreview` are canonical for the same reason: the board hides every In
+Review task from the columns, so a counter that missed one would lose it
+entirely.
+
+The `⏳ pending` / `⚠ error` chip is a real sync state from `public.task`
+(`supabase-sync.js` sets `error` when a push to ClickUp fails; **⇅ Sync tasks**
+retries). It is not decoration - do not hide it. It used to render as a
+full-width red bar because it was a direct child of the column-flex
+`.task-name`; `.pt-nameline` keeps it beside the task name.
+
+### Landing screen
+The portal opens on **Executive Board** (`brand='all'`, `view='exec'`) - the group
+view first, each brand a step down from it. `readState()` overrides both from the
+fragment, so a reload or a shared link still wins. The two defaults must stay
+consistent: `exec` is the first entry in `MENUS.all`.
+
+### Brand marks
+`BRANDS[x].logo` in portal.html points at an SVG in `public/icons/`;
+`brandMark()` renders it and both call sites (the switcher button and the menu)
+go through that one function so they cannot drift. A brand with no `logo`, or one
+whose file fails to load, falls back to the tinted initials chip via
+`brandMarkFailed()` - a missing asset must never leave an empty white square.
+`logo` is independent of `color`: the accent drives the whole workspace theme,
+not just this chip.
+
+Marks sit on a **white plate** (`.has-logo`). They are fixed-colour artwork, and
+a dark mark on the dark theme's panel would vanish.
+
+`leavenwealth-mark.svg`, `leadli-mark.svg`, `folio-mark.svg` and
+`liquid-mark.svg` and `exec-mark.svg` are **redraws** from artwork supplied in chat - the originals
+were never in the repo and the sandbox has no outbound network to fetch them. To
+use the official files, replace the SVG and keep the filename; nothing in
+portal.html needs editing. Executive Board deliberately shares the LeavenWealth
+mark, being the group view. Executive Board now has its own suited-figure mark.
+
+### ClickUp sign-in is failing on CONFIG, not code
+The symptom is **"Whoops! Unable to authorize your teams"** on ClickUp's own
+consent page (app "Dashboard-v2"). It fails at the authorize step, so nothing
+reaches `/auth/callback` and nothing appears in the server log.
+
+**Do not go looking for this in the code.** The OAuth path here is functionally
+identical to the predecessor dashboard (`imhappy2024/click-up-dashboard`), which
+signs in fine: same `trust proxy`, same `getBaseUrl()`, same authorize URL, same
+token exchange. The only code difference is the post-callback landing, which is
+after the failing step.
+
+`&state=` was wrongly blamed and briefly removed (ca5d396); the error persisted
+without it and it was restored (it predates the parameter, and ClickUp documents
+it). Do not remove it again.
+
+What is left is deployment config, and it needs three facts gathered before any
+change:
+1. `computed_redirect_uri` from **`/auth/debug`** on the live host.
+2. `CLICKUP_OAUTH_CLIENT_ID` on this service vs the working dashboard's
+   (`/auth/debug` prints `oauth_client_id_prefix` on both, so this needs no
+   Railway access).
+3. The Redirect URL(s) registered on the matching ClickUp OAuth app.
+
+1 and 3 must match character for character - scheme, host, no trailing slash,
+`/auth/callback` spelled the same. If they differ, register 1 on the app. If the
+two services use different client_ids, point this service at the working app's
+credentials and add this callback URL to it. If both match, it is a permission
+problem: the signed-in ClickUp account must be able to grant the workspace.
+
+### redirect_uri is pinnable - use it
+`oauthRedirectUri(req)` is the single source of truth, used by **both**
+`/auth/clickup` and `/auth/debug` so they can never disagree while someone is
+diagnosing a mismatch. It returns `CLICKUP_OAUTH_REDIRECT_URI` when set,
+otherwise derives it from `x-forwarded-proto`/`-host`.
+
+Derived is right behind Railway but is request-derived and can drift - a custom
+domain vs `*.up.railway.app`, or a proxy that rewrites `Host` - and ClickUp
+refuses the request when it no longer matches the registration. Once the correct
+value is known, pin it.
+
+`safeReturnPath()` guards the return path on both legs and is an open-redirect
+boundary, unrelated to this error. Leave it alone.
+
+`test/test-oauth-url.js` pins the authorize parameter set, the pin behaviour, and
+that `/auth/debug` never prints the client secret.
+
+### ClickUp space map
+`LW_SPACES` (10) is LeavenWealth, **including** the personal "Chris Mitch Jay"
+space by explicit decision. `EXEC_SPACES` (12) is the whole workspace. Leadli and
+Folio Excel are excluded from the LeavenWealth brand view. This supersedes the
+original build brief, which said 11 spaces with the personal space hidden
+everywhere - that is out of date, do not revert to it.
+
+### Live sync
+Postgres trigger -> `POST /api/hooks/supabase` -> SSE on `/api/events` ->
+`public/portal-realtime.js` refreshes the affected view.
+
+The event carries **table names only**, never row data: RLS decides what a user
+may read and this channel does not know who is listening. The hub in `realtime.js`
+is in-memory and single-process - if this ever runs on more than one instance,
+only the instance receiving the webhook would broadcast, so move it to Postgres
+`LISTEN`/`NOTIFY` rather than trying to make the in-memory version work.
+
+`TABLE_VIEWS` in `portal-realtime.js` maps tables to views. Keep it in sync with
+the queries each view runs: a missing entry is a silently stale screen, a wrong
+one is a pointless refetch. On **any** reconnect every view is marked dirty,
+because the stream has no replay buffer and the client cannot know what it missed
+while disconnected.
+
+`POST /api/hooks/supabase` **fails closed**: 503 while `SUPABASE_WEBHOOK_SECRET`
+is unset, 401 on a bad secret, compared with a timing-safe hash. An earlier
+version of this layer compared with `!==` against an unset env var, which made
+`undefined !== undefined` false and accepted anything. Do not reintroduce that.
+
+`migrations/20260810_supabase_webhooks.sql` is written but **must be applied in
+order**: deploy the server with the secret set and confirm
+`GET /api/events/health` reports `secretConfigured: true` first, otherwise every
+trigger POSTs into a 404.
+
+### New routes and variables
+`/api/org/summary`, `/api/events`, `/api/events/health`, `/api/hooks/supabase`.
+New env var `SUPABASE_WEBHOOK_SECRET` (plus optional `SSE_*` tuning).
+
+`/auth/callback` now honours a `state` return path via `safeReturnPath()` in
+`server.js`, so signing in from the portal returns you to the portal instead of
+`/ops`. That function is a security boundary - an unvalidated value there is an
+open redirect. It does not affect the registered `redirect_uri`.
+
+### Embed theme - do not undo this
+Do **not** re-add an unguarded `html.embed-only body` palette to
+`public/index.html`. It ties on specificity with the dark tokens in `tokens.css`
+and loads later, so it wins and turns every embed white. The guard is
+`:not(.embed-dark)`.
+
+### Task writes patch the cache; they must not dump it
+`PUT`/`DELETE /api/task/:id` used to set `cachedTasksAt = 0`, expiring the whole
+tasks cache. The next `/api/tasks` re-walked the entire ClickUp workspace — 21 spaces,
+211 lists, ~4800 tasks — behind ClickUp's rate limiter, retrying at 60s. One status
+change cost **minutes** of blank screen, and the app got slower the more it was used.
+The cache was working; it was being thrown away.
+
+`task-cache.js` patches the one task instead, from the object ClickUp's PUT returns.
+The merge is **one level deep on purpose**: the walk enriches objects the single-task
+response returns thinner — `space` is `{id}` there and `{id, name}` in the cache — so a
+flat overwrite silently strips the name off every edited task. Arrays are replaced, not
+merged, or unassigning everyone would keep the previous assignee. Anything it cannot
+patch confidently falls back to expiring the cache: a slow read beats a wrong one.
+
+**The same task is editable from two screens with two separate caches** — the property
+detail overlay reads `allTasks`, the Property Tasks board reads `propTasksData` plus a
+localStorage SWR copy (`lwPtaskCacheV1`). Both wrote to ClickUp and both were right
+about ClickUp, but neither told the other, so whichever screen you were not looking at
+stayed stale. Every write funnels through `updateTask()` in index.html, which is why
+`taskChangedElsewhere()` lives there: it patches `allTasks` and **drops** the board's
+cache rather than patching it, because the two shapes are built by different code paths
+and a wrong patch is a silent lie on the screen people use to decide what needs doing.
+
+### Tests
+    npm install --no-save playwright express
+    node test/run-tests.js       # task counters, membership, click-to-filter, nesting, themes
+    node test/test-realtime.js   # secret handling, coalescing, keepalive, client caps
+    node test/test-shell.js      # the shell: rail, menus, gates, memory, shortcuts
+    node test/test-home.js       # Home tasks: one row per task, own ClickUp sign-in only
+    node test/test-home-panel.js # the task panel: status, due, assign, comments, refusals
+    node test/test-oauth-url.js  # authorize params, redirect_uri pinning, debug output
+    node test/test-task-cache.js # task cache patching after a write (no network needed)
+    node test/test-sov-properties.js # SOV rules: apartments, sorting, insurance basis
+    node test/test-maturity-wall.js  # the wall: bar geometry, bounded axis
+    node test/test-financials.js # financials: read-only, filters, export provenance
+    node test/test-ghl.js        # GHL leads: brand scoping, send guards
+    node test/test-folio-financials.js # Folio: test payments, is_client, no invented metrics
+    node test/test-leadli-financials.js # Leadli: the empty state, and one payment flipping it
+    node tools/check-folio-sql.js      # Folio: EXPLAIN every statement (needs SUPABASE_DB_URL)
+
+`test/expected.json` is written by hand from each fixture's stated intent, not
+derived from the code under test. Keep it that way, or the tests lose the ability
+to fail. `test-portal-nav.js` follows the same rule: its expectations describe the
+intended behaviour, and its board fixture deliberately carries both spellings of
+To Do and In Progress.
+
+In the sandbox `run-tests.js` reports one failure, `no page errors ->
+ERR_CONNECTION_RESET`: the staff headshots are hotlinked from static.showit.co
+and there is no outbound network. That one is an environment artefact.
+
+`test-realtime.js` used to fail about two runs in five under load. Its
+coalescing check posted 41 hooks **sequentially** and asked whether they all
+landed inside a 150ms window, which is request throughput rather than
+coalescing. They are now fired concurrently with `Promise.all`; `flush()` sorts
+the table list, so arrival order does not matter. Eight consecutive runs pass.
+If a timing check here ever goes flaky again, ask what property it is actually
+measuring before widening the wait.
+
+## Still baked
+**`V.overview()` is gone** - the per-brand Overview items were removed on
+2026-09-07 and the view went with them. It hard-coded LeavenWealth's KPIs (66
+properties, 92% occupancy, $72K NOI, $2.04M debt across 3 loans) and three of
+the four were wrong: the database has **75 loans totalling roughly $106.5M**,
+and occupancy is not derivable at all - `unit.occupancy` is free text and empty
+on all 224 rows, with no lease or tenant table. That was the top item on this
+list; deleting the screen retired it.
+
+Still baked: the **Executive Board** overview (`V.exec()` - group revenue,
+property count, open leads, headcount, and a revenue-by-brand bar chart) and
+**Appointments** (`APPTS`). Both are hardcoded arrays. **Leads is live** (see
+"Leads (GHL)"), **Financials is live** for LeavenWealth and Folio. Replacing
+the exec figures with live reads, or an honest empty state, is now the top
+item.
+
+## Current state (done)
+- Schema + brand layer + RLS + seed data all live in Supabase.
+- Ops dashboard is live (ClickUp+Supabase). Portal built with the 5-section layout.
+- Merged into one service; portal at `/`, ops at `/ops`; Properties card embeds ops.
+- Portal Tasks (per brand) is native and live; Overview/Property Tasks/Loan Views stay embeds.
+- Portal **Properties is native** (ported from command-center); it no longer embeds `/ops`.
+- Live sync built (realtime.js + portal-realtime.js); the Supabase migration is NOT yet applied.
+- Portal per-brand Overview screens were REMOVED 2026-09-07; the Executive Board
+  landing screen and Appointments are still baked demo data.
+- Portal **Leads is native and brand-scoped** (ported from command-center's GHL
+  section) - see "Leads (GHL)" above.
+- Investors, Insurance / Risk and Integrations were REMOVED from the nav (and their
+  views deleted) on 2026-09-07. See "Removed screens" below before re-adding one.
+
+## Roadmap (typical next tasks — confirm scope before large changes)
+1. Add Supabase Auth (email magic-link or password) to the portal; gate `/` behind login.
+2. Add a thin server API (or use supabase-js in the browser with anon key + RLS) so the
+   portal's Exec/Financials/Leads/Ads/Appointments/Loans cards read LIVE from Supabase.
+3. Replace the baked Overview KPIs (see "Still baked" above) - this is the top item.
+   Property financial reports from `statement`+`property_financials`.
+4. Build the Investor portal and Client (upload) portal against real tables + Supabase Storage.
+5. Respect brand filter end-to-end (pass company_id into queries).
+
+## Guardrails
+- Never commit secrets. `.env` is gitignored; use Railway variables in prod.
+- Never send the service role key to the browser.
+- Test locally (`npm start`) before pushing. Don't break `/api/*` or `/ops`.
+- Ask before: destructive migrations, changing auth, or adding a build step/framework.
