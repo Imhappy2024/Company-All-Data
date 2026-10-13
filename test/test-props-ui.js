@@ -182,6 +182,23 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await shot('06-franklin-optimized');
   const fo = await pg.evaluate(() => document.querySelector('.lw-card .lw-card-v').textContent);
   check('Franklin Court Optimized NOI status Fixable', () => assert.strictEqual(fo, 'Fixable'));
+  /* Optimized NOI = best TRAILING period ending at the latest month (Jay, 2026-10-13):
+     T2 to T12, never one month alone. Franklin Court: T2 (Aug + Sep) x 6 = 1,026,501 */
+  const fopt = await pg.evaluate(() => {
+    const rows = [...document.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent.trim()));
+    const act = (document.querySelector('.lw-actual') || {}).textContent || '';
+    return { key: rows.find(r => /^Optimized NOI, best trailing period/.test(r[0] || '')), names: rows.map(r => r[0]), act };
+  });
+  check('optimized row is the best trailing period ending at the latest month (T2, Aug to Sep 26)', () => {
+    assert.ok(fopt.key, JSON.stringify(fopt.names));
+    assert.deepStrictEqual(fopt.key.slice(0, 4), ['Optimized NOI, best trailing period (T2)', 'Aug 26 to Sep 26', 'x 6', '$1,026,501']);
+  });
+  check('trailing rows T2, T3, T6, T12; no one-month or best-anywhere rows', () => {
+    assert.ok(fopt.names.indexOf('Trailing 1 month (T1)') < 0);
+    ['Trailing 2 months (T2)', 'Trailing 3 months (T3)', 'Trailing 6 months (T6)', 'Trailing 12 months (T12)'].forEach(n => assert.ok(fopt.names.indexOf(n) >= 0, n));
+    assert.ok(!fopt.names.some(n => /^Best /.test(n || '')), JSON.stringify(fopt.names));
+  });
+  check('actual DSCR row under Assumptions, T12 1.07 from the books', () => assert.ok(/Actual DSCR, from the books/.test(fopt.act) && /T12\s*1\.07/.test(fopt.act), fopt.act));
   /* what-if recomputes and marks itself unsaved */
   await pg.fill('[data-in="wnoi"]', '1200000'); await pg.press('[data-in="wnoi"]', 'Tab'); await pg.waitForTimeout(200);
   const wi = await text();

@@ -221,33 +221,23 @@ async function rentRollSection(tenantId, p) {
 
 async function optimizedSection(tenantId, p, through) {
   const od = await P.optimizedData(tenantId, p.id, p, through);
-  const NN = od.noi;
-  const best = w => {
-    let b = null, st = -1;
-    for (let i = 0; i + w <= NN.length; i++) {
-      const seg = NN.slice(i, i + w);
-      if (seg.some(v => !isNum(v))) continue;
-      const v = seg.reduce((x, y) => x + y, 0);
-      if (b === null || v > b) { b = v; st = i; }
-    }
-    return st < 0 ? null : [st, b];
-  };
-  const b6 = best(6), b3 = best(3), b1 = best(1);
-  const av = NN.filter(isNum);
-  const tr = av.length ? av.reduce((x, y) => x + y, 0) * 12 / av.length : null;
-  const lab = (b, w) => (b ? (w === 1 ? od.labels[b[0]] : od.labels[b[0]] + ' to ' + od.labels[b[0] + w - 1]) : '–');
-  const first = av.length ? od.labels[NN.findIndex(isNum)] : '', last = od.labels[od.labels.length - 1];
-  const scen = [
-    ['Trailing 12 months' + (av.length && av.length < 12 ? ', annualized from ' + av.length + ' months' : ''), first ? first + ' to ' + last : '–', tr],
-    ['Optimized NOI, best 6 months x 2', lab(b6, 6), b6 ? b6[1] * 2 : null],
-    ['Best 3 months x 4', lab(b3, 3), b3 ? b3[1] * 4 : null],
-    ['Best month x 12', lab(b1, 1), b1 ? b1[1] * 12 : null],
-  ];
+  const TW = od.trailing || { windows: [] };
+  const win = k => TW.windows.find(w => w.k === k) || null;
+  const lab = w => (w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to));
+  const t12 = win(12) || TW.windows[TW.windows.length - 1] || null;
+  const best = TW.best ? win(TW.best) : null;
+  const rowOf = (name, w, key) => ({
+    label: name, kind: key ? 'total' : '', indent: false,
+    cells: [{ f: 'text', v: w ? lab(w) : 'Not enough months' }, cell(w ? w.annual : null, 'money'),
+            cell(w && t12 && w !== t12 ? w.annual - t12.annual : null, 'money'), cell(w ? w.dscr : null, 'ratio')],
+    tot: null,
+  });
+  const rows = [rowOf(best ? 'Optimized NOI, best trailing period (T' + best.k + ')' : 'Optimized NOI', best, true)]
+    .concat([2, 3, 6, 12].map(k => rowOf('Trailing ' + k + (k === 1 ? ' month' : ' months') + ' (T' + k + ')', win(k))));
   return {
-    kind: 'opt', title: 'Optimized NOI', sub: 'Monthly NOI ' + (od.labels[0] || '') + ' to ' + last,
-    table: { heads: ['Months', 'Annual NOI', 'Compared with trailing'], hasTotal: false,
-      rows: scen.map(([k, m, v], i) => ({ label: k, kind: i === 1 ? 'total' : '', indent: false,
-        cells: [{ f: 'text', v: m }, cell(v, 'money'), cell(i === 0 || !isNum(v) || !isNum(tr) ? null : v - tr, 'money')], tot: null })) },
+    kind: 'opt', title: 'Optimized NOI',
+    sub: TW.end ? 'Trailing periods ending ' + ymShort(TW.end) + ', annualized; actual DSCR from the books' : 'No NOI on file',
+    table: { heads: ['Months', 'Annual NOI', 'Compared with T12', 'Actual DSCR'], hasTotal: false, rows },
   };
 }
 
