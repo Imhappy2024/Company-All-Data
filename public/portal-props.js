@@ -239,15 +239,15 @@
   function goProperty(id, tab) {
     var p = propById(id);
     S.level = 'property'; S.prop = id; S.ptab = tab || 'overview'; S.asOf = null;
-    if (p) S.ent = p.mgrId || 'none';
+    if (p) S.ent = p.ownerId || 'none';
     closeMenus(); pushUrl(); paint();
   }
   function closeMenus() { S.exportOpen = false; S.exportMsg = ''; S.cv.exportOpen = false; }
   function propById(id) { var L = cur('list'); return L ? L.properties.find(function (p) { return p.id === id; }) || null : null; }
   function entName(id) {
     if (!id || id === 'none') return NONE;
-    var L = cur('list'); var p = L && L.properties.find(function (x) { return x.mgrId === id; });
-    return p ? p.mgr : '';
+    var L = cur('list'); var p = L && L.properties.find(function (x) { return x.ownerId === id; });
+    return p ? p.owner : '';
   }
 
   /* ---- generic table renderer ------------------------------------------ */
@@ -305,7 +305,7 @@
     /* at property level the crumb is the property's OWN manager: a page opened
        by a link has no drill-down behind it, and S.ent may be empty */
     var pp = S.level === 'property' ? propById(S.prop) : null;
-    if (pp) S.ent = pp.mgrId || 'none';
+    if (pp) S.ent = pp.ownerId || 'none';
     /* a property opened cold has no manager to name until the list arrives;
        leave the crumb out rather than say "No managing entity" */
     if (S.level === 'entity' || (S.level === 'property' && pp)) parts.push({ label: entName(S.ent) || 'Entity', a: 'crumb:entity' });
@@ -325,11 +325,18 @@
   }
 
   /* ===================================================================== */
-  /*  PORTFOLIO: Entities | Custom view                                    */
+  /*  PORTFOLIO: Entities (owner LLCs) | Custom view | Reports             */
   /* ===================================================================== */
+  var NONE_OWNER = 'No owner entity on file';
+  var ECON_NOTE = 'Economic occupancy is (rent income + recurring fee income) / total expected income for the latest month; a red – means total expected income is not loaded yet.';
+  /* missing data that should exist: a red dash, never 0 */
+  function econCell(v, suffix) {
+    return isNum(v) ? { v: v, f: 'pct', style: occStyle(v), html: esc(pct(v)) + (suffix ? '<span style="font-size:12px;color:var(--muted)">' + esc(suffix) + '</span>' : '') }
+                    : { v: null, f: 'pct', style: C('bad') + '; font-weight: 600', html: DASH };
+  }
   function groupsOf(P) {
     var g = {};
-    P.forEach(function (p) { var k = p.mgrId || 'none'; (g[k] = g[k] || []).push(p); });
+    P.forEach(function (p) { var k = p.ownerId || 'none'; (g[k] = g[k] || []).push(p); });
     return g;
   }
   function portfolioHtml() {
@@ -351,7 +358,7 @@
   function entitiesHtml(P) {
     var g = groupsOf(P);
     var keys = Object.keys(g).sort(function (a, b) {
-      return (a === 'none') - (b === 'none') || g[a][0].mgr.localeCompare(g[b][0].mgr);
+      return (a === 'none') - (b === 'none') || (g[a][0].owner || '').localeCompare(g[b][0].owner || '');
     });
     var rows = keys.map(function (k) {
       var ps = g[k], isNone = k === 'none';
@@ -359,18 +366,23 @@
       var w = ps.filter(function (p) { return p.units && isNum(p.occ); });
       var uo = sum(w.map(function (p) { return p.units; }));
       var occ = uo ? sum(w.map(function (p) { return p.units * p.occ; })) / uo : null;
+      var ew = ps.filter(function (p) { return isNum(p.econDen) && p.econDen > 0; });
+      var econ = ew.length ? sum(ew.map(function (p) { return p.econNum; })) / sum(ew.map(function (p) { return p.econDen; })) : null;
+      var mgrs = ps.map(function (p) { return p.mgr; }).filter(function (m, i, a) { return m && a.indexOf(m) === i; });
       var noi = sum(ps.map(function (p) { return p.noi; }));
       var cf = sum(ps.map(function (p) { return p.cf; }));
       var debt = sum(ps.map(function (p) { return p.debt; }));
       var vs = ps.filter(function (p) { return p.value; });
       var mv = vs.length ? sum(vs.map(function (p) { return p.value; })) : null;
-      var name = isNone ? NONE : ps[0].mgr;
+      var name = isNone ? NONE_OWNER : ps[0].owner;
       var act = 'ent:' + k;
       return { act: act, label: name, exportLabel: name,
         html: '<button class="link" data-a="' + act + '" style="font-weight:500' + (isNone ? ';' + C('warn') : '') + '">' + esc(name) + '</button>' +
-              '<div style="font-size:12px;color:var(--muted)">' + ps.length + (ps.length === 1 ? ' property' : ' properties') + '</div>',
+              '<div style="font-size:12px;color:var(--muted)">' + ps.length + (ps.length === 1 ? ' property' : ' properties') +
+              (mgrs.length === 1 ? ', managing entity ' + esc(mgrs[0]) : mgrs.length > 1 ? ', ' + mgrs.length + ' managing entities' : '') + '</div>',
         cells: [
           { v: ps.length, f: 'count', style: '' }, { v: units, f: 'count', style: '' }, { v: occ, f: 'pct', style: occStyle(occ) },
+          econCell(econ, ew.length < ps.length && ew.length ? ' (' + ew.length + ' of ' + ps.length + ')' : ''),
           { v: noi, f: 'money', cls: 'sep', style: noi < 0 ? C('bad') : '' },
           { v: mv, f: 'money', exportText: mv, style: mv === null ? C('bad') + '; font-weight: 600' : '',
             html: mv === null ? DASH : esc(money(mv)) + (vs.length < ps.length ? '<span style="font-size:12px;color:var(--muted)"> (' + vs.length + ' of ' + ps.length + ')</span>' : '') + '<span class="lw-tag">Outdated</span>' },
@@ -381,10 +393,10 @@
     S.exportModel = null;
     return '<div class="view" style="margin-top:14px">' + tableHtml({
       firstW: 300, maxH: Math.max(400, window.innerHeight - 230),
-      heads: [{ label: 'Managing entity' }, { label: 'Properties' }, { label: 'Units' }, { label: 'Occupancy' }, { label: 'NOI', cls: 'sep' },
+      heads: [{ label: 'Owner entity' }, { label: 'Properties' }, { label: 'Units' }, { label: 'Physical occupancy' }, { label: 'Economic occupancy' }, { label: 'NOI', cls: 'sep' },
               { label: 'Market value' }, { label: 'Cash flow after debt and capex' }, { label: 'Debt', cls: 'sep' }],
       rows: rows }) +
-      '<p class="note" style="margin-top:8px">NOI and cash flow are the trailing 12 months. Market value is the sum of values on file; every value on file is more than 12 months old or undated. Click an entity to see its properties.</p></div>';
+      '<p class="note" style="margin-top:8px">NOI and cash flow are the trailing 12 months. Market value is the sum of values on file; every value on file is more than 12 months old or undated. ' + ECON_NOTE + ' Click an entity to see its properties.</p></div>';
   }
 
   /* ===================================================================== */
@@ -393,7 +405,7 @@
   function entityHtml() {
     var L = list();
     if (!L) return '<main class="view lw-main">' + (errOf('list') ? errorBox(errOf('list')) : loading('the entity')) + '</main>';
-    var scope = L.properties.filter(function (p) { return (p.mgrId || 'none') === (S.ent || 'none'); });
+    var scope = L.properties.filter(function (p) { return (p.ownerId || 'none') === (S.ent || 'none'); });
     var nm = entName(S.ent);
     var q = S.q.trim().toLowerCase();
     var listP = scope.filter(function (p) { return (S.src === 'all' || p.src === S.src) && (!q || (p.name + ' ' + p.pm + ' ' + p.address).toLowerCase().indexOf(q) >= 0); })
@@ -403,7 +415,7 @@
       return { act: 'prop:' + p.id, label: p.name,
         html: '<button class="link" data-a="prop:' + p.id + '" style="font-weight:500">' + esc(p.name) + '</button> <span class="chip">' + esc(p.src) + '</span>',
         cells: [
-          { v: p.units, f: 'count', style: '' }, { v: p.occ, f: 'pct', style: occStyle(p.occ) },
+          { v: p.units, f: 'count', style: '' }, { v: p.occ, f: 'pct', style: occStyle(p.occ) }, econCell(p.econ, ''),
           { v: p.inc, f: 'money', cls: 'sep', style: '' }, { v: p.opx, f: 'money', style: '' }, { v: p.noi, f: 'money' },
           { v: p.opt, f: 'money', style: '' }, { v: er, f: 'pct', style: er > 0.6 ? C('warn') : '' },
           { v: p.cf, f: 'money', style: C('muted') },
@@ -413,17 +425,17 @@
     });
     return '<main class="view lw-main"><h1 class="h1">' + esc(nm) + '</h1>' +
       '<p class="note" style="margin-top:2px">' + scope.length + (scope.length === 1 ? ' property' : ' properties') +
-      (S.ent === 'none' || !S.ent ? '. These properties need a managing entity assigned in the database.' : '') + '</p>' +
+      (S.ent === 'none' || !S.ent ? '. These properties have no owner entity on file.' : '') + '</p>' +
       '<div class="view" style="display:flex;align-items:center;gap:8px 12px;margin-top:14px;flex-wrap:wrap;font-size:13px;color:var(--muted)">' +
       '<input class="sel" type="search" placeholder="Search property" value="' + esc(S.q) + '" data-in="q" aria-label="Search property" style="width:220px">' +
       [['all', 'All sources'], ['Buildium', 'Buildium'], ['AppFolio', 'AppFolio']].map(function (b) {
         return '<button class="btn press' + (S.src === b[0] ? ' on' : '') + '" aria-pressed="' + (S.src === b[0]) + '" data-a="src:' + b[0] + '">' + b[1] + '</button>';
       }).join('') + '<span style="margin-left:auto">' + listP.length + ' of ' + scope.length + ', sorted by NOI</span></div>' +
       '<div style="margin-top:10px">' + tableHtml({ firstW: 260, maxH: Math.max(400, window.innerHeight - 260),
-        heads: [{ label: 'Property' }, { label: 'Units' }, { label: 'Occupancy' }, { label: 'Total income', cls: 'sep' }, { label: 'Total expenses' },
+        heads: [{ label: 'Property' }, { label: 'Units' }, { label: 'Physical occupancy' }, { label: 'Economic occupancy' }, { label: 'Total income', cls: 'sep' }, { label: 'Total expenses' },
                 { label: 'NOI, trailing 12 mo' }, { label: 'Optimized NOI' }, { label: 'Expense ratio' }, { label: 'Cash flow after debt and capex' },
                 { label: 'DSCR, mortgage', cls: 'sep' }, { label: 'Manager', cls: 'l' }], rows: rows }) + '</div>' +
-      '<p class="note" style="margin-top:8px">Click a property to open it. Cash flow is after debt service and capex, so it is shown without color; red is kept for NOI and coverage.</p></main>';
+      '<p class="note" style="margin-top:8px">' + ECON_NOTE + ' Click a property to open it. Cash flow is after debt service and capex, so it is shown without color; red is kept for NOI and coverage.</p></main>';
   }
 
   /* ===================================================================== */
@@ -525,7 +537,7 @@
     var usrc = { rent_roll: 'Latest rent roll', verified: 'Verified count', buildings: 'Building records' }[p.unitsSource] || 'Not on file';
     return [
       { label: 'Units', value: cnt(p.units), sub: usrc },
-      { label: 'Occupancy', value: pct(p.occ), sub: H.rentRollAsOf ? 'Latest rent roll' : 'No rent roll on file', style: occStyle(p.occ) },
+      { label: 'Physical occupancy', value: pct(p.occ), sub: H.rentRollAsOf ? 'Latest rent roll' : 'No rent roll on file', style: occStyle(p.occ) },
       { label: 'NOI, trailing 12 mo', value: money(p.noi), sub: per, style: p.noi < 0 ? C('bad') : '' },
       { label: 'Optimized NOI', value: money(p.opt), sub: p.opt ? 'Best trailing period to the latest month' : 'No NOI on file', style: p.opt ? C('ok') : '' },
       { label: 'Cash flow after debt and capex', value: money(p.cf), sub: 'NOI less fee, debt service and capex' },

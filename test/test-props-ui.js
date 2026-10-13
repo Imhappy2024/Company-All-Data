@@ -67,6 +67,10 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await new Promise(r => setTimeout(r, 1500));
   const props = (await db.q(`select id, name from reporting.property_summary_mv where name in ('Champion Villas','Franklin Court','Dakota Bend')`)).rows;
   const ID = Object.fromEntries(props.map(r => [r.name, r.id]));
+  /* the Portfolio groups by OWNER entity (property.entity_id), Jay 2026-10-13 */
+  const own = (await db.q(`select count(distinct entity_id) n,
+      (select entity_id from reporting.property_summary_mv where name = 'Sonesta The Cass Apartments') cass
+      from reporting.property_summary_mv where ownership_status = 'held' and t12_income is not null`)).rows[0];
 
   const b = await chromium.launch();
   const pg = await b.newPage({ viewport: { width: 1480, height: 1000 } });
@@ -123,8 +127,11 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   }));
   check('portfolio tabs are Entities | Custom view | Reports', () => assert.deepStrictEqual(ent.tabs, ['Entities', 'Custom view', 'Reports']));
   check('entities table columns are the spec\'s', () => assert.deepStrictEqual(ent.heads,
-    ['Managing entity', 'Properties', 'Units', 'Occupancy', 'NOI', 'Market value', 'Cash flow after debt and capex', 'Debt']));
-  check('"No managing entity" is the last row', () => assert.strictEqual(ent.rows[ent.rows.length - 1], 'No managing entity'));
+    ['Owner entity', 'Properties', 'Units', 'Physical occupancy', 'Economic occupancy', 'NOI', 'Market value', 'Cash flow after debt and capex', 'Debt']));
+  check('one row per owner entity, and no "No managing entity" bucket', () => {
+    assert.strictEqual(ent.rows.length, Number(own.n));
+    assert.ok(ent.rows.indexOf('No managing entity') < 0);
+  });
   check('IBM Plex Sans', () => assert.ok(/IBM Plex Sans/.test(ent.font), ent.font));
   const head = await pg.evaluate(() => document.querySelector('.lw-through').textContent);
   check('header: data through the latest T12, next sync on the third Thursday', () => assert.ok(/^Data through [A-Z][a-z]{2} \d{4}, next sync [A-Z][a-z]{2} \d{1,2}$/.test(head), head));
@@ -148,7 +155,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
 
   /* display_name where set */
   await pg.click('[data-a="crumb:portfolio"]'); await settle();
-  await pg.click('[data-a="ent:none"]'); await settle();
+  await pg.click('[data-a="ent:' + own.cass + '"]'); await settle();
   const names = await text();
   check('display_name shown where set (The Cass, not Sonesta The Cass Apartments)', () => assert.ok(/The Cass/.test(names) && !/Sonesta/.test(names), names.slice(0, 600)));
 
