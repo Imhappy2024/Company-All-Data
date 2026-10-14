@@ -23,6 +23,7 @@
 
 const P = require('./props-api').data;
 const { ymAdd, ymSpan, ymShort } = P;
+const OPT = require('./public/optimized-core');
 
 const YM = /^(\d{4})-(0[1-9]|1[0-2])$/;
 const MN = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -219,25 +220,30 @@ async function rentRollSection(tenantId, p) {
   };
 }
 
+/* Optimized NOI at the standard assumptions: the tab's NOI ladder and status
+   (public/optimized-core.js), every window ending at the latest month */
 async function optimizedSection(tenantId, p, through) {
   const od = await P.optimizedData(tenantId, p.id, p, through);
-  const BR = od.best || {};
-  const TW = od.trailing || { windows: [] };
-  const t12 = TW.windows.find(w => w.k === 12) || TW.windows[TW.windows.length - 1] || null;
-  const lab = w => (w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to));
-  const why = BR.end ? 'None: ' + ymShort(BR.end) + ' is below the 12-month average' : 'No NOI on file';
-  const rowOf = (name, w, key, empty) => ({
-    label: w ? name + ' (T' + w.k + ')' : name, kind: key ? 'total' : '', indent: false,
-    cells: [{ f: 'text', v: w ? lab(w) : empty }, cell(w ? w.annual : null, 'money'),
-            cell(w && t12 ? w.annual - t12.annual : null, 'money'), cell(w ? w.dscr : null, 'ratio')],
+  if (!od.input) return { kind: 'opt', title: 'Optimized NOI', sub: 'No NOI on file', table: { heads: [], rows: [], hasTotal: false } };
+  const r = OPT.compute(od.input), A = r.actual, L = od.labels, last = L[L.length - 1];
+  const span = k => (L.length ? L[Math.max(0, L.length - k)] + ' to ' + last : '');
+  const names = {
+    t12: ['Trailing 12 months', A.t12w ? L[A.t12w.first] + ' to ' + last + (A.t12w.n < 12 ? ', ' + A.t12w.n + ' months annualized' : '') : '–'],
+    t6: ['Trailing 6 months x 2', span(6)], t3: ['Trailing 3 months x 4', span(3)],
+    lender: ['Lender view', 'Income ' + span(3) + ' x 4, expenses T12'],
+    stab: ['Stabilized', A.rentCheck ? 'Rent data needs a check' : A.gpr !== null ? 'Market rent, 5% vacancy, reserves' : 'Needs market rent'],
+  };
+  const rows = r.ladder.filter(x => names[x.key]).map(x => ({
+    label: names[x.key][0], kind: x.key === 'stab' ? 'total' : '', indent: false,
+    cells: [{ f: 'text', v: names[x.key][1] }, cell(x.noi, 'money'), cell(x.key === 't12' ? null : x.vsT12, 'pct'),
+            cell(x.dscr, 'ratio'), cell(x.max, 'money'), cell(x.value, 'money')],
     tot: null,
-  });
+  }));
   return {
-    kind: 'opt', title: 'Best NOI',
-    sub: BR.end ? 'Runs of months above the 12-month average' + (isNum(BR.average) ? ' (' + P.money(BR.average) + ')' : '') + ', annualized; actual DSCR from the books' : 'No NOI on file',
-    table: { heads: ['Months', 'Annual NOI', 'Compared with T12', 'Actual DSCR'], hasTotal: false,
-      rows: [rowOf('Best NOI, latest', BR.latest, true, why),
-             rowOf('Previous best NOI', BR.previous, false, 'None before the latest run')] },
+    kind: 'opt', title: 'Optimized NOI',
+    sub: 'Status: ' + r.status.name + '. ' + r.status.text + ' Standard assumptions: required DSCR 1.25, 6.5% over 30 years, 7% cap rate, 5% vacancy, $250 a unit reserves; debt service ' +
+         (r.ds ? P.money(r.ds) + ' (' + A.dsSrc.toLowerCase() + ')' : 'not on file') + '.',
+    table: { heads: ['Months', 'Annual NOI', 'Against T12', 'DSCR', 'Max loan', 'Value at 7% cap'], hasTotal: false, rows },
   };
 }
 

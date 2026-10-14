@@ -114,7 +114,8 @@ const SHOT = n => path.join(ROOT, 'docs', 'screenshots', 'reports', n + '.png');
   check('preview: Franklin Court NOI 84,177.43 / 78,217.93 / 92,865.54', () => assert.deepStrictEqual(noi.slice(1, 4), ['84,177.43', '78,217.93', '92,865.54']));
   check('preview: the cash flow statement is included', () => assert.ok(doc.rows.some(r => r[0] === 'Net cash flow')));
   check('preview: rent roll cards (172 units)', () => assert.ok(/Units\s*172/.test(doc.text), doc.text.slice(0, 600)));
-  check('preview: Best NOI, latest is T4 for Franklin Court', () => assert.ok(doc.rows.some(r => r[0] === 'Best NOI, latest (T4)'), JSON.stringify(doc.rows.map(r => r[0]))));
+  check('preview: Optimized NOI ladder for Franklin Court ends at the latest month, lender view $915,997', () => assert.ok(doc.rows.some(r => r[0] === 'Lender view' && r.includes('$915,997')) && doc.rows.some(r => r[0] === 'Trailing 3 months x 4'), JSON.stringify(doc.rows.filter(r => /Trailing|Lender|Stabilized/.test(r[0])))));
+  check('preview: Optimized NOI status At risk', () => assert.ok(/Status: At risk/.test(doc.text), doc.text.slice(0, 400)));
   if (SHOTS) await pg.screenshot({ path: SHOT('preview'), fullPage: false });
 
   /* a regular range reaching before the data: those months are left out, with a note */

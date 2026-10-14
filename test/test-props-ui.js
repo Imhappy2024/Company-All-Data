@@ -65,7 +65,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
 
 (async () => {
   await new Promise(r => setTimeout(r, 1500));
-  const props = (await db.q(`select id, name from reporting.property_summary_mv where name in ('Champion Villas','Franklin Court','Dakota Bend')`)).rows;
+  const props = (await db.q(`select id, name from reporting.property_summary_mv where name in ('Champion Villas','Franklin Court','Dakota Bend','Sonesta The Cass Apartments')`)).rows;
   const ID = Object.fromEntries(props.map(r => [r.name, r.id]));
   /* the Portfolio groups by OWNER entity (property.entity_id), Jay 2026-10-13 */
   const own = (await db.q(`select count(distinct entity_id) n,
@@ -87,6 +87,39 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     exportsSent.push(JSON.parse(route.request().postData() || '{}'));
     return route.fulfill({ status: 200, contentType: 'application/zip',
       headers: { 'Content-Disposition': "attachment; filename*=UTF-8''x.zip" }, body: 'x' });
+  });
+
+  /* The custom-view checks bring their OWN view. They used to read the live
+     "Sioux Falls townhomes overview", a real person's view that was deleted in
+     the app on 2026-10-13, after which the first view on screen was another
+     one and three checks failed. This is that view's exact config, with its
+     group's five properties listed directly, served through the real
+     evaluation (POST /api/props/views/preview). Nothing is written. */
+  const FIXTURE_ID = '00000000-0000-4000-8000-000000000f01';
+  const fixtureProps = (await db.q(`select id from reporting.property_summary_mv where name in
+      ('Bancroft Place Apartments', 'Boulder Pointe Townhomes', 'Cleveland Park Townhomes', 'Town Park Townhomes', 'The Maples Townhomes')`)).rows.map(r => r.id);
+  const FIXTURE = { name: 'Sioux Falls townhomes overview', config: { mode: 'advanced', quickCards: false, groups: [], excl: [], props: fixtureProps,
+    fields: ['address', 'units', 'occ', 'inc', 'noi', 'debt'], styles: ['chart', 'table'], chartField: 'inc',
+    layout: ['card:c1', 'card:c2', 'card:c3', 'card:c4', 'card:c5', 'chart', 'table'],
+    cards: [
+      { id: 'c1', label: 'Units', kind: 'value', field: 'units', period: { t: 'ttm' }, agg: 'total', size: 'S' },
+      { id: 'c2', label: 'Total operating income, last 12 months', kind: 'value', field: 'inc', period: { t: 'ttm' }, agg: 'total', size: 'M' },
+      { id: 'c3', label: 'Income, Aug + Sep 2026', kind: 'formula', fmt: 'money', size: 'M', terms: [
+        { kind: 'field', field: 'inc', period: { t: 'month', a: '2026-08' }, agg: 'total' }, { op: '+', kind: 'field', field: 'inc', period: { t: 'month', a: '2026-09' }, agg: 'total' }] },
+      { id: 'c4', label: 'NOI per unit', kind: 'formula', fmt: 'money', size: 'S', terms: [
+        { kind: 'field', field: 'noi', period: { t: 'ttm' }, agg: 'total' }, { op: '/', kind: 'field', field: 'units', period: { t: 'ttm' }, agg: 'total' }] },
+      { id: 'c5', label: 'NOI, Sep 2026', kind: 'value', field: 'noi', period: { t: 'month', a: '2026-09' }, agg: 'total', size: 'L' }] } };
+  await pg.route(/\/api\/props\/views$/, async route => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const real = await (await route.fetch()).json();
+    real.views = [{ id: FIXTURE_ID, name: FIXTURE.name, is_mine: true, owner_staff_id: null, updated_at: null }].concat(real.views || []);
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(real) });
+  });
+  await pg.route('**/api/props/views/' + FIXTURE_ID, async route => {
+    const ev = await (await route.fetch({ url: BASE + '/api/props/views/preview', method: 'POST',
+      headers: Object.assign({}, route.request().headers(), { 'content-type': 'application/json' }), postData: JSON.stringify({ config: FIXTURE.config }) })).json();
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, permission: 'owner',
+      view: { id: FIXTURE_ID, name: FIXTURE.name, is_mine: true, config: ev.config, shares: [] }, result: ev.result }) });
   });
 
   async function settle() {
@@ -163,7 +196,9 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
   await open('lvl=property&prop=' + ID['Champion Villas'] + '&ptab=attention');
   await shot('03-champion-attention');
   const ch = await pg.evaluate(() => ({ badge: (document.querySelector('.lw-badge') || {}).textContent, txt: document.querySelector('#reportingNative').innerText }));
-  check('Champion Villas: Needs attention badge 2', () => assert.strictEqual(ch.badge, '2'));
+  /* 3 since 2026-10-14: the Optimized NOI status (At risk, lender view 1.05) is a flag too */
+  check('Champion Villas: Needs attention badge 3', () => assert.strictEqual(ch.badge, '3'));
+  check('Champion Villas: refinance status flag', () => assert.ok(/Refinance status At risk: lender view DSCR 1.05 against 1.25 required/.test(ch.txt), ch.txt.slice(0, 900)));
   check('Champion Villas: DSCR sentence', () => assert.ok(/NOI of \$777,274 \(Oct 2025 to Sep 2026\) divided by annual mortgage payments of \$712,716 = 1\.09/.test(ch.txt)
     && /rise by \$113,621 to \$890,895/.test(ch.txt), ch.txt.slice(0, 600)));
   check('Needs attention tabs in spec order', async () => {});
@@ -187,31 +222,61 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
 
   await open('lvl=property&prop=' + ID['Franklin Court'] + '&ptab=optimized');
   await shot('06-franklin-optimized');
-  const fo = await pg.evaluate(() => document.querySelector('.lw-card .lw-card-v').textContent);
-  check('Franklin Court Optimized NOI status Fixable', () => assert.strictEqual(fo, 'Fixable'));
-  /* Best NOI (Jay, 2026-10-13): the run of months above the 12-month average
-     ending at the latest month. Franklin Court averages $69,027 a month; Jun
-     to Sep are all above it and May is not, so T4 x 3 = 1,006,943. The run
-     before it is April alone (T1, 83,195.42 x 12 = 998,345). */
+  /* Acceptance (Jay, 2026-10-14, docs/mockup/optimized-noi.dc.html): every
+     window ends at the latest month. T12 $828,323; T3 x 4 $1,021,044
+     (Improving); lender view $915,997; stabilized $908,262; max loan at
+     stabilized $9,579,792 in the brief, which rounded its inputs to dollars:
+     with cents it is $9,579,795 (+$1,499,795 against $8,080,000). At risk. */
   const fopt = await pg.evaluate(() => {
-    const rows = [...document.querySelectorAll('tr')].map(r => [...r.cells].map(c => c.textContent.trim()));
-    const act = (document.querySelector('.lw-actual') || {}).textContent || '';
-    return { rows, names: rows.map(r => r[0]), act };
+    const cards = Object.fromEntries([...document.querySelectorAll('#reportingNative .lw-card')].map(c => [c.querySelector('.lw-card-l').textContent, [c.querySelector('.lw-card-v').textContent, c.querySelector('.lw-card-s').textContent]]));
+    const rows = [...document.querySelectorAll('#reportingNative tr')].map(r => [...r.cells].map(c => c.innerText.trim().replace(/\s*\n\s*/g, ' | ')));
+    return { cards, rows, txt: document.querySelector('#reportingNative').innerText };
   });
-  const rowNamed = re => fopt.rows.find(r => re.test(r[0] || ''));
-  check('Best NOI, latest = the run of above-average months ending Sep 26 (T4)', () =>
-    assert.deepStrictEqual((rowNamed(/^Best NOI, latest/) || []).slice(0, 4), ['Best NOI, latest (T4)', 'Jun 26 to Sep 26', 'x 3', '$1,006,943'], JSON.stringify(fopt.names)));
-  check('Previous best NOI = the run before it (April, T1)', () =>
-    assert.deepStrictEqual((rowNamed(/^Previous best NOI/) || []).slice(0, 4), ['Previous best NOI (T1)', 'Apr 26', 'x 12', '$998,345']));
-  check('only Best NOI, Previous best and What-if: no T2/T3/T6/T12 rows', () => {
-    const scen = fopt.names.slice(fopt.names.indexOf('Best NOI, latest (T4)'), fopt.names.indexOf('What-if') + 1);
-    assert.deepStrictEqual(scen, ['Best NOI, latest (T4)', 'Previous best NOI (T1)', 'What-if']);
+  const rowStarting = re => fopt.rows.find(r => re.test(r[0] || '')) || [];
+  check('Franklin Court status At risk', () => assert.strictEqual(fopt.cards.Status[0], 'At risk', JSON.stringify(fopt.cards)));
+  check('Franklin Court cards: T12 $828,323, T3 x 4 $1,021,044 Improving, lender $915,997, stabilized $908,262', () => {
+    assert.strictEqual(fopt.cards['NOI, trailing 12 mo'][0], '$828,323');
+    assert.deepStrictEqual([fopt.cards['NOI, last 3 mo × 4'][0], /^Improving/.test(fopt.cards['NOI, last 3 mo × 4'][1])], ['$1,021,044', true]);
+    assert.strictEqual(fopt.cards['Lender view NOI'][0], '$915,997');
+    assert.strictEqual(fopt.cards['Stabilized NOI'][0], '$908,262');
   });
-  check('actual DSCR row: Best NOI (T4) 1.30, Previous best (T1), T12 1.07, from the books', () => assert.ok(/Actual DSCR, from the books/.test(fopt.act) && /Best NOI \(T4\)\s*1\.30/.test(fopt.act) && /Previous best \(T1\)/.test(fopt.act) && /T12\s*1\.07/.test(fopt.act), fopt.act));
-  /* what-if recomputes and marks itself unsaved */
-  await pg.fill('[data-in="wnoi"]', '1200000'); await pg.press('[data-in="wnoi"]', 'Tab'); await pg.waitForTimeout(200);
+  check('max loan at stabilized $9,579,795, +$1,499,795 against the $8,080,000 loan', () => {
+    assert.strictEqual(fopt.cards['Max loan, stabilized'][0], '$9,579,795');
+    assert.deepStrictEqual(fopt.cards['Compared with current loan'], ['+$1,499,795', 'Current $8,080,000']);
+  });
+  check('eight cards, no best-months-anywhere figure', () => {
+    assert.strictEqual(Object.keys(fopt.cards).length, 8);
+    assert.ok(!/best 6|best 3|Best NOI|best month/i.test(fopt.txt), 'old wording still on the page');
+  });
+  check('NOI ladder rows in order, all ending Sep 26', () => {
+    const names = ['Trailing 12 months', 'Trailing 6 months × 2', 'Trailing 3 months × 4', 'Lender view', 'Stabilized', 'What-if'];
+    const got = names.map(n => rowStarting(new RegExp('^' + n.replace(/[×()]/g, '.'))));
+    got.forEach((r, i) => assert.ok(r.length, 'missing ' + names[i]));
+    assert.deepStrictEqual(got.slice(0, 3).map(r => r[1]), ['Oct 25 to Sep 26', 'Apr 26 to Sep 26', 'Jul 26 to Sep 26']);
+    assert.strictEqual(got[3][1], 'Income Jul to Sep × 4, expenses T12');
+  });
+  check('assumptions grid: actual DSCR 1.07, 7.50% rate, interest only, $8,080,000, $774,392', () => {
+    const act = rowStarting(/^Actual$/).join(' ');
+    assert.ok(/1\.07/.test(act) && /7\.50%/.test(act) && /Interest only/.test(act) && /\$8,080,000/.test(act) && /\$774,392/.test(act), act);
+  });
+  /* other income is 1,821,712.17 - 1,579,878.50 = 241,833.67: the brief's $241,833 rounded first */
+  check('stabilized line by line: GPR $1,792,440, other income $241,834, reserves $43,000', () => {
+    assert.strictEqual(rowStarting(/^Gross potential rent/)[1], '$1,792,440');
+    assert.strictEqual(rowStarting(/^\+ Other income/)[1], '$241,834');
+    assert.strictEqual(rowStarting(/^− Replacement reserves/)[1], '($43,000)');
+  });
+  /* an assumption recomputes and marks itself unsaved */
+  await pg.fill('[data-in="oa:w"]', '1200000'); await pg.press('[data-in="oa:w"]', 'Tab'); await pg.waitForTimeout(200);
   const wi = await text();
   check('what-if NOI recomputes and says "Changed, not saved"', () => assert.ok(/Changed, not saved/.test(wi) && /\$1,200,000/.test(wi)));
+
+  await open('lvl=property&prop=' + ID['Sonesta The Cass Apartments'] + '&ptab=optimized');
+  const cass = await pg.evaluate(() => document.querySelector('#reportingNative .lw-card .lw-card-v').textContent);
+  check('The Cass status Critical', () => assert.strictEqual(cass, 'Critical'));
+  await open('lvl=property&prop=' + ID['Champion Villas'] + '&ptab=optimized');
+  const champ = await text();
+  check('Champion Villas: rent is base rent now, so no rent-data warning and a stabilized NOI', () =>
+    assert.ok(!/Rent collected over the last 12 months/.test(champ) && /Stabilized NOI\n\$763,531/.test(champ), champ.slice(0, 500)));
 
   await open('lvl=property&prop=' + ID['Franklin Court'] + '&ptab=rent');
   await shot('07-franklin-rent');
@@ -257,7 +322,7 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     await shot(nm);
   }
 
-  /* ---- the seeded custom view ------------------------------------------- */
+  /* ---- the custom view (the fixture above) ------------------------------------------- */
   await open('lvl=portfolio&l1=custom');
   await shot('16-custom-view');
   const cv = await pg.evaluate(() => [...document.querySelectorAll('.lw-grid12 .frame')].map(f => f.innerText.split('\n').slice(0, 2)));

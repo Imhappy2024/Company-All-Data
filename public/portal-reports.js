@@ -233,7 +233,7 @@
     h += '<section class="frame" style="padding:16px 18px"><div style="font-weight:600">1. Reports</div><div style="display:flex;flex-direction:column;gap:8px;margin-top:10px">' +
       [['income', 'Income report', 'Income statement and cash flow by month, for a regular, quarterly, bi-annual or annual period'],
        ['rr', 'Rent roll', 'Units, occupancy, rent, delinquency and unit mix from the latest rent roll'],
-       ['opt', 'Optimized NOI', 'Best trailing period of 2 to 12 months ending at the latest month, with T2, T3, T6 and T12 and the actual DSCR']].map(function (b) {
+       ['opt', 'Optimized NOI', 'T12, T6, T3, lender view and stabilized NOI ending at the latest month, with DSCR, max loan, value and the status']].map(function (b) {
         return cb(R.reports[b[0]], 'rprep:' + b[0], b[1], b[2], 'padding:10px 12px;border:1px solid var(--rule);border-radius:8px');
       }).join('') + '</div>';
     if (R.reports.income) {
