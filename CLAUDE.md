@@ -98,7 +98,7 @@ Single tenant: `tenant_id = 72381c81-af95-4e1d-ad0d-20a3a3421119`. Supabase proj
 
 **Browser** (`public/`), in the order `portal.html` loads them:
 `portal-sw-cleanup.js`, `portal-loader.js`, `portal-morph.js`, `props-views-core.js`,
-`portal-session.js`, `portal-access.js`, `portal-auth.js`, `portal-home.js`,
+`optimized-core.js`, `portal-session.js`, `portal-access.js`, `portal-auth.js`, `portal-home.js`,
 `portal-reports.js`, `portal-props.js`, `portal-folio-fin.js`,
 `portal-leadli-fin.js`, `portal-realtime.js`.
 
@@ -347,17 +347,35 @@ revision when Jay supplies it.
   - Then Summary, Income statement and Cash flow statement, stacked with no switch
     buttons.
   - Rows and months with no data are hidden automatically.
-- **Optimized NOI:**
-  - Cards: status (Safe / Fixable / At risk / Critical), Best NOI latest, DSCR, max
-    loan, vs current loan, value (all on Best NOI).
-  - Then the Assumptions row; under it **Actual DSCR, from the books** (Best NOI,
-    Previous best, T12: NOI / debt service paid over the same months, all-debt where
-    it differs); then the "What it earns, and what that supports" table with three
-    rows only: Best NOI, latest (T#) or "None", Previous best NOI (T#), What-if.
-    What-if inputs are never saved.
-  - Then the NOI heat map: above-average months bold, dot rows for both runs.
+- **Optimized NOI** (built to `docs/mockup/optimized-noi.dc.html`, Jay 2026-10-14):
+  - **Every NOI window ends at the latest loaded month.** No "best months anywhere".
+  - Rules: `public/optimized-core.js`, ONE copy loaded by the browser and `require`d
+    by props-api (tab input, Needs attention, list/custom-view Optimized NOI) and
+    reports-core. Input built by `optimizedInputs()` (batched for many properties).
+  - 8 cards: Status, NOI T12, NOI last 3 mo x 4 (Improving / Steady / Softening vs
+    T12 at +/-3%), Lender view NOI (+DSCR), Stabilized NOI (+DSCR), Max loan,
+    Compared with current loan, Value (the last three on stabilized, else lender view).
+  - **Assumptions and actual:** one column per input; rows Assumption (editable,
+    highlighted when changed, Reset, never saved), Actual (with its source), Gap.
+    Defaults 1.25, 6.5%, 30 yrs, 7%, 5%, $250/unit, loan balance and debt service
+    from records, what-if = T12. A missing actual is a red "–".
+  - **Ladder:** T12, T6 x 2, T3 x 4, Lender view (last 3 months' operating income x 4
+    less T12 operating expenses, annualized when < 12 months), Stabilized, What-if.
+    Max loan = NOI / required DSCR / annual payment factor.
+  - **Stabilized NOI** = GPR (market rent of ALL units x 12, latest rent roll; null
+    unless every unit has market rent) - vacancy (assumption) + other income (T12
+    income - T12 rent) - T12 expenses - reserves. If T12 rent > GPR by more than 2%,
+    stabilized and economic vacancy are held back with the amber explanation.
+  - **Status (lender logic):** Safe = lender view DSCR >= required; Fixable = only
+    stabilized clears it; At risk = lender view >= 1.00; Critical = below 1.00; "No
+    debt service" when none. The same status is a Needs attention flag.
+  - Then NOI by month: heat-shaded, dot rows for the trailing 6 and 3 months.
+  - Acceptance (cents kept, so a few dollars off the brief's rounded figures):
+    Franklin Court T12 $828,323, T3 x 4 $1,021,044, lender $915,997, stabilized
+    $908,262, max loan $9,579,795, At risk. The Cass: Critical.
 - **Needs attention:**
-  - Rules run server-side: operating loss, DSCR < 1.00, DSCR < 1.25, vacancy ≥ 15%,
+  - Rules run server-side: refinance status (Optimized NOI: Critical, At risk,
+    Fixable), operating loss, DSCR < 1.00, DSCR < 1.25, vacancy ≥ 15%,
     delinquency ≥ 5% of rent, ≥ 10% of occupied leases expiring in 90 days, no
     managing entity, a value with no date or older than 12 months, coverage not
     calculable.
@@ -512,15 +530,16 @@ months AND a loan with a KNOWN non-primary purpose (or 2+ loans).
   - True net income comes from `reporting.income_statement_month`.
   - The old `t12_net_income` column is dropped. The custom-view field KEY
     `t12_net_income` survives in saved configs and reads the new column.
-- **Best NOI** (the Optimized NOI figure, Jay 2026-10-13): a good month has NOI above
-  the property's 12-month average. **Latest** = the unbroken run of good months ending
-  at the latest month with data, T1 to T12, annualized (NOI x 12 / k). If the latest
-  month is not good, latest is NONE and `optimized_noi` is NULL (about 30 of 50
-  properties today). **Previous** = the most recent good run before it. A month with
-  no data breaks a run. T2/T3/T6/T12 rows are gone by instruction.
-  - SQL: `property_summary.optimized_noi` (`migrations/20261017_best_noi_runs.sql`).
-  - Same rule in JS: `bestRuns()` in props-api.js, used by the tab and Reports. Keep
-    the two in step (Franklin Court: T4 Jun-Sep 26, $1,006,943; previous T1 Apr 26).
+- **Optimized NOI in lists, Overview and custom views** (`p.opt`) = stabilized NOI,
+  else the lender view, at the standard assumptions, from `optimized-core.js`
+  (`attachOptimized()`). `property_summary.optimized_noi` still holds the retired
+  Best NOI run (20261017) and nothing in the portal reads it; only legacy
+  `/api/portfolio` (reporting-api.js) does. Retire it with a migration when asked.
+- **Rent income is base rent only** (`migrations/20261018_rent_income_base_only.sql`):
+  the rent tier line less fee accounts booked under it (`t12_tagged.is_rent_fee_*`:
+  internet, utility/solar reimbursements, pet rent, garage, buyout, deposits, other
+  fees, month-to-month premiums, short-term rental surplus). They stay in total
+  operating income as other income; NOI and DSCR do not change.
 - **Partial history:** a report only claims months from its `first_active_month`.
   Months before it show "–", never 0.
 - **Asset management fees:**
@@ -532,7 +551,8 @@ months AND a loan with a KNOWN non-primary purpose (or 2+ loans).
   - Variance = received − expected; a past month with nothing received counts as
     −expected; |variance| < $1 displays as a grey 0.00.
   - **`am_fee_schedule.fee_pct` is a WHOLE percent (2 = 2%);
-    `loan.interest_rate_pct` is a FRACTION (0.035 = 3.5%).**
+    `rpt_loan.interest_rate_pct` is ALSO a whole percent (7.5 = 7.5%; checked
+    2026-10-14, all 77 rows between 2 and 9.5).**
 - **Capex categories:** from the editable table `capex_category_map`; unmatched
   accounts go to "Other".
 - **Cash flow statement:** `reporting.cash_flow_line` classifies `other_cash_items` as

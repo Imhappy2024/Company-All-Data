@@ -102,7 +102,7 @@ async function loadPlain(ids, tenantId) {
     const paid = num(s.annual_debt_service_paid), rec = num(s.annual_debt_service);
     return {
       id: s.id, name: s.name, units: num(s.units), occ: num(s.latest_occupancy), inc: num(s.t12_income), opx: num(s.t12_expense),
-      noi: num(s.t12_noi), cf: num(s.cash_flow_after_debt_and_capex), opt: num(s.optimized_noi),
+      noi: num(s.t12_noi), cf: num(s.cash_flow_after_debt_and_capex), opt: null,
       ds: paid > 0 ? paid : rec > 0 ? rec : null, debt: num(s.debt), value: num(s.value_on_file),
       pm: s.pm_company, mgr: s.managing_entity_name,
       address: cleanAddr([s.street, s.city, [s.state, s.zip].filter(Boolean).join(' ')].filter(Boolean).join(', ')),
@@ -110,6 +110,8 @@ async function loadPlain(ids, tenantId) {
       series: series[s.id] || {},
     };
   });
+  /* Optimized NOI (stabilized, else lender view) by the shared rule the tab uses */
+  await require('./props-api').data.attachOptimized(tenantId, props, t);
   return { props, through: t };
 }
 

@@ -35,6 +35,7 @@ const express = require('express');
 const db = require('./supabase-db');
 const { guard, isAdmin } = require('./portal-identity');
 const { buildExport } = require('./props-export');
+const OPT = require('./public/optimized-core');
 
 const WRITE_VERB = /\b(insert|update|delete|truncate|drop|alter|create|grant|revoke|copy)\b/i;
 async function q(sql, params) {
@@ -154,8 +155,9 @@ function shapeProp(s) {
 async function list(req, res, who) {
   const rows = await q(LIST_SQL + ' order by s.t12_noi desc nulls last, s.name', [who.tenantId]);
   const econ = await economicOccupancy(who.tenantId);
+  const props = await attachOptimized(who.tenantId, rows.map(shapeProp));
   res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), nextSync: nextSync(),
-             properties: rows.map(shapeProp).map(p => Object.assign(p, econ[p.id] || { econ: null, econNum: null, econDen: null, econMonth: null })) });
+             properties: props.map(p => Object.assign(p, econ[p.id] || { econ: null, econNum: null, econDen: null, econMonth: null })) });
 }
 
 /* Economic occupancy (Jay, 2026-10-13) = (rent income + recurring fee income)
@@ -181,6 +183,8 @@ async function economicOccupancy(tenantId) {
   return out;
 }
 
+/* without Optimized NOI: the two endpoints that show it compute it once, from
+   the same input they already load (setOpt) */
 async function propRow(tenantId, id) {
   const r = await q(LIST_SQL + ' and s.id = $2::uuid', [tenantId, id]);
   return r[0] ? shapeProp(r[0]) : null;
@@ -281,12 +285,13 @@ async function property(req, res, who) {
 
   const win = await trailingWindow(who.tenantId, id);
   const rr = await rentRollAgg(who.tenantId, id, null);
-  const flags = needsAttention(p, win, rr);
+  const od = await optimizedData(who.tenantId, id, p);
+  const flags = needsAttention(p, win, rr, setOpt(p, od.input ? OPT.compute(od.input) : null), od.labels);
   res.json({ ok: true, dataThrough: await dataThrough(who.tenantId), property: p, window: win,
              rentRollAsOf: rr ? rr.asOf : null, flags });
 }
 
-function needsAttention(p, win, rr) {
+function needsAttention(p, win, rr, opt, labels) {
   const flags = [];
   const per12 = win ? ymLong(win.from) + ' to ' + ymLong(win.to) : 'the last 12 months';
   const dsY = p.ds;
@@ -307,6 +312,24 @@ function needsAttention(p, win, rr) {
       detail: 'NOI of ' + money(p.noi) + ' (' + per12 + ') divided by annual mortgage payments of ' + money(dsY) + ' = ' + p.dscr.toFixed(2) + '. The property pays its loan, but with little room: to reach 1.25, NOI needs to rise by ' + money(gap(dsY * 1.25, p.noi)) + ' to ' + money(dsY * 1.25) + ', or annual payments fall to ' + money(p.noi / 1.25) + '.',
       next: 'Next step: confirm the actual covenant in the loan agreement; see the Optimized NOI tab for whether its best months clear 1.25.',
       source: 'Source: income statements and loan payments, ' + per12 + '.' });
+  }
+  /* the Optimized NOI status (lender logic), the same rule as the tab */
+  if (opt && ['Critical', 'At risk', 'Fixable'].includes(opt.status.name)) {
+    const A = opt.actual, ds = opt.ds, req = opt.req;
+    const lab = labels && labels.length ? labels.slice(-3) : [];
+    const span3 = lab.length ? lab[0] + ' to ' + lab[lab.length - 1] : 'the last 3 months';
+    const lenderTxt = A.lender !== null
+      ? 'Lender view NOI of ' + money(A.lender) + ' (operating income ' + span3 + ' x 4, less 12 months of operating expenses of ' + money(A.opx12) + ') against annual debt service of ' + money(ds) + ' gives a DSCR of ' + opt.dL.toFixed(2) + '. '
+      : '';
+    const need = A.lender !== null ? Math.round(ds * req) - Math.round(A.lender) : null;
+    const stabTxt = opt.stab !== null
+      ? 'Stabilized NOI (market rent for every unit, ' + Math.round(opt.vac * 100) + '% vacancy, reserves) is ' + money(opt.stab) + ', DSCR ' + opt.dS.toFixed(2) + (opt.dS >= req ? ', which clears ' + req.toFixed(2) + ': the gap is operations, not the property.' : ', still under ' + req.toFixed(2) + '.')
+      : (A.rentCheck ? 'Stabilized NOI is held back: rent collected exceeds market rent for every unit, so the rent accounts need checking.' : 'Stabilized NOI needs market rent for every unit on the rent roll.');
+    flags.push({ sev: opt.status.name === 'Critical' ? 3 : 2,
+      title: 'Refinance status ' + opt.status.name + (opt.dL !== null ? ': lender view DSCR ' + opt.dL.toFixed(2) + ' against ' + req.toFixed(2) + ' required' : ''),
+      detail: lenderTxt + (need !== null && need > 0 ? 'To reach ' + req.toFixed(2) + ' the lender view needs ' + money(need) + ' more NOI a year. ' : '') + stabTxt,
+      next: 'Next step: open the Optimized NOI tab to see the maximum loan each NOI supports and test refinance terms.',
+      source: 'Source: income statements ' + (labels && labels.length ? labels[0] + ' to ' + labels[labels.length - 1] : '') + ', debt service ' + A.dsSrc.charAt(0).toLowerCase() + A.dsSrc.slice(1) + (A.gpr !== null && opt.stab !== null ? ', market rent from the latest rent roll' : '') + '.' });
   }
   if (rr) {
     const R = rr.R;
@@ -460,102 +483,100 @@ function dsSourceText(s) {
 }
 
 /* ---------------------------------------------------------------------------
-   noi12(): twelve months of NOI and the standard what-if values.
+   noi12() + loanData() + incomeSplit(): the Optimized NOI tab
+   (docs/mockup/optimized-noi.dc.html, Jay 2026-10-14). The rules are
+   public/optimized-core.js, shared with the browser; this builds its input.
 --------------------------------------------------------------------------- */
 async function optimized(req, res, who) {
   const id = uuidOrNull(req.params.id);
   if (!id) return res.status(400).json({ error: 'A property id is required.' });
   const p = await propRow(who.tenantId, id);
   if (!p) return res.status(404).json({ error: 'No such property.' });
-  res.json(Object.assign({ ok: true, property: p }, await optimizedData(who.tenantId, id, p)));
+  const od = await optimizedData(who.tenantId, id, p);
+  setOpt(p, od.input ? OPT.compute(od.input) : null);
+  res.json(Object.assign({ ok: true, property: p }, od));
 }
 
-/* twelve months of NOI ending at the latest loaded month, and the standard
-   debt service; shared with the Reports tab */
-async function optimizedData(tenantId, id, p, knownThrough) {
+const DS_SOURCE = { income_statement: 'Paid in the books', loan_record: 'Loan record (no principal in the books)',
+                    interest_only_books: 'Interest only, from the books' };
+
+/* "30 years", "25-yr" -> 30; free text that names no years -> null */
+function amortYears(text) {
+  const m = /(\d{1,2})\s*-?\s*(yrs?|years?)\b/i.exec(String(text || ''));
+  return m ? Number(m[1]) : null;
+}
+
+/* The core's input for many properties at once (the list) or one (the tab):
+   four statements, whatever the count. `props` are shapeProp rows. */
+async function optimizedInputs(tenantId, props, knownThrough) {
+  const out = {};
+  if (!props.length) return out;
   const through = knownThrough || await dataThrough(tenantId);
+  if (!through) return out;
   const months = ymSpan(ymAdd(through, -11), through);
-  const rows = await q(`
-    select to_char(month, 'YYYY-MM') m, noi, debt_service, debt_service_all, debt_service_source from public.rpt_property_month
-     where tenant_id = $1 and property_id = $2::uuid and lower(accounting_basis) = 'cash' and has_data
-       and month between $3::date and $4::date`, [tenantId, id, months[0] + '-01', through + '-01']);
-  const byM = Object.fromEntries(rows.map(r => [r.m, r]));
-  const s = (await q(`select annual_debt_service, annual_debt_service_paid from public.rpt_property_summary
-                       where tenant_id = $1 and id = $2::uuid`, [tenantId, id]))[0] || {};
-  /* the loan record first, then the books, as the mockup's standard values */
-  let ds = null, dsSrc = 'Not on file';
-  if (num(s.annual_debt_service) > 0) { ds = num(s.annual_debt_service); dsSrc = 'Loan record'; }
-  else if (num(s.annual_debt_service_paid) > 0) { ds = num(s.annual_debt_service_paid); dsSrc = 'Paid in the books, annualized'; }
-  const col = k => months.map(m => (m in byM ? num(byM[m][k]) : null));
-  const noi = col('noi'), dsM = col('debt_service'), dsAllM = col('debt_service_all');
-  const src = rows.map(r => r.debt_service_source).filter(Boolean).pop() || null;
-  return { months, labels: months.map(ymShort), noi, debtServiceMonthly: dsM, debtServiceAllMonthly: dsAllM,
-           debtServiceMonthlySource: src ? dsSourceText(src) : 'Not on file',
-           trailing: trailingWindows(months, noi, dsM, dsAllM),
-           best: bestRuns(months, noi, dsM, dsAllM),
-           debtService: ds, debtServiceSource: dsSrc, loan: p.debt };
+  const ids = props.map(p => p.id);
+  const [pm, rr, loans] = await Promise.all([
+    q(`select property_id, to_char(month, 'YYYY-MM') m, noi, total_operating_income inc, total_operating_expense opx,
+              rent_income rent, capex, debt_service_source
+         from public.rpt_property_month
+        where tenant_id = $1 and property_id = any($2::uuid[]) and lower(accounting_basis) = 'cash' and has_data
+          and month between $3::date and $4::date
+        order by property_id, month`, [tenantId, ids, months[0] + '-01', through + '-01']),
+    /* the latest rent roll folded to one row per unit, as rentRollAgg does */
+    q(`with u as (
+         select property_id, coalesce(unit, unit_id::text) k, max(as_of_date) as_of, max(market_rent) mkt,
+                bool_or(occupancy_status in ('current', 'notice')) occ
+           from public.rpt_rent_roll_unit
+          where tenant_id = $1 and property_id = any($2::uuid[]) and is_current and is_latest
+          group by 1, 2)
+       select property_id, count(*) units, count(mkt) with_market, sum(mkt) market_all,
+              count(*) filter (where not occ) vacant, to_char(max(as_of), 'YYYY-MM-DD') as_of
+         from u group by 1`, [tenantId, ids]),
+    q(`select l.property_id, l.latest_balance, l.interest_rate_pct, pl.amortizing_type, pl.interest_type, pl.amortization
+         from public.rpt_loan l left join public.loan pl on pl.id = l.loan_id
+        where l.tenant_id = $1 and l.property_id = any($2::uuid[]) and coalesce(l.status, '') <> 'closed'`, [tenantId, ids]),
+  ]);
+  const by = (rows) => { const o = {}; rows.forEach(r => { (o[r.property_id] = o[r.property_id] || []).push(r); }); return o; };
+  const PM = by(pm), RR = by(rr), LN = by(loans);
+  props.forEach(p => {
+    const rows = PM[p.id] || [], byM = Object.fromEntries(rows.map(r => [r.m, r]));
+    const col = k => months.map(m => (m in byM ? num(byM[m][k]) : null));
+    const tot = k => rows.reduce((a, r) => a + (num(r[k]) || 0), 0);
+    const rentRows = rows.filter(r => r.rent !== null);
+    const r = (RR[p.id] || [])[0];
+    const src = rows.map(x => x.debt_service_source).filter(Boolean).pop();
+    out[p.id] = {
+      months, noi: col('noi'), inc: col('inc'),
+      t12: { n: rows.length, inc: tot('inc'), opx: tot('opx'), rent: rentRows.length === rows.length && rows.length ? tot('rent') : null },
+      rr: r ? { units: Number(r.units), withMarket: Number(r.with_market), marketAll: num(r.market_all), vacant: Number(r.vacant), asOf: r.as_of } : null,
+      units: p.units, capexT12: rows.length ? tot('capex') : null,
+      loans: (LN[p.id] || []).map(l => ({ balance: num(l.latest_balance), ratePct: num(l.interest_rate_pct),
+        io: /interest.?only/i.test((l.amortizing_type || '') + ' ' + (l.interest_type || '')), amortYears: amortYears(l.amortization) })),
+      dsAct: p.ds, dsSrc: p.ds ? (DS_SOURCE[src] || (p.dsSource === 'loan_record' ? 'Loan record' : 'Paid in the books')) : 'Not on file',
+    };
+  });
+  return out;
 }
 
-/* Best NOI (Jay, 2026-10-13). A month is GOOD when its NOI is above the
-   property's average month over the window (the twelve months shown). Best NOI
-   is the unbroken run of good months that ends at the latest month with data,
-   annualised (T1 if only that month, T2 if the two latest, ...); none when
-   the latest month is not good. Previous best is the most recent run of good
-   months before it. A month with no NOI breaks a run. Same rule in SQL:
-   property_summary.optimized_noi = the latest Best NOI
-   (migrations/20261017_best_noi_runs.sql). */
-function bestRuns(months, noi, dsM, dsAllM) {
-  const has = noi.map(v => v !== null && v !== undefined);
-  const vals = noi.filter((v, i) => has[i]);
-  if (!vals.length) return { average: null, latest: null, previous: null, end: null };
-  const average = vals.reduce((a, b) => a + b, 0) / vals.length;
-  let last = -1;
-  for (let i = noi.length - 1; i >= 0; i--) if (has[i]) { last = i; break; }
-  const runs = [];
-  let start = -1;
-  for (let i = 0; i <= noi.length; i++) {
-    const good = i < noi.length && has[i] && noi[i] > average;
-    if (good && start < 0) start = i;
-    if (!good && start >= 0) { runs.push([start, i - 1]); start = -1; }
-  }
-  const shape = ([a, b]) => {
-    let n = 0, d = 0, da = 0, dc = 0;
-    for (let i = a; i <= b; i++) {
-      n += noi[i];
-      if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dc++; }
-      if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
-    }
-    const k = b - a + 1;
-    return { k, from: months[a], to: months[b], noi: n, annual: n * 12 / k,
-             dsPaid: dc ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null };
-  };
-  const li = runs.findIndex(r => r[1] === last);
-  const latest = li >= 0 ? shape(runs[li]) : null;
-  const before = li >= 0 ? runs.slice(0, li) : runs;
-  const previous = before.length ? shape(before[before.length - 1]) : null;
-  return { average, latest, previous, end: months[last] };
+/* the tab's payload, shared with the Reports tab */
+async function optimizedData(tenantId, id, p, knownThrough) {
+  const input = (await optimizedInputs(tenantId, [p], knownThrough))[id] || null;
+  return { input, labels: input ? input.months.map(ymShort) : [] };
 }
 
-/* Trailing T1..T12 windows ending at the latest month with data, each with
-   the ACTUAL DSCR from the books over the same months (NOI / debt service
-   paid). Used for the T12 row and Reports' 'Compared with T12'; Best NOI
-   itself is bestRuns() above. A month with no NOI stops the run. */
-function trailingWindows(months, noi, dsM, dsAllM) {
-  let last = -1;
-  for (let i = noi.length - 1; i >= 0; i--) if (noi[i] !== null && noi[i] !== undefined) { last = i; break; }
-  if (last < 0) return { windows: [], end: null };
-  const out = [];
-  let n = 0, d = 0, da = 0, dCount = 0;
-  for (let k = 1; k <= 12 && last - k + 1 >= 0; k++) {
-    const i = last - k + 1;
-    if (noi[i] === null || noi[i] === undefined) break;
-    n += noi[i];
-    if (dsM[i] !== null && dsM[i] !== undefined) { d += dsM[i]; dCount++; }
-    if (dsAllM[i] !== null && dsAllM[i] !== undefined) da += dsAllM[i];
-    out.push({ k, from: months[i], to: months[last], noi: n, annual: n * 12 / k,
-               dsPaid: dCount ? d : null, dscr: d > 0 ? n / d : null, dscrAll: da > 0 ? n / da : null });
-  }
-  return { windows: out, end: months[last] };
+/* the headline Optimized NOI for lists and custom views: stabilized NOI,
+   else the lender view, at the standard assumptions (the same NOI the tab's
+   Max loan and Value cards use) */
+async function attachOptimized(tenantId, props, knownThrough) {
+  const inputs = await optimizedInputs(tenantId, props, knownThrough);
+  props.forEach(p => setOpt(p, inputs[p.id] ? OPT.compute(inputs[p.id]) : null));
+  return props;
+}
+function setOpt(p, r) {
+  p.opt = r ? r.best : null;
+  p.optKind = r && r.best !== null ? r.bestKind : null;
+  p.optStatus = r ? r.status.name : null;
+  return r;
 }
 
 /* ---------------------------------------------------------------------------
@@ -928,5 +949,5 @@ function propsRoutes() {
 }
 
 module.exports = { propsRoutes, cleanAddr,
-  data: { q, LIST_SQL, shapeProp, propRow, dataThrough, monthlyData, optimizedData, rentRollAgg, ymAdd, ymSpan, ymShort, ymLong, money },
-  _internal: { bestRuns, trailingWindows, nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };
+  data: { q, LIST_SQL, shapeProp, propRow, dataThrough, monthlyData, optimizedData, optimizedInputs, attachOptimized, rentRollAgg, ymAdd, ymSpan, ymShort, ymLong, money },
+  _internal: { amortYears, nextSync, q, needsAttention, rentRollAgg, period, ymSpan, ymAdd, permissionFor, shapeProp, debtServiceOf } };

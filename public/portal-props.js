@@ -131,7 +131,7 @@
     q: '', src: 'all',
     dense: false,
     exportOpen: false, exportMsg: '',
-    oa: {}, wnoi: {},     /* what-if inputs per property; never saved */
+    oa: {},     /* Optimized NOI assumptions per property; never saved */
     data: {}, pending: {}, errors: {}, old: {}, last: {}, staleNow: false,
     dataset: null,        /* every property's plain figures, for the builder's local preview */
     cv: { mode: 'view', sel: null, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '' },
@@ -433,7 +433,7 @@
       }).join('') + '<span style="margin-left:auto">' + listP.length + ' of ' + scope.length + ', sorted by NOI</span></div>' +
       '<div style="margin-top:10px">' + tableHtml({ firstW: 260, maxH: Math.max(400, window.innerHeight - 260),
         heads: [{ label: 'Property' }, { label: 'Units' }, { label: 'Physical occupancy' }, { label: 'Economic occupancy' }, { label: 'Total income', cls: 'sep' }, { label: 'Total expenses' },
-                { label: 'NOI, trailing 12 mo' }, { label: 'Best NOI' }, { label: 'Expense ratio' }, { label: 'Cash flow after debt and capex' },
+                { label: 'NOI, trailing 12 mo' }, { label: 'Optimized NOI' }, { label: 'Expense ratio' }, { label: 'Cash flow after debt and capex' },
                 { label: 'DSCR, mortgage', cls: 'sep' }, { label: 'Manager', cls: 'l' }], rows: rows }) + '</div>' +
       '<p class="note" style="margin-top:8px">' + ECON_NOTE + ' Click a property to open it. Cash flow is after debt service and capex, so it is shown without color; red is kept for NOI and coverage.</p></main>';
   }
@@ -539,7 +539,7 @@
       { label: 'Units', value: cnt(p.units), sub: usrc },
       { label: 'Physical occupancy', value: pct(p.occ), sub: H.rentRollAsOf ? 'Latest rent roll' : 'No rent roll on file', style: occStyle(p.occ) },
       { label: 'NOI, trailing 12 mo', value: money(p.noi), sub: per, style: p.noi < 0 ? C('bad') : '' },
-      { label: 'Best NOI, latest', value: p.opt ? money(p.opt) : 'None', sub: p.opt ? 'Months above the 12-month average, to the latest month' : 'Latest month is not above the 12-month average', style: p.opt ? C('ok') : C('muted') },
+      { label: 'Optimized NOI', value: money(p.opt), sub: p.optKind === 'stabilized' ? 'Stabilized: market rent, 5% vacancy, reserves' : p.optKind ? 'Lender view: last 3 months’ income × 4, T12 expenses' : 'Not enough data', style: isNum(p.opt) ? '' : C('muted') },
       { label: 'Cash flow after debt and capex', value: money(p.cf), sub: 'NOI less fee, debt service and capex' },
       { label: 'Market value', value: p.value ? money(p.value) : DASH, sub: p.value ? (p.valueAsOf ? 'On file, ' + dayLong(p.valueAsOf) : 'On file, no date') : 'No valuation on file',
         tag: p.value ? 'Outdated' : '', style: p.value ? '' : C('bad') },
@@ -737,135 +737,147 @@
   }
 
   /* ---- Optimized NOI ---------------------------------------------------- */
-  function nIn(v) { var x = parseFloat(v); return isFinite(x) ? x : null; }
+  /* Built to docs/mockup/optimized-noi.dc.html (Jay, 2026-10-14). The rules
+     are public/optimized-core.js, the same file the server uses for Needs
+     attention, the list's Optimized NOI and Reports; this only lays them out.
+     Every NOI window ends at the latest loaded month. Assumptions are what-if
+     only and never saved. */
+  var MINUS = '−';
+  /* signed gap; zero only when it FORMATS as zero (the mockup's < 0.5 test
+     turned a DSCR gap of -0.18 into 0.00) */
+  function sgn(v, f) { return !isNum(v) ? DASH : f(Math.abs(v)) === f(0) ? f(0) : (v > 0 ? '+' : MINUS) + f(Math.abs(v)); }
+  function gapStyle(v, goodPositive) { return !isNum(v) || Math.abs(v) < 1e-9 ? C('muted') : (goodPositive ? v > 0 : v < 0) ? C('ok') : C('bad'); }
+  function dsc(d) { return isNum(d) ? d.toFixed(2) : DASH; }
   function optimizedModel(p) {
     var key = 'o:' + S.prop, D = need(key, '/api/props/' + S.prop + '/optimized');
     if (!D) return { pending: true, error: errOf(key) };
-    var L12 = D.labels, NN = D.noi;
-    var avail = NN.map(function (v, i) { return isNum(v) ? i : -1; }).filter(function (i) { return i >= 0; });
-    var nA = avail.length;
-    var trailing = nA ? sum(NN) * 12 / nA : null;
-    /* Best NOI (Jay, 2026-10-13): the unbroken run of months above the
-       12-month average that ends at the latest month (none when the latest
-       month is below it), and the most recent such run before it. Computed by
-       the server (props-api bestRuns), the same rule as
-       property_summary.optimized_noi. */
-    var TW = D.trailing || { windows: [] };
-    var win = function (k) { return TW.windows.filter(function (w) { return w.k === k; })[0] || null; };
-    var BR = D.best || {};
-    var bw = BR.latest || null, pw = BR.previous || null;
-    var noneWhy = BR.end ? ymShort(BR.end) + ' is below the 12-month average of ' + money(BR.average) + ' a month' : 'No NOI on file';
-    var wLab = function (w) { return w.k === 1 ? ymShort(w.to) : ymShort(w.from) + ' to ' + ymShort(w.to); };
-    var std = { req: '1.25', rate: '6.5', amort: '30', cap: '7', loan: D.loan ? String(Math.round(D.loan)) : '', ds: D.debtService ? String(Math.round(D.debtService)) : '' };
-    var cur = Object.assign({}, std, S.oa[S.prop] || {});
-    var edited = Object.keys(std).some(function (k) { return cur[k] !== std[k]; });
-    var req = nIn(cur.req) || 1.25, rate = nIn(cur.rate) ? nIn(cur.rate) / 100 : null, yrs = nIn(cur.amort), cap = nIn(cur.cap) ? nIn(cur.cap) / 100 : null, loan = nIn(cur.loan), ds = nIn(cur.ds);
-    var k2 = rate && yrs ? 12 * (rate / 12) / (1 - Math.pow(1 + rate / 12, -yrs * 12)) : null;
-    var optimized = bw ? bw.annual : null;
-    var dOf = function (v) { return ds && isNum(v) ? v / ds : null; };
-    var dT = dOf(trailing), dO = dOf(optimized !== null ? optimized : trailing);
-    var grp;
-    if (!ds) grp = { name: 'No debt service on file', style: C('muted') };
-    else if (dT !== null && dT >= req) grp = { name: 'Safe', style: C('ok') };
-    else if (dO !== null && dO >= req) grp = { name: 'Fixable', style: C('warn') };
-    else if (dO !== null && dO >= 1) grp = { name: 'At risk', style: C('warn') };
-    else grp = { name: 'Critical', style: C('bad') };
-    var wRaw = (S.wnoi || {})[S.prop];
-    var wDefault = optimized !== null ? optimized : (trailing || 0);
-    var W = wRaw !== undefined && wRaw !== '' && nIn(wRaw) !== null ? nIn(wRaw) : wDefault;
-    var srow = function (name, months, rec, noi, cls) {
-      var d = isNum(noi) && noi > 0 ? dOf(noi) : null, maxL = k2 && noi > 0 ? noi / req / k2 : null, vs = maxL !== null && loan !== null ? maxL - loan : null;
-      return { label: name, kind: cls === 'key' ? 'key' : '', band: cls === 'key', cells: [
-        { v: months, f: 'text', cls: 'l', style: C('muted') },
-        { v: rec, f: 'text', cls: 'l', style: C('muted'), html: rec ? undefined : '' },
-        { v: noi, f: 'money', style: '' },
-        { v: d, f: 'ratio', cls: 'sep', style: d === null ? C('muted') : dscrStyle(d) },
-        { v: d === null ? null : (d >= req ? 'Yes' : 'No'), f: 'text', style: d === null ? C('muted') : d >= req ? C('ok') : C('bad') },
-        { v: maxL, f: 'money', style: '' },
-        { v: vs, f: 'money', style: vs === null ? C('muted') : vs >= 0 ? C('ok') : C('bad'), html: vs === null ? DASH : esc((vs >= 0 ? '+' : '') + money(vs)), exportText: vs },
-        { v: cap && noi > 0 ? noi / cap : null, f: 'money', cls: 'sep', style: '' },
-      ] };
+    if (!D.input) return { none: true };
+    var I = D.input, L = D.labels, last = L[L.length - 1];
+    var r = window.OptimizedCore.compute(I, S.oa[S.prop] || {}), A = r.actual, cur = r.cur, std = r.std, req = r.req;
+    var red = function (txt) { return { v: txt, style: C('bad') + ';font-weight:600' }; };
+    var plain = function (txt, style) { return { v: txt, style: style || '' }; };
+    var needNoi = A.actDscr !== null ? A.dsAct * req - A.T12 : null;
+    var vacAct = A.econVac !== null ? A.econVac : A.physVac;
+    var grid = [
+      { key: 'req', label: 'Required DSCR', step: '0.05', unit: '', act: A.actDscr === null ? red(DASH) : plain(A.actDscr.toFixed(2), dscrStyle(A.actDscr)), actSub: 'Actual, T12 NOI ÷ debt service paid',
+        gap: A.actDscr === null ? plain(DASH) : plain(sgn(A.actDscr - req, function (x) { return x.toFixed(2); }), gapStyle(A.actDscr - req, true)), gapSub: needNoi !== null && needNoi > 0 ? 'NOI needs +' + money(needNoi) : needNoi !== null ? 'Clears it by ' + money(-needNoi) : '' },
+      { key: 'rate', label: 'Interest rate', step: '0.125', unit: '%', act: A.rateAct === null ? red(DASH) : plain((A.rateAct * 100).toFixed(2) + '%'), actSub: A.loans > 1 ? A.loans + ' loans, balance-weighted' : A.loans ? 'Loan record' : 'No loan on file',
+        gap: A.rateAct === null || r.rate === null ? plain(DASH) : plain(sgn((r.rate - A.rateAct) * 100, function (x) { return x.toFixed(2) + ' pts'; }), C('muted')), gapSub: A.rateAct !== null && r.rate !== null ? (r.rate > A.rateAct ? 'New loan costs more' : 'New loan costs less') : '' },
+      { key: 'amort', label: 'Amortization', step: '5', unit: 'yrs', act: A.amortAct === null ? red(DASH) : plain(typeof A.amortAct === 'number' ? A.amortAct + ' yrs' : A.amortAct), actSub: A.amortAct === null ? 'Not on the loan record' : 'Loan record', gap: plain(DASH), gapSub: '' },
+      { key: 'cap', label: 'Cap rate', step: '0.25', unit: '%', act: plain('Not on file', C('muted')), actSub: 'Set from market sales', gap: plain(DASH), gapSub: '' },
+      { key: 'vac', label: 'Vacancy and collection loss', step: '1', unit: '%', act: A.econVac !== null ? plain(pct(A.econVac)) : A.physVac !== null ? plain(pct(A.physVac)) : red(DASH),
+        actSub: A.econVac !== null ? 'Economic, rent collected vs market rent' : A.physVac !== null ? 'Physical, vacant units now' : 'No rent roll',
+        gap: vacAct === null ? plain(DASH) : plain(sgn((vacAct - r.vac) * 100, function (x) { return x.toFixed(1) + ' pts'; }), gapStyle(vacAct - r.vac, false)), gapSub: '' },
+      { key: 'res', label: 'Reserves per unit', step: '25', unit: '$', act: A.capexPerUnit !== null ? plain(money(A.capexPerUnit)) : red(DASH), actSub: 'Capex spent per unit, T12', gap: A.capexPerUnit !== null ? plain(sgn(A.capexPerUnit - r.resU, money), C('muted')) : plain(DASH), gapSub: '' },
+      { key: 'loan', label: 'Loan balance', step: '1000', unit: '$', act: A.loanBal ? plain(money(A.loanBal)) : red(DASH), actSub: A.loans ? A.loans + (A.loans === 1 ? ' loan' : ' loans') : 'No loan on file', gap: A.loanBal && r.loan !== null ? plain(sgn(r.loan - A.loanBal, money), C('muted')) : plain(DASH), gapSub: '' },
+      { key: 'ds', label: 'Annual debt service', step: '1000', unit: '$', act: A.dsAct ? plain(money(A.dsAct)) : red(DASH), actSub: A.dsSrc, gap: A.dsAct && r.ds !== null ? plain(sgn(r.ds - A.dsAct, money), C('muted')) : plain(DASH), gapSub: '' },
+      { key: 'w', label: 'What-if NOI', step: '1000', unit: '$', act: A.T12 !== null ? plain(money(A.T12)) : red(DASH), actSub: 'Actual, trailing 12 months', gap: A.T12 !== null && r.W !== null ? plain(sgn(r.W - A.T12, money), gapStyle(r.W - A.T12, true)) : plain(DASH), gapSub: '' },
+    ].map(function (g) { g.val = cur[g.key]; g.changed = cur[g.key] !== std[g.key]; return g; });
+
+    var span = function (k) { return L[Math.max(0, L.length - k)] + ' to ' + last; };
+    var LD = {}; r.ladder.forEach(function (x) { LD[x.key] = x; });
+    var lrow = function (k, name, months, sub, cls, base) {
+      var x = LD[k];
+      return { key: k, name: name, months: months, sub: sub, cls: cls || '', noi: x.noi,
+        vsT12: base || x.vsT12 === null ? DASH : sgn(x.vsT12 * 100, function (v) { return v.toFixed(1) + '%'; }), vsT12Style: base || x.vsT12 === null ? C('muted') : gapStyle(x.vsT12, true),
+        dscr: x.dscr, meets: x.meets === null ? DASH : x.meets ? 'Yes' : 'No', meetsStyle: x.meets === null ? C('muted') : x.meets ? C('ok') : C('bad'),
+        max: x.max, vs: x.vs, vsTxt: x.vs === null ? DASH : sgn(x.vs, money), vsStyle: x.vs === null ? C('muted') : x.vs >= 0 ? C('ok') : C('bad'), value: x.value };
     };
-    var mult = function (k) { var x = 12 / k; return 'x ' + (x % 1 ? x.toFixed(1) : x); };
-    var scen = [
-      bw ? srow('Best NOI, latest (T' + bw.k + ')', wLab(bw), mult(bw.k), bw.annual, 'key')
-         : srow('Best NOI, latest', 'None: ' + noneWhy, '', null, 'key'),
-      pw ? srow('Previous best NOI (T' + pw.k + ')', wLab(pw), mult(pw.k), pw.annual)
-         : srow('Previous best NOI', 'None before ' + (bw ? wLab(bw) : 'the latest month'), '', null),
-      srow('What-if', 'Your number', '', W)];
-    var maxLOpt = k2 && optimized > 0 ? optimized / req / k2 : null;
-    var vsOpt = maxLOpt !== null && loan !== null ? maxLOpt - loan : null;
-    var cards = [
-      { label: 'Status', value: grp.name, sub: ds ? 'Required DSCR ' + req.toFixed(2) : 'Debt service not on file', style: grp.style },
-      { label: 'NOI, trailing 12 mo', value: money(trailing), sub: nA < 12 ? 'Annualized from ' + nA + ' months' : L12[0] + ' to ' + L12[11] },
-      { label: 'Best NOI, latest', value: bw ? money(optimized) : 'None', sub: bw ? 'T' + bw.k + ', ' + wLab(bw) : (pw ? 'Previous best T' + pw.k + ', ' + wLab(pw) + ', ' + money(pw.annual) : noneWhy), style: bw ? C('ok') : C('muted') },
-      { label: 'DSCR, trailing', value: dT === null || trailing <= 0 ? DASH : dT.toFixed(2), sub: ds ? '' : 'No debt service on file', style: dT === null || trailing <= 0 ? (ds ? '' : C('bad')) : dscrStyle(dT) },
-      { label: 'DSCR, best NOI', value: optimized === null || dOf(optimized) === null ? DASH : dOf(optimized).toFixed(2), sub: ds ? '' : 'No debt service on file', style: optimized === null || dOf(optimized) === null ? (ds ? '' : C('bad')) : dscrStyle(dOf(optimized)) },
-      { label: 'Max loan, best NOI', value: money(maxLOpt), sub: rate && yrs ? cur.rate + '%, ' + cur.amort + ' yrs' : '' },
-      { label: 'Compared with current loan', value: vsOpt === null ? DASH : (vsOpt >= 0 ? '+' : '') + money(vsOpt), sub: loan ? 'Current ' + money(loan) : 'No loan on file', style: vsOpt === null ? '' : vsOpt >= 0 ? C('ok') : C('bad') },
-      { label: 'Value, best NOI', value: cap && optimized > 0 ? money(optimized / cap) : DASH, sub: 'At ' + cur.cap + '% cap, estimate' },
+    var ladder = [
+      lrow('t12', 'Trailing 12 months', A.t12w ? L[A.t12w.first] + ' to ' + last + (A.t12w.n < 12 ? ', ' + A.t12w.n + ' months annualized' : '') : DASH, 'The baseline everyone asks for', '', true),
+      lrow('t6', 'Trailing 6 months × 2', span(6), 'Last half year'),
+      lrow('t3', 'Trailing 3 months × 4', span(3), r.trendTxt ? r.trendTxt + ' against the T12' : 'Where it is now'),
+      lrow('lender', 'Lender view', 'Income ' + span(3).replace(/ \d\d/g, '') + ' × 4, expenses T12', 'How a lender sizes the loan', 'band'),
+      lrow('stab', 'Stabilized', A.rentCheck ? 'Rent data needs a check' : A.gpr !== null ? 'Market rent, ' + (r.vac * 100).toFixed(0) + '% vacancy, reserves' : 'Needs market rent', 'Normal operations; what a buyer or appraiser values', 'key band'),
+      lrow('w', 'What-if', 'Your number', ''),
     ];
-    var inRun = function (w, i) { return !!w && D.months[i] >= w.from && D.months[i] <= w.to; };
-    var dot = function (w) { return function (i) { var on = inRun(w, i); return { v: on ? '●' : '', f: 'text', html: on ? '●' : '', style: on ? C('ok') + ';text-align:center' : '', exportText: on ? 'Yes' : '' }; }; };
+    var tone = { ok: C('ok'), warn: C('warn'), bad: C('bad'), muted: C('muted') };
+    var stab = r.stab, rentT12x = A.rentT12;
+    var cards = [
+      { label: 'Status', value: r.status.name, sub: r.status.text, style: tone[r.status.tone] },
+      { label: 'NOI, trailing 12 mo', value: money(A.T12), sub: A.t12w && A.t12w.n < 12 ? A.t12w.n + ' months annualized' : (A.t12w ? L[A.t12w.first] + ' to ' + last : '') },
+      { label: 'NOI, last 3 mo × 4', value: money(A.T3), sub: r.trendTxt ? r.trendTxt + ' (' + sgn(r.trend * 100, function (x) { return x.toFixed(1) + '%'; }) + ')' : '', style: r.trendTxt === 'Softening' ? C('warn') : r.trendTxt === 'Improving' ? C('ok') : '' },
+      { label: 'Lender view NOI', value: money(A.lender), sub: 'DSCR ' + dsc(r.dL), style: r.dL === null ? '' : dscrStyle(r.dL) },
+      { label: 'Stabilized NOI', value: money(stab), sub: A.rentCheck ? 'Rent data needs a check' : stab === null ? 'Needs market rent' : 'DSCR ' + dsc(r.dS), style: A.rentCheck ? C('warn') : stab === null ? C('muted') : dscrStyle(r.dS) },
+      { label: 'Max loan, ' + r.bestKind, value: money(r.maxLoanBest), sub: r.rate && r.yrs ? cur.rate + '%, ' + cur.amort + ' yrs, ' + req.toFixed(2) : '' },
+      { label: 'Compared with current loan', value: r.vsBest === null ? DASH : sgn(r.vsBest, money), sub: A.loanBal ? 'Current ' + money(A.loanBal) : 'No loan on file', style: r.vsBest === null ? '' : r.vsBest >= 0 ? C('ok') : C('bad') },
+      { label: 'Value, ' + r.bestKind, value: r.valueBest !== null ? money(r.valueBest) : DASH, sub: 'At ' + cur.cap + '% cap, estimate' },
+    ];
+    var stabRows = [
+      { label: 'Gross potential rent', v: money(A.gpr), src: A.gpr !== null ? 'Market rent of all ' + A.units + ' units × 12, rent roll ' + dayLong(I.rr.asOf) : (I.rr && I.rr.withMarket ? 'Needs market rent on the rent roll (' + I.rr.withMarket + ' of ' + I.rr.units + ' units have it)' : 'Needs market rent on the rent roll'), style: A.gpr === null ? C('bad') : '' },
+      { label: '− Vacancy and collection loss', v: r.vacLoss === null ? DASH : '(' + money(r.vacLoss) + ')', src: (r.vac * 100).toFixed(1) + '% assumption' + (A.econVac !== null ? '; actual ' + pct(A.econVac) : '') },
+      { label: '+ Other income', v: money(A.otherInc), src: 'Fees and other income, T12' },
+      { label: '= Effective gross income', v: money(r.egi), src: '', cls: 'key' },
+      { label: '− Operating expenses', v: A.opx12 === null ? DASH : '(' + money(A.opx12) + ')', src: 'T12 actual' },
+      { label: '− Replacement reserves', v: r.reserves === null ? DASH : '(' + money(r.reserves) + ')', src: '$' + r.resU + ' per unit × ' + (A.units || DASH) + ' units' },
+      { label: '= Stabilized NOI', v: A.rentCheck ? 'Check' : money(stab), src: stab !== null && A.T12 ? sgn((stab / A.T12 - 1) * 100, function (x) { return x.toFixed(1) + '%'; }) + ' against the T12' : '', cls: 'band' },
+    ];
+    var NN = I.noi;
+    var avail = NN.map(function (v, i) { return isNum(v) ? i : -1; }).filter(function (i) { return i >= 0; });
     var vals = avail.map(function (i) { return NN[i]; });
     var hi = Math.max.apply(null, vals.concat([1])), nonneg = vals.filter(function (v) { return v >= 0; });
-    var lo = nonneg.length ? Math.min.apply(null, nonneg) : hi;
+    var lo = Math.min.apply(null, nonneg.concat([hi]));
     var heat = function (v) { if (v < 0) return 'background:var(--badBg);' + C('bad') + ';'; var f = hi > lo ? (v - lo) / (hi - lo) : 1; return 'background:color-mix(in srgb, var(--ok) ' + Math.round(8 + f * 40) + '%, transparent);'; };
-    var heatT = { title: 'NOI heat map', firstW: 200,
-      heads: [{ label: '' }].concat(avail.map(function (i) { return { label: L12[i] }; })),
+    var mk = function (i, from) { return i >= from ? '●' : ''; };
+    var heatT = { title: 'NOI by month', firstW: 200,
+      heads: [{ label: '' }].concat(avail.map(function (i) { return { label: L[i] }; })),
       rows: [
-        { label: 'NOI', kind: 'key', cells: avail.map(function (i) { return { v: NN[i], f: 'money2', style: heat(NN[i]) + (isNum(BR.average) && NN[i] > BR.average ? 'font-weight:600;' : '') }; }) },
-        { label: 'Best NOI, latest' + (bw ? ' (T' + bw.k + ')' : ': none'), cells: avail.map(dot(bw)) },
-        { label: 'Previous best NOI' + (pw ? ' (T' + pw.k + ')' : ': none'), cells: avail.map(dot(pw)) },
+        { label: 'NOI', kind: 'key', cells: avail.map(function (i) { return { v: NN[i], f: 'money2', style: heat(NN[i]) }; }) },
+        { label: 'Trailing 6 months', cells: avail.map(function (i) { return { v: mk(i, NN.length - 6), f: 'text', html: mk(i, NN.length - 6), style: 'text-align:center;color:var(--muted)', exportText: mk(i, NN.length - 6) ? 'Yes' : '' }; }) },
+        { label: 'Trailing 3 months', cells: avail.map(function (i) { return { v: mk(i, NN.length - 3), f: 'text', html: mk(i, NN.length - 3), style: 'text-align:center;' + C('accent'), exportText: mk(i, NN.length - 3) ? 'Yes' : '' }; }) },
       ] };
-    var scenT = { title: 'What it earns, and what that supports', firstW: 260,
-      heads: [{ label: 'What it earns, and what that supports' }, { label: 'Months', cls: 'l' }, { label: 'Annualized', cls: 'l' }, { label: 'Annual NOI' }, { label: 'DSCR', cls: 'sep' },
-              { label: 'Meets?' }, { label: 'Max loan' }, { label: 'Compared with current loan' }, { label: 'Value at cap rate', cls: 'sep' }],
-      rows: scen };
-    var actual = [[bw, 'Best NOI'], [pw, 'Previous best'], [win(12), 'T12']].filter(function (x) { return x[0]; }).map(function (x) {
-      var w = x[0];
-      return { label: x[1] + (x[1] === 'T12' ? '' : ' (T' + w.k + ')'), months: wLab(w), dscr: w.dscr, dscrAll: w.dscrAll, paid: w.dsPaid !== null ? w.dsPaid * 12 / w.k : null };
-    });
-    return { cards: cards, tables: [scenT, heatT], cur: cur, edited: edited, actual: actual, actualEnd: TW.end, actualSrc: D.debtServiceMonthlySource, wEdited: wRaw !== undefined, wInput: wRaw !== undefined ? wRaw : String(Math.round(W)),
-             loanPh: D.loan ? 'On file' : 'Not on file', dsPh: D.debtService ? D.debtServiceSource : 'Not on file',
-             period: L12[0] + ' to ' + L12[L12.length - 1], scenT: scenT, heatT: heatT };
-  }
-  /* Actual DSCR, from the books: the row under Assumptions. NOI over debt
-     service actually paid, for the best NOI runs and T12. */
-  function actualHtml(M) {
-    var item = function (a) {
-      return '<span class="lw-act"><span class="lw-act-k" title="' + esc(a.months) + '">' + esc(a.label) + '</span>' +
-        '<b style="' + dscrStyle(a.dscr) + '">' + (isNum(a.dscr) ? a.dscr.toFixed(2) : DASH) + '</b>' +
-        (isNum(a.dscrAll) && isNum(a.dscr) && Math.abs(a.dscrAll - a.dscr) >= 0.005 ? '<span class="lw-act-sub">all debt ' + a.dscrAll.toFixed(2) + '</span>' : '') + '</span>';
-    };
-    var t12 = M.actual.filter(function (a) { return a.label === 'T12'; })[0] || M.actual[M.actual.length - 1];
-    return '<div class="lw-actual">' +
-      '<span style="font-weight:600;color:var(--ink)">Actual DSCR, from the books</span>' +
-      (M.actual.length ? M.actual.map(item).join('') : '<span>No NOI on file</span>') +
-      '<span style="margin-left:auto">' + (M.actualEnd ? 'Through ' + esc(ymLong(M.actualEnd)) : '') +
-      (t12 && isNum(t12.paid) ? ', debt service paid ' + esc(money(t12.paid)) + ' a year' : ', no debt service in the books') +
-      (M.actualSrc && M.actualSrc !== 'Not on file' ? ' (' + esc(M.actualSrc.charAt(0).toLowerCase() + M.actualSrc.slice(1)) + ')' : '') + '</span></div>';
+    /* the same content as plain tables, for the export */
+    var gridT = { title: 'Assumptions and actual', heads: [{ label: '' }].concat(grid.map(function (g) { return { label: g.label }; })),
+      rows: [['Assumption', function (g) { return g.val + (g.unit && g.unit !== '$' ? ' ' + g.unit : ''); }], ['Actual', function (g) { return g.act.v + (g.actSub ? ' (' + g.actSub + ')' : ''); }],
+             ['Gap', function (g) { return g.gap.v + (g.gapSub ? ' (' + g.gapSub + ')' : ''); }]].map(function (x) {
+        return { label: x[0], cells: grid.map(function (g) { return { v: x[1](g), f: 'text' }; }) }; }) };
+    var ladderT = { title: 'NOI, every window ending at the latest month',
+      heads: [{ label: 'NOI' }, { label: 'Months' }, { label: 'Annual NOI' }, { label: 'Against T12' }, { label: 'DSCR' }, { label: 'Meets required?' }, { label: 'Max loan' }, { label: 'Against current loan' }, { label: 'Value at ' + cur.cap + '% cap' }],
+      rows: ladder.map(function (x) {
+        return { label: x.name, kind: x.cls === 'key band' ? 'key' : '', cells: [{ v: x.months, f: 'text' }, { v: x.noi, f: 'money' }, { v: x.vsT12, f: 'text' }, { v: x.dscr, f: 'ratio' },
+          { v: x.meets, f: 'text' }, { v: x.max, f: 'money' }, { v: x.vs, f: 'money' }, { v: x.value, f: 'money' }] }; }) };
+    var stabT = { title: 'Stabilized NOI, line by line', heads: [{ label: 'Line' }, { label: 'Amount' }, { label: 'Source' }],
+      rows: stabRows.map(function (x) { return { label: x.label, cells: [{ v: x.v, f: 'text' }, { v: x.src, f: 'text' }] }; }) };
+    return { cards: cards, grid: grid, ladder: ladder, stab: stabRows, heatT: heatT, edited: r.edited, cap: cur.cap,
+             noStab: stab === null && !A.rentCheck, rentCheck: A.rentCheck,
+             rentMsg: A.rentCheck ? 'Rent collected over the last 12 months (' + money(rentT12x) + ') is higher than every unit at market rent (' + money(A.gpr) + '). Base rent cannot exceed that, so the rent figure likely includes fees (utility reimbursements, internet, subsidy portions counted twice). Stabilized NOI and economic vacancy are held back until the rent accounts are separated from fees.' : '',
+             tables: [gridT, ladderT, stabT, heatT], period: L[0] + ' to ' + last };
   }
   function optimizedHtml(p) {
     var M = optimizedModel(p);
     if (M.pending) return M.error ? errorBox(M.error) : loading('optimized NOI');
+    if (M.none) { S.exportModel = null; return '<div class="frame view" style="margin-top:16px;padding:18px;color:var(--muted)">No NOI on file for this property.</div>'; }
     S.exportModel = M;
-    var inp = function (lbl, k, step, suffix, wide, ph) {
-      return '<label>' + lbl + ' <input class="inp' + (wide ? ' wide' : '') + '" type="number" step="' + step + '" value="' + esc(M.cur[k]) + '"' + (ph ? ' placeholder="' + esc(ph) + '"' : '') + ' data-in="oa:' + k + '">' + (suffix ? ' ' + suffix : '') + '</label>';
-    };
+    var sub = function (t) { return '<div style="font-size:11.5px;color:var(--muted)">' + esc(t) + '</div>'; };
+    var grid = '<div class="scroll frame" style="margin-top:8px"><table style="table-layout:fixed;min-width:1180px"><thead><tr><th style="width:120px"></th>' +
+      M.grid.map(function (g) { return '<th class="l" style="white-space:normal;line-height:1.3">' + esc(g.label) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      '<tr><td style="font-weight:600">Assumption</td>' + M.grid.map(function (g) {
+        return '<td class="l"><span style="display:inline-flex;align-items:center;gap:4px;width:100%"><input class="inp" type="number" step="' + g.step + '" value="' + esc(g.val) + '" data-in="oa:' + g.key + '" aria-label="' + esc(g.label) + '" style="width:100%;min-width:0;' + (g.changed ? 'border-color:var(--accent);' : '') + '"><span class="note">' + esc(g.unit) + '</span></span></td>';
+      }).join('') + '</tr>' +
+      '<tr><td style="font-weight:600">Actual</td>' + M.grid.map(function (g) { return '<td class="l" style="white-space:normal"><div style="font-weight:600;' + g.act.style + '">' + esc(g.act.v) + '</div>' + sub(g.actSub) + '</td>'; }).join('') + '</tr>' +
+      '<tr class="band"><td style="font-weight:600">Gap</td>' + M.grid.map(function (g) { return '<td class="l" style="white-space:normal"><div style="font-weight:600;' + g.gap.style + '">' + esc(g.gap.v) + '</div>' + sub(g.gapSub) + '</td>'; }).join('') + '</tr>' +
+      '</tbody></table></div>';
+    var ladder = '<div class="scroll frame" style="margin-top:8px"><table><thead><tr><th style="min-width:240px">NOI</th><th class="l">Months</th><th>Annual NOI</th><th>Against T12</th><th class="sep">DSCR</th><th>Meets required?</th><th>Max loan</th><th>Against current loan</th><th class="sep">Value at ' + esc(M.cap) + '% cap</th></tr></thead><tbody>' +
+      M.ladder.map(function (r) {
+        return '<tr class="' + r.cls + '"><td><div style="font-weight:600">' + esc(r.name) + '</div><div style="font-size:11.5px;color:var(--muted);font-weight:400">' + esc(r.sub) + '</div></td>' +
+          '<td class="l" style="color:var(--muted)">' + esc(r.months) + '</td><td>' + esc(money(r.noi)) + '</td><td style="' + r.vsT12Style + '">' + esc(r.vsT12) + '</td>' +
+          '<td class="sep" style="' + (isNum(r.dscr) ? dscrStyle(r.dscr) : C('muted')) + '">' + esc(dsc(r.dscr)) + '</td><td style="' + r.meetsStyle + '">' + esc(r.meets) + '</td><td>' + esc(money(r.max)) + '</td>' +
+          '<td style="' + r.vsStyle + '">' + esc(r.vsTxt) + '</td><td class="sep">' + esc(money(r.value)) + '</td></tr>';
+      }).join('') + '</tbody></table></div>';
+    var stab = '<div class="scroll frame" style="margin-top:8px;max-width:900px"><table><tbody>' +
+      M.stab.map(function (r) { return '<tr class="' + (r.cls || '') + '"><td style="min-width:240px">' + esc(r.label) + '</td><td style="' + (r.style || '') + '">' + esc(r.v) + '</td><td class="l" style="color:var(--muted)">' + esc(r.src) + '</td></tr>'; }).join('') +
+      '</tbody></table></div>';
     return '<div class="view" style="margin-top:14px">' + cardsHtml(M.cards) +
-      '<section class="frame" style="margin-top:16px;overflow:hidden">' +
-      '<div style="display:flex;align-items:center;gap:10px 16px;flex-wrap:wrap;padding:12px 16px;background:var(--band);border-bottom:1px solid var(--rule);font-size:13px;color:var(--muted)">' +
-      '<span style="font-weight:600;color:var(--ink)">Assumptions</span>' +
-      inp('Required DSCR', 'req', '0.05') + inp('New loan rate', 'rate', '0.125', '%') + inp('Amortization', 'amort', '5', 'yrs') + inp('Cap rate', 'cap', '0.25', '%') +
-      inp('Loan balance', 'loan', '1000', '', true, M.loanPh) + inp('Annual debt service', 'ds', '1000', '', true, M.dsPh) +
-      '<label>What-if NOI <input class="inp wide" type="number" step="1000" value="' + esc(M.wInput) + '" data-in="wnoi"></label>' +
-      '<span style="margin-left:auto">' + (M.edited || M.wEdited ? 'Changed, not saved' : 'Standard values') + '</span>' +
-      (M.edited ? '<button class="link" data-a="oareset">Reset</button>' : '') + (M.wEdited ? '<button class="link" data-a="wreset">Reset what-if</button>' : '') +
-      '</div>' + actualHtml(M) + tableHtml(M.scenT).replace('class="scroll frame"', 'class="scroll"') + '</section>' +
-      '<h2 class="h2" style="margin-top:20px">NOI heat map</h2><div style="margin-top:8px">' + tableHtml(M.heatT) + '</div>' +
-      '<div class="lw-legend"><span><span class="lw-sw" style="color:var(--ok)">●</span>Months in the best NOI run</span><span>Bold: above the 12-month average</span></div>' +
-      '<p class="note" style="margin-top:8px">A month is good when its NOI is above the 12-month average. Best NOI is the unbroken run of good months ending at the latest month, annualized: T2 if August and September, T1 if September alone; none if September is below the average. Previous best is the most recent run of good months before it. Actual DSCR is NOI divided by the debt service paid in the books over the same months. DSCR is NOI divided by annual debt service. Max loan is what that NOI supports at the required DSCR, with payments at the new loan rate and amortization. Value is NOI divided by the cap rate, an estimate, not an appraisal. Inputs are what-if only and are never saved.</p></div>';
+      '<div style="display:flex;align-items:baseline;gap:12px;margin-top:22px;flex-wrap:wrap"><h2 class="h2">Assumptions and actual</h2>' +
+      '<span class="note">Type assumptions to test a refinance; the actual figures come from the books and loan records. Nothing is saved.</span>' +
+      '<span class="note" style="margin-left:auto">' + (M.edited ? 'Changed, not saved' : 'Standard values') + '</span>' +
+      (M.edited ? '<button class="link" data-a="oareset">Reset</button>' : '') + '</div>' + grid +
+      '<h2 class="h2" style="margin-top:22px">NOI, every window ending at the latest month</h2>' + ladder +
+      '<h2 class="h2" style="margin-top:22px">Stabilized NOI, line by line</h2>' + stab +
+      (M.noStab ? '<p class="note" style="margin-top:6px">Stabilized NOI needs each unit’s market rent from the rent roll. Buildium rent rolls are being updated to include it.</p>' : '') +
+      (M.rentCheck ? '<div style="margin-top:8px;padding:10px 12px;border-radius:6px;background:var(--warnBg);color:var(--warn);font-size:13px;max-width:900px">' + esc(M.rentMsg) + '</div>' : '') +
+      '<h2 class="h2" style="margin-top:22px">NOI by month</h2><div style="margin-top:8px">' + tableHtml(M.heatT) + '</div>' +
+      '<p class="note" style="margin-top:6px">Lenders weight the most recent months: a dip in the last 3 months shows up here and in the T3 row rather than being averaged away.</p></div>';
   }
 
   /* ---- Asset management fee -------------------------------------------- */
@@ -1497,7 +1509,6 @@
       case 'clearmsg': S.exportMsg = ''; paint(); return;
       case 'retry': S.errors = {}; paint(); return;
       case 'oareset': delete S.oa[S.prop]; paint(); return;
-      case 'wreset': delete S.wnoi[S.prop]; paint(); return;
       /* custom view */
       case 'cvsel': S.cv.sel = parts[1]; S.cv.mode = 'view'; S.cv.draft = null; S.cv.exportOpen = false; S.cv.msg = ''; pushUrl(); paint(); return;
       case 'cvadd': S.cv.mode = 'build'; S.cv.draft = emptyDraft(); S.cv.preview = null; S.cv.previewKey = ''; S.cv.err = ''; S.cv.msg = ''; S.cv.exportOpen = false; paint(); return;
@@ -1570,7 +1581,6 @@
       /* what-if inputs recalculate as you type, all in the browser: the
          render patches the figures in place and leaves the input alone */
       case 'oa': S.oa[S.prop] = Object.assign({}, S.oa[S.prop] || {}, (function () { var o = {}; o[parts[1]] = value; return o; })()); return true;
-      case 'wnoi': S.wnoi[S.prop] = value; return true;
     }
     if (!d) return false;
     if (parts[0] === 'd') { d[parts[1]] = value; return true; }

@@ -207,7 +207,7 @@ const report = [];
   /* 5. type in the Assumptions row (Optimized NOI) */
   await pg.click('[data-a="ptab:optimized"]'); await settle();
   await tag();
-  const maxBefore = await pg.evaluate(() => [...document.querySelectorAll('#reportingNative .lw-card')].find(c => /Max loan, optimized/.test(c.textContent)).querySelector('.lw-card-v').textContent);
+  const maxBefore = await pg.evaluate(() => [...document.querySelectorAll('#reportingNative .lw-card')].find(c => /Max loan, /.test(c.textContent)).querySelector('.lw-card-v').textContent);
   tr = await traced(async () => {
     await pg.click('[data-in="oa:rate"]', { clickCount: 3 });
     await pg.keyboard.type('7.25', { delay: 60 });
@@ -217,7 +217,7 @@ const report = [];
   const after = await pg.evaluate(() => ({
     focus: document.activeElement && document.activeElement.getAttribute('data-in'),
     value: document.activeElement && document.activeElement.value,
-    maxLoan: [...document.querySelectorAll('#reportingNative .lw-card')].find(c => /Max loan, optimized/.test(c.textContent)).querySelector('.lw-card-v').textContent,
+    maxLoan: [...document.querySelectorAll('#reportingNative .lw-card')].find(c => /Max loan, /.test(c.textContent)).querySelector('.lw-card-v').textContent,
   }));
   report.push(['Typing 7.25 in New loan rate', m, tr]);
   check('typing keeps focus and the typed value', () => { assert.strictEqual(after.focus, 'oa:rate'); assert.strictEqual(after.value, '7.25'); });
