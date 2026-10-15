@@ -307,7 +307,8 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
     const acols = (config.aggregates || []).map(a => {
       const col = R.safeColumn(datasetKey, a.field);
       const fn = R.safeAggregate(a.fn);
-      return `${fn}(${col}) as "${a.fn}_${a.field}"`;
+      const weighted = fn === 'AVG' ? R.weightedAvgSql(datasetKey, a.field) : null;
+      return `${weighted || fn + '(' + col + ')'} as "${a.fn}_${a.field}"`;
     });
     selectList = gcols.concat(acols).join(', ') || '1';
     if (config.group_by && config.group_by.length) {
@@ -319,6 +320,12 @@ async function runDataset(datasetKey, config, tenantId, page, perPage) {
        lands in a single group named after nothing */
     const keys = (config.fields && config.fields.length ? config.fields.filter(f => !f.calc).map(f => f.key) : ds.fields.map(f => f.key))
       .concat(config.group_by || []);
+    /* a weighted rate brings its weight along, so a dashboard tile can
+       average it by units instead of by row */
+    for (const k of keys.slice()) {
+      const f = R.getField(datasetKey, k);
+      if (f && f.weightBy) keys.push(f.weightBy);
+    }
     const cols = [...new Set(keys.map(k => R.safeColumn(datasetKey, k)).filter(Boolean))];
     selectList = cols.join(', ') || '*';
   }
@@ -467,6 +474,7 @@ async function listDatasets(req, res, who) {
         fields: d.fields.map(f => ({
           key: f.key, label: f.label, type: f.type, hidden: !!f.hidden,
           format: f.format || null, suffix: f.suffix || null, decimals: f.decimals || null,
+          weightBy: f.weightBy || null,
         })),
         defaultSort: d.defaultSort || [],
       };

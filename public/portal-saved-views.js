@@ -445,8 +445,15 @@
     return h.join('');
   }
 
-  function tileValue(rows, key, agg) {
+  function tileValue(rows, key, agg, weightKey) {
     if (agg === 'count') return rows.length;
+    /* a rate averaged across properties is weighted: total occupied over
+       total units, never the mean of each property's percentage */
+    if (agg === 'avg' && weightKey) {
+      var wr = rows.filter(function (r) { return isNum(r[key]) && isNum(r[weightKey]) && Number(r[weightKey]) > 0; });
+      var wsum = wr.reduce(function (a, r) { return a + Number(r[weightKey]); }, 0);
+      return wsum ? wr.reduce(function (a, r) { return a + Number(r[key]) * Number(r[weightKey]); }, 0) / wsum : null;
+    }
     var vals = rows.map(function (r) { return r[key]; }).filter(isNum).map(Number);
     if (!vals.length) return null;
     var sum = vals.reduce(function (a, b) { return a + b; }, 0);
@@ -466,7 +473,7 @@
     layout.filter(function (t) { return t.type === 'number'; }).forEach(function (t) {
       var key = (t.fields || [])[0];
       var col = colFor(view, key);
-      var v = tileValue(rows, key, t.aggregate);
+      var v = tileValue(rows, key, t.aggregate, col.field && col.field.weightBy);
       var shown = t.aggregate === 'count' ? { type: 'number', field: null, format: null } : col;
       h.push('<div class="sv-tile sv-sz-' + (t.size || 'M') + (t.accent ? ' sv-tile-acc sv-acc-' + t.accent : '') + '">' +
         '<div class="k">' + escS(t.title || col.label) + '</div>' +
