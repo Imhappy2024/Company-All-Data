@@ -37,6 +37,10 @@
 //   suffix      appended after the formatted value, e.g. '%'
 //   decimals    fixed decimal places for a number
 //   unavailable why this field is always null; rendered in place of a value
+//   weightBy    key of the field that weights this rate when it is averaged
+//               across rows. A plain mean lets a 20-unit building count as
+//               much as a 70-unit one; weighted, occupancy across properties
+//               is total occupied / total units, which is the true figure.
 const F = (key, label, type, extra) => Object.assign({ key, label, type, column: key }, extra || {});
 
 // There is deliberately no boolean type. Flags (has_data, is_total, is_latest)
@@ -86,8 +90,8 @@ const DATASETS = {
       F('units', 'Units', 'number'),
       F('occupied', 'Occupied', 'number'),
       F('vacant', 'Vacant', 'number'),
-      F('physical_occupancy', 'Physical occupancy', 'percent'),
-      F('economic_occupancy', 'Economic occupancy', 'percent'),
+      F('physical_occupancy', 'Physical occupancy', 'percent', { weightBy: 'units' }),
+      F('economic_occupancy', 'Economic occupancy', 'percent', { weightBy: 'total_expected_income' }),
       F('market_rent_total', 'Market rent', 'currency'),
       F('rent_total', 'Rent', 'currency'),
       F('loss_to_lease', 'Loss to lease', 'currency'),
@@ -191,7 +195,10 @@ const DATASETS = {
       F('units_rent_roll', 'Units on rent roll', 'number'),
       F('units_rent_roll_as_of', 'Rent roll as of (units)', 'date'),
       F('units_disagree', 'Units disagree', 'text'),
-      F('latest_occupancy', 'Occupancy', 'percent'),
+      /* weighted by the rent roll's own unit count, the denominator the
+         occupancy was computed from, not `units` (which may be a verified or
+         building count) */
+      F('latest_occupancy', 'Occupancy', 'percent', { weightBy: 'units_rent_roll' }),
       F('occupancy_as_of', 'Occupancy as of', 'date'),
       F('t12_income', 'Total income, trailing 12 mo', 'currency'),
       F('t12_expense', 'Total expenses, trailing 12 mo', 'currency'),
@@ -324,6 +331,20 @@ for (const [key, ds] of Object.entries(DATASETS)) {
   for (const s of ds.defaultSort || []) {
     if (!seen.has(s.field)) throw new Error('dataset ' + key + ' sorts by unknown field ' + s.field);
   }
+  for (const f of ds.fields) {
+    if (f.weightBy && !seen.has(f.weightBy)) throw new Error(key + '.' + f.key + ' is weighted by unknown field ' + f.weightBy);
+  }
+}
+
+// AVG of a weighted rate: sum(rate * weight) / sum(weight), counting only rows
+// that have both. Null when nothing qualifies, like AVG over no rows.
+function weightedAvgSql(datasetKey, fieldKey) {
+  const f = getField(datasetKey, fieldKey);
+  const col = safeColumn(datasetKey, fieldKey);
+  const w = f && f.weightBy ? safeColumn(datasetKey, f.weightBy) : null;
+  if (!col || !w) return null;
+  const has = `${col} is not null and ${w} > 0`;
+  return `sum(${col} * ${w}) filter (where ${has}) / nullif(sum(${w}) filter (where ${has}), 0)`;
 }
 
 // Frozen because getDataset and getField hand back the live objects. Anything
@@ -343,4 +364,5 @@ Object.freeze(FILTER_OPS); Object.freeze(AGGREGATES); Object.freeze(DISPLAY_TYPE
 module.exports = {
   DATASETS, FILTER_OPS, AGGREGATES, DISPLAY_TYPES,
   getDataset, getField, safeColumn, safeView, tenantColumn, safeOp, safeAggregate, safeDir,
+  weightedAvgSql,
 };
