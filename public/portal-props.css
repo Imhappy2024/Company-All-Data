@@ -123,7 +123,68 @@ html[data-theme="light"] .lw {
 .lw-err { margin-top: 16px; padding: 14px 16px; border: 1px solid var(--rule); border-radius: 8px; background: var(--badBg); color: var(--bad); }
 
 /* custom views */
-.lw-grid12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 10px; }
+.lw-grid12 { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 10px; align-items: start; }
+/* a block's size handle: bottom-right corner, drag to change width (12-column
+   grid) and height (44px rows); arrow keys when focused; double-click resets */
+.lw .lw-rsbox { position: relative; min-width: 0; }
+.lw .lw-rs { position: absolute; right: 3px; bottom: 3px; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 3px; z-index: 4;
+  background: linear-gradient(135deg, transparent 0 55%, var(--muted) 55% 62%, transparent 62% 72%, var(--muted) 72% 79%, transparent 79%);
+  cursor: nwse-resize; opacity: 0; transition: opacity 120ms ease; touch-action: none; }
+.lw .lw-rsbox:hover > .lw-rs, .lw .lw-rs:focus-visible, .lw .lw-rs.on { opacity: .9; }
+.lw .lw-rs[data-sz]::after { content: attr(data-sz); position: absolute; right: 20px; bottom: 0; padding: 1px 6px; border-radius: 4px;
+  background: var(--ink); color: var(--panel); font-size: 11.5px; white-space: nowrap; }
+@media (hover: none) { .lw .lw-rs { opacity: .7; } }
+.lw .lw-dates { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); flex-wrap: wrap; max-width: 100%; min-width: 0; }
+.lw .lw-dates .sel { max-width: 100%; min-width: 0; }
+
+/* the spreadsheet (portal-sheet.js) */
+.lw .sx-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; margin-bottom: 8px; }
+.lw .sx-bar .btn { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.lw .sx-bar .sel { height: 28px; font-size: 12.5px; padding: 0 6px; }
+.lw .sx-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); }
+.lw .sx-grp { display: inline-flex; align-items: center; gap: 4px; }
+.lw .sx-save { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+.lw .sx-help { font-size: 12.5px; }
+.lw .sx-help summary { cursor: pointer; color: var(--accent); list-style: none; }
+.lw .sx-help summary::-webkit-details-marker { display: none; }
+.lw .sx-help-b { position: absolute; right: 0; z-index: 30; width: min(560px, calc(100vw - 32px)); margin-top: 6px; padding: 10px 14px; border: 1px solid var(--rule);
+  border-radius: 8px; background: var(--panel); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25); color: var(--ink); white-space: normal; }
+.lw .sx-help-b p { margin: 4px 0 8px; }
+.lw .sx-root { position: relative; }
+.lw .sx-fx { display: flex; align-items: center; border: 1px solid var(--rule); border-radius: 6px 6px 0 0; border-bottom: 0; background: var(--panel); height: 30px; }
+.lw .sx-addr { width: 96px; padding: 0 8px; font-size: 12.5px; color: var(--muted); border-right: 1px solid var(--rule); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lw .sx-fxi { padding: 0 8px; font-style: italic; color: var(--muted); font-size: 12.5px; border-right: 1px solid var(--rule); }
+.lw .sx-fxin { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; color: var(--ink); font: inherit; font-size: 13px; padding: 0 8px; outline: none; font-family: ui-monospace, 'IBM Plex Mono', Consolas, monospace; }
+.lw .sx-fxin[readonly] { color: var(--muted); }
+.lw .sx-wrap { overflow: auto; border-radius: 0 0 6px 6px; outline: none; scrollbar-width: thin; scrollbar-color: var(--rule) transparent; overscroll-behavior: contain; }
+.lw .sx-wrap:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.lw table.sx { table-layout: fixed; width: auto; border-collapse: separate; border-spacing: 0; font-size: 13px; user-select: none; }
+.lw table.sx th, .lw table.sx td { padding: 0 8px; height: inherit; border-bottom: 1px solid var(--rule); border-right: 1px solid var(--rule); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; position: static; }
+.lw table.sx thead th { position: sticky; top: 0; z-index: 3; height: 26px; background: var(--band); color: var(--muted); font-size: 12px; font-weight: 500; text-align: center; padding: 0; }
+.lw table.sx thead th.on, .lw table.sx th.sx-rn.on { background: color-mix(in srgb, var(--accent) 18%, var(--band)); color: var(--ink); }
+.lw table.sx th.sx-corner { left: 0; z-index: 5; cursor: pointer; }
+.lw table.sx th.sx-rn { position: sticky; left: 0; z-index: 2; background: var(--band); color: var(--muted); font-size: 12px; font-weight: 400; text-align: center; padding: 0; cursor: pointer; }
+.lw table.sx th.sx-cl { cursor: pointer; }
+.lw table.sx td { background: var(--panel); text-align: left; cursor: cell; color: var(--ink); }
+.lw table.sx td.n { text-align: right; }
+.lw table.sx td.c0 { position: sticky; left: 46px; z-index: 1; }
+.lw table.sx tr.sx-hdr td { position: sticky; top: 26px; z-index: 2; background: var(--band); font-weight: 600; font-size: 12.5px; }
+.lw table.sx tr.sx-hdr td.c0 { z-index: 4; }
+.lw table.sx tr.sx-tot td { font-weight: 600; border-top: 1px solid var(--muted); }
+.lw table.sx td.inp { background: color-mix(in srgb, var(--accent) 6%, var(--panel)); }
+.lw table.sx td.neg { color: var(--bad); }
+.lw table.sx td.err { color: var(--bad); font-weight: 500; }
+.lw table.sx td.sel { background: color-mix(in srgb, var(--accent) 16%, var(--panel)); }
+.lw table.sx td.act { box-shadow: inset 0 0 0 2px var(--accent); }
+.lw table.sx td .sx-in { width: 100%; height: 100%; border: 0; padding: 0; margin: 0; background: transparent; color: var(--ink); font: inherit; outline: none; font-family: ui-monospace, 'IBM Plex Mono', Consolas, monospace; }
+.lw .sx-cr { position: absolute; top: 0; right: -3px; width: 7px; height: 100%; cursor: col-resize; z-index: 6; touch-action: none; }
+.lw .sx-rr { position: absolute; left: 0; bottom: -3px; width: 100%; height: 7px; cursor: row-resize; z-index: 6; touch-action: none; }
+.lw table.sx th.sx-cl, .lw table.sx th.sx-rn { position: sticky; }
+.lw table.sx th.sx-rn { overflow: visible; }
+.lw .sx-cr:hover, .lw .sx-cr.on { background: var(--accent); opacity: .6; }
+.lw .sx-rr:hover, .lw .sx-rr.on { background: var(--accent); opacity: .6; }
+.lw .sx-status { display: flex; gap: 14px; min-height: 22px; align-items: center; margin-top: 6px; font-size: 12.5px; color: var(--muted); white-space: pre; overflow: hidden; text-overflow: ellipsis; }
+.lw .sx-msg { margin-left: auto; color: var(--ink); white-space: normal; text-align: right; }
 .lw-tile { padding: 10px 12px; border: 1px dashed var(--muted); border-radius: 8px; cursor: grab; background: var(--hover); min-width: 0; }
 .lw-tile.drag { opacity: .5; }
 .lw-check { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; }

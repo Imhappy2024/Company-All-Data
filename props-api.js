@@ -805,7 +805,11 @@ async function getView(req, res, who) {
   const perm = permissionFor(v, who);
   if (!perm) return res.status(404).json({ error: 'No such view.' });
   const config = V.validateConfig(v.config);
-  const result = await V.evaluate(config, who.tenantId);
+  /* ?period={...}: dates picked in the viewer, for this answer only; the
+     core rebuilds it from fixed shapes, so nothing typed reaches a query */
+  let period = null;
+  try { period = req.query.period ? JSON.parse(String(req.query.period).slice(0, 200)) : null; } catch (e) { period = null; }
+  const result = await V.evaluate(config, who.tenantId, period);
   res.json({ ok: true, permission: perm,
     view: { id: v.id, name: v.name, owner_name: v.owner_name, is_mine: v.owner_staff_id === who.staffId, config,
             shares: perm === 'owner' ? v.shares : v.shares.map(s => ({ name: s.name, permission: s.permission, principal_type: s.principal_type })) },
@@ -816,7 +820,7 @@ async function getView(req, res, who) {
    nothing written */
 async function preview(req, res, who) {
   const config = V.validateConfig((req.body || {}).config);
-  res.json({ ok: true, config, result: await V.evaluate(config, who.tenantId) });
+  res.json({ ok: true, config, result: await V.evaluate(config, who.tenantId, (req.body || {}).period || null) });
 }
 
 /* every property's plain figures, read once per session so the builder can

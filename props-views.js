@@ -115,9 +115,10 @@ async function loadPlain(ids, tenantId) {
   return { props, through: t };
 }
 
-async function evaluate(cfg, tenantId) {
+/* period: the dates picked on screen (validated by the core), or null for the view's own */
+async function evaluate(cfg, tenantId, period) {
   const sel = core.resolve(cfg, await groupsFor(cfg.groups, tenantId));
-  return core.evaluateData(cfg, sel, await loadPlain(sel.ids, tenantId));
+  return core.evaluateData(cfg, sel, await loadPlain(sel.ids, tenantId), period || null);
 }
 
 module.exports = { FIELDS: core.FIELDS, FIELD_LIST: core.FIELD_LIST, FIELD_GROUPS: core.FIELD_GROUPS,

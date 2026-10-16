@@ -397,11 +397,38 @@ revision when Jay supplies it.
 
 ### Custom view (Portfolio > Custom view)
 Sub-tabs, one per saved view, with "+ Add custom view" at the right. Builder modes:
-- **Quick build:** properties, fields, then Cards / Table / List / Chart.
+- **Quick build:** properties, fields, then Cards / Spreadsheet / List / Chart.
 - **Advanced:**
   - Cards built one by one: Value (field + period + total/average) or Formula
-    (+ − × ÷, numbers).
-  - S/M/L sizes, drag-and-drop layout.
+    (+ − × ÷, numbers). A card or term period can be "The view's dates".
+  - Drag-and-drop order; every block resizes (below).
+- **Dates (Jay, 2026-10-16):** a view has its own dates (`config.period`: ttm, ytd,
+  last 1/3/6 months, a calendar year, a month, a range). The viewer's "Dates" picker
+  overrides them for that screen only (`GET /views/:id?period=`, never saved).
+  - Dated fields: income, expense, NOI, capex, debt service, cash flow, AM fees,
+    and the ratios built from them (expense ratio, capex ratio, DSCR). Rent roll,
+    debt, value and Optimized NOI are snapshots and do not move.
+  - Quick-build cards always follow the view's dates.
+  - A month after the latest loaded month shows "–", never a partial total.
+- **Sizes:** cards `w` (1–12 columns) × `h` (44px rows); table/list/chart in
+  `config.blocks` (`h` 0 = fit content). Old S/M/L views keep S=3, M=4, L=6 wide.
+  Corner handle: drag, arrow keys, double-click resets. On a saved view only
+  owners/editors get handles, and changes autosave (`PUT`, debounced 700 ms).
+- **Spreadsheet** (the "table" style; `public/sheet-core.js` engine, shared and
+  `require`d by tests; `public/portal-sheet.js` grid):
+  - Row 1 headers, one row per property (read-only data), Total, then free rows.
+    Columns: Property, the fields, added columns (formula = one formula filled
+    down, its Total is the formula over the totals; input = a value per property),
+    spare columns.
+  - Excel-style formulas: A1 refs, `$`, ranges, `C:C` (property rows only),
+    + − * / ^ % & comparisons, ~60 functions (SUM…IFS, IF/IFERROR, lookups, PMT,
+    NPV, IRR…). Parsed and walked, never eval'd.
+  - **Stored by key, shown as A1:** `{noi|d3}`, `{units}`, rows h/d<i>/t/f<k>, columns
+    name/field/x:<id>/s<k>, so adding a field or a property never repoints a formula;
+    a range that ended at the last property row extends (`sheet.n`). `settle()` before
+    every save.
+  - Column widths, row heights, sort, formats saved for editors; view-only readers
+    can resize and copy for the visit, nothing saved.
 - **Property groups:**
   - `property_group`, `property_group_member`, owned by the user and reusable.
   - Pick groups with checkboxes and untick properties per view; the group itself
@@ -835,7 +862,9 @@ When editing n8n, keep changes additive (parallel branches, continue-on-fail).
 
     node test/test-props-ui.js [--shots]         # acceptance figures on screen
     node test/test-props-flicker.js [--baseline] # nodes kept, fades, requests, layout
-    node test/test-views-parity.js               # browser preview == server evaluation
+    node test/test-views-parity.js               # browser preview == server evaluation (incl. dates)
+    node test/test-custom-sheet-ui.js [--shots <dir>]  # dates, resizing, spreadsheet in a browser (saves captured)
+    node test/test-sheet-core.js                 # spreadsheet engine, no database
     node test/test-reports-ui.js [--shots]
     node test/test-report-scheduler.js
 

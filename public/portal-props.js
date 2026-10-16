@@ -134,7 +134,10 @@
     oa: {},     /* Optimized NOI assumptions per property; never saved */
     data: {}, pending: {}, errors: {}, old: {}, last: {}, staleNow: false,
     dataset: null,        /* every property's plain figures, for the builder's local preview */
-    cv: { mode: 'view', sel: null, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '' },
+    cv: { mode: 'view', sel: null, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '',
+          vp: {},         /* dates picked on screen, per view (never saved) */
+          cfg: {},        /* working copy of each view's config (sizes, spreadsheet) */
+          saveTxt: {}, saveSeq: {}, lastKey: {} },
   };
   try { S.dense = localStorage.getItem('lwDense') === '1'; } catch (e) { /* storage blocked: default density */ }
 
@@ -1044,7 +1047,73 @@
   /*  CUSTOM VIEW                                                          */
   /* ===================================================================== */
   var SPAN = { S: 3, M: 4, L: 6 };
-  var STYLES = [['table', 'Table'], ['list', 'List'], ['chart', 'Chart']];
+  var STYLES = [['table', 'Spreadsheet'], ['list', 'List'], ['chart', 'Chart']];
+  /* block sizes: w columns of the 12-column grid, h rows of RU px (0 = fit) */
+  var RU = 44, GAP = 10;
+  function hpx(h) { return h * RU + (h - 1) * GAP; }
+  function cardW(c) { return c.w || SPAN[c.size || 'M']; }
+  function cardH(c) { return c.h || 2; }
+  function blockOf(cfg, k) { return (cfg.blocks && cfg.blocks[k]) || { w: 12, h: 0 }; }
+  /* a size handle: data-rs names the block, data-rsctx whose config it is
+     (v = the saved view on screen, b = the builder's draft) */
+  function rsHandle(key, ctx, w, h) {
+    return '<button class="lw-rs" data-rs="' + esc(key) + '" data-rsctx="' + ctx + '" aria-label="Resize: ' + w + ' of 12 columns wide, ' + (h ? h + ' rows' : 'fit to content') + ' high. Arrow keys change it."' +
+      ' title="Drag to resize. Arrow keys work too; double-click to reset."></button>';
+  }
+
+  /* ---- dates -------------------------------------------------------------- */
+  function periodKey(pd) { pd = pd || { t: 'ttm' }; return pd.t === 'month' ? 'm:' + pd.a : pd.t === 'last' ? 'last:' + pd.n : pd.t === 'year' ? 'year:' + pd.y : pd.t; }
+  function keyToPeriod(k, old) {
+    var t = (S.data.people && S.data.people.periods.through) || '';
+    if (k.indexOf('m:') === 0) return { t: 'month', a: k.slice(2) };
+    if (k.indexOf('last:') === 0) return { t: 'last', n: +k.slice(5) };
+    if (k.indexOf('year:') === 0) return { t: 'year', y: k.slice(5) };
+    if (k === 'range') return { t: 'range', a: old && old.a ? old.a : t, b: old && old.b ? old.b : t };
+    return { t: k };
+  }
+  /* withView: offer "the view's dates" (cards and formula terms) */
+  function periodOptions(k, M, withView) {
+    var o = function (v, l) { return '<option value="' + v + '"' + (k === v ? ' selected' : '') + '>' + esc(l) + '</option>'; };
+    return (withView ? o('view', 'The view\'s dates') : '') +
+      o('ttm', 'Trailing 12 months') + o('ytd', M.periods.ytdLabel) + o('last:1', 'Latest month') + o('last:3', 'Last 3 months') + o('last:6', 'Last 6 months') +
+      (M.periods.years || []).map(function (y) { return o('year:' + y, 'Calendar ' + y); }).join('') +
+      '<optgroup label="One month">' + M.periods.months.map(function (m) { return o('m:' + m.value, m.label); }).join('') + '</optgroup>' +
+      o('range', 'Range of months');
+  }
+  function periodSelect(pd, attr, M, withView) {
+    return '<select class="sel" aria-label="Dates" ' + attr + '>' + periodOptions(periodKey(pd), M, withView) + '</select>';
+  }
+  function rangeSelects(pd, attrA, attrB, M) {
+    return pd && pd.t === 'range' ? monthSelect(pd.a, attrA + ' aria-label="From"', M) + '<span>to</span>' + monthSelect(pd.b, attrB + ' aria-label="To"', M) : '';
+  }
+  function pText(pd, t) { return window.PropsViewsCore ? window.PropsViewsCore.periodText(pd || { t: 'ttm' }, t) : ''; }
+
+  /* ---- the saved view's working copy -------------------------------------
+     Size handles and the spreadsheet change the view in place for people who
+     can edit it; the copy here is what the screen shows and what is saved. */
+  function workingCfg(D) {
+    var id = D.view.id;
+    return S.cv.cfg[id] || (S.cv.cfg[id] = JSON.parse(JSON.stringify(D.view.config)));
+  }
+  var saveTimers = {};
+  function queueSave(id) {
+    S.cv.saveTxt[id] = 'Saving…';
+    clearTimeout(saveTimers[id]);
+    saveTimers[id] = setTimeout(function () {
+      delete saveTimers[id];
+      var cfg = S.cv.cfg[id]; if (!cfg) return;
+      if (window.PortalSheet) window.PortalSheet.settle(id, cfg.sheet);
+      var seq = (S.cv.saveSeq[id] || 0) + 1; S.cv.saveSeq[id] = seq;
+      api('/api/props/views/' + id, 'PUT', { config: cfg }).then(function () {
+        if (S.cv.saveSeq[id] !== seq) return;
+        S.cv.saveTxt[id] = 'All changes saved'; paint();
+      }, function (e) { if (S.cv.saveSeq[id] === seq) { S.cv.saveTxt[id] = 'Not saved: ' + e.message; paint(); } });
+    }, 700);
+  }
+  function cvReset(o) {
+    S.cv = Object.assign({ mode: 'view', sel: S.cv.sel, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '',
+      vp: S.cv.vp, cfg: S.cv.cfg, saveTxt: S.cv.saveTxt, saveSeq: S.cv.saveSeq, lastKey: S.cv.lastKey }, o || {});
+  }
   var FIELD_GROUPS = ['Location', 'Rent roll', 'Income and NOI', 'Expenses and capex', 'Asset management fee', 'Debt and value', 'Management'];
 
   function meta() { return need('people', '/api/props/people'); }
@@ -1071,63 +1140,91 @@
   }
 
   /* ---- the saved view, read --------------------------------------------- */
+  /* the data key and URL for a view with the dates picked on screen */
+  function viewKey(id) { var p = S.cv.vp[id]; return 'view:' + id + (p ? '|' + JSON.stringify(p) : ''); }
+  function viewUrl(id) { var p = S.cv.vp[id]; return '/api/props/views/' + id + (p ? '?period=' + encodeURIComponent(JSON.stringify(p)) : ''); }
   function viewerHtml() {
-    var cv = S.cv, key = 'view:' + cv.sel, D = need(key, '/api/props/views/' + cv.sel);
+    var cv = S.cv, key = viewKey(cv.sel), D = need(key, viewUrl(cv.sel)), stale = false;
+    /* new dates load while the previous answer stays on screen, dimmed */
+    if (!D && !errOf(key) && cv.lastKey[cv.sel] && S.data[cv.lastKey[cv.sel]]) { D = S.data[cv.lastKey[cv.sel]]; stale = true; }
     if (!D) return errOf(key) ? errorBox(errOf(key)) : loading('the view');
-    var v = D.view, r = D.result, cfg = v.config;
+    if (!stale) cv.lastKey[cv.sel] = key;
+    var v = D.view, r = D.result, cfg = workingCfg(D), M = cur('people');
     var sub = r.count + ' properties' + (r.groupNames.length ? ' from ' + (r.groupNames.length === 1 ? 'the group ' : 'the groups ') +
       r.groupNames.map(function (x) { return '"' + x + '"'; }).join(' and ') + (r.excluded ? ', ' + r.excluded + ' excluded' : '') : ', picked one by one') +
       '. Live data through ' + ymLong(r.through) + ', updated after each monthly sync.';
     var shared = (v.shares || []).length > 0;
     var canEdit = D.permission === 'owner' || D.permission === 'editor';
-    var h = '<section class="frame" style="padding:18px 20px"><div style="display:flex;align-items:flex-start;gap:12px">' +
-      '<div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:10px"><h2 class="h2" style="font-size:17px">' + esc(v.name) + '</h2>' +
+    var vp = cv.vp[cv.sel];
+    var dates = M ? '<label class="lw-dates">Dates <select class="sel" data-in="vp" aria-label="Dates shown">' +
+        '<option value=""' + (vp ? '' : ' selected') + '>' + esc('The view\'s dates: ' + pText(cfg.period, r.through)) + '</option>' +
+        periodOptions(vp ? periodKey(vp) : '', M, false) + '</select>' +
+        (vp && vp.t === 'range' ? rangeSelects(vp, 'data-in="vpa"', 'data-in="vpb"', M) : '') + '</label>' : '';
+    var h = '<section class="frame" style="padding:18px 20px"><div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">' +
+      '<div style="flex:1 1 240px;min-width:0"><div style="display:flex;align-items:center;gap:10px"><h2 class="h2" style="font-size:17px">' + esc(v.name) + '</h2>' +
       '<span style="padding:1px 7px;border-radius:4px;font-size:11.5px;font-weight:500;' + (shared ? 'background:var(--okBg);color:var(--ok)' : 'background:var(--tag);color:var(--muted)') + '">' + (shared ? 'Shared' : 'Private') + '</span></div>' +
-      '<p class="note" style="margin-top:2px">' + esc(sub) + '</p></div>' +
+      '<p class="note" style="margin-top:2px">' + esc(sub) + '</p></div>' + dates +
       (canEdit ? '<button class="btn press" data-a="cvedit">Edit</button>' : '') +
       '<div style="position:relative"><button class="btn press" data-a="cvexport" style="display:inline-flex;align-items:center;gap:6px;color:var(--ink)">' + svg(ICON_DOWN, 14) + 'Export' + svg(ICON_CHEV, 12) + '</button>' +
       (cv.exportOpen ? exportMenu('cvx') : '') + '</div></div>';
     if (cv.msg) h += '<div role="status" class="lw-status"><span>' + esc(cv.msg) + '</span><button class="link" data-a="cvclear" style="margin-left:auto">Dismiss</button></div>';
-    h += '<div class="lw-grid12" style="margin-top:14px">' + blocksHtml(cfg, r) + '</div>';
+    h += '<p class="note" style="margin-top:8px">Showing ' + esc(r.periodText || 'trailing 12 months') + ' for income, expenses, NOI, capex, debt service, cash flow and fees; rent roll, debt and value are the latest on file.' +
+      (canEdit && cv.saveTxt[cv.sel] ? ' <span style="color:var(--muted)">' + esc(cv.saveTxt[cv.sel]) + '.</span>' : '') + '</p>';
+    h += '<div class="lw-grid12' + (stale ? ' ld-stale' : '') + '" style="margin-top:12px">' + blocksHtml(cfg, r, { canEdit: canEdit, viewId: v.id }) + '</div>';
     var access = (v.is_mine ? 'Owner: you.' : 'Owner: ' + (v.owner_name || 'another person') + '. You ' + (D.permission === 'editor' ? 'can view and edit' : 'can view') + ' it.') +
       (shared ? ' Shared with ' + v.shares.map(function (x) { return x.name + ' (' + (x.permission === 'editor' ? 'can view and edit' : 'can view') + ')'; }).join(', ') + '.' : v.is_mine ? ' Only you can see this view.' : '');
     return h + '<p class="note" style="margin-top:14px">' + esc(access) + '</p></section>';
   }
 
-  function blocksHtml(cfg, r) {
+  /* opts: { canEdit, viewId } */
+  function blocksHtml(cfg, r, opts) {
+    opts = opts || {};
     var cardBy = {}; r.cards.forEach(function (c) { cardBy[c.id] = c; });
     var defs = {}; cfg.cards.forEach(function (c) { defs[c.id] = c; });
+    var box = function (key, w, h, inner, fixed) {
+      return '<div class="lw-rsbox" data-rsbox="' + esc(key) + '" style="grid-column:span ' + w + (fixed && h ? ';height:' + hpx(h) + 'px' : '') + '">' + inner +
+        (opts.canEdit ? rsHandle(key, 'v', w, h) : '') + '</div>';
+    };
     return cfg.layout.map(function (k) {
       if (k.indexOf('card:') === 0) {
         var id = k.slice(5), c = defs[id], res = cardBy[id];
         if (!c || !res) return '';
-        var val = vfmt(res.type, res.value);
+        var val = vfmt(res.type, res.value), w = cardW(c), h = cardH(c);
         var red = res.value === null && c.kind === 'value' && ['value', 'ds', 'dscr'].indexOf(c.field) >= 0;
-        var big = c.size === 'L' ? 'font-size:26px;' : c.size === 'S' ? 'font-size:17px;' : 'font-size:21px;';
-        return '<div style="min-width:0;grid-column:span ' + SPAN[c.size] + '"><div class="frame" style="padding:12px 14px;height:100%" title="' + esc(res.sub) + '">' +
-          '<div style="font-size:12.5px;color:var(--muted)">' + esc(c.label || 'Untitled') + '</div>' +
+        var big = w >= 6 || h >= 3 ? 'font-size:26px;' : w <= 3 ? 'font-size:17px;' : 'font-size:21px;';
+        return box(k, w, h, '<div class="frame" style="padding:12px 14px;height:100%;overflow:hidden" title="' + esc(res.sub) + '">' +
+          '<div style="font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(c.label || 'Untitled') + '</div>' +
           '<div style="font-weight:600;margin-top:2px;' + big + (red ? C('bad') : '') + '">' + esc(val) + '</div>' +
-          '<div style="font-size:11.5px;margin-top:3px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(res.sub) + '</div></div></div>';
+          '<div style="font-size:11.5px;margin-top:3px;color:var(--muted);' + (h >= 3 ? 'white-space:normal' : 'white-space:nowrap;overflow:hidden;text-overflow:ellipsis') + '">' + esc(res.sub) + '</div></div>', true);
       }
+      var b = blockOf(cfg, k);
       if (k === 'chart') {
-        var bars = r.chart.bars, mx = Math.max.apply(null, bars.map(function (b) { return Math.abs(b.v); }).concat([1]));
-        return '<div style="min-width:0;grid-column:span 12"><div class="frame" style="padding:14px 16px"><div style="font-weight:600">' + esc(r.chart.title) + '</div>' +
-          '<div style="margin-top:8px;display:grid;grid-template-columns:minmax(140px,220px) 1fr auto;gap:6px 12px;align-items:center">' +
-          bars.map(function (b) {
-            return '<span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(b.name) + '</span>' +
-              '<div class="lw-bar"><div style="width:' + Math.max(1, Math.abs(b.v) / mx * 100).toFixed(1) + '%;background:' + (b.v < 0 ? 'var(--bad)' : 'var(--accent)') + '"></div></div>' +
-              '<span style="font-size:13px;text-align:right;min-width:90px">' + esc(vfmt(r.chart.type, b.v)) + '</span>';
-          }).join('') + (bars.length ? '' : '<span class="note">No values to chart.</span>') + '</div></div></div>';
+        var bars = r.chart.bars, mx = Math.max.apply(null, bars.map(function (x) { return Math.abs(x.v); }).concat([1]));
+        return box(k, b.w, b.h, '<div class="frame" style="padding:14px 16px;' + (b.h ? 'height:100%;overflow:auto' : '') + '"><div style="font-weight:600">' + esc(r.chart.title) + '</div>' +
+          '<div style="margin-top:8px;display:grid;grid-template-columns:minmax(120px,220px) 1fr auto;gap:6px 12px;align-items:center">' +
+          bars.map(function (x) {
+            return '<span style="font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</span>' +
+              '<div class="lw-bar"><div style="width:' + Math.max(1, Math.abs(x.v) / mx * 100).toFixed(1) + '%;background:' + (x.v < 0 ? 'var(--bad)' : 'var(--accent)') + '"></div></div>' +
+              '<span style="font-size:13px;text-align:right;min-width:90px">' + esc(vfmt(r.chart.type, x.v)) + '</span>';
+          }).join('') + (bars.length ? '' : '<span class="note">No values to chart.</span>') + '</div></div>', true);
       }
-      if (k === 'table') return '<div style="min-width:0;grid-column:span 12">' + tableHtml(viewTable(r)) + '</div>';
+      if (k === 'table') {
+        /* the spreadsheet; its height is the grid's, toolbar and status aside */
+        var inner = window.PortalSheet && opts.viewId
+          ? window.PortalSheet.html({ key: opts.viewId, result: r, sheet: cfg.sheet, canEdit: !!opts.canEdit, height: b.h ? Math.max(120, hpx(b.h) - 110) : 0,
+                                      saveText: opts.canEdit ? S.cv.saveTxt[opts.viewId] || '' : 'View only: changes are not saved',
+                                      onChange: function () { queueSave(opts.viewId); } })
+          : tableHtml(viewTable(r));
+        return box(k, b.w, b.h, inner, false);
+      }
       if (k === 'list') {
-        return '<div style="min-width:0;grid-column:span 12"><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px">' +
+        return box(k, b.w, b.h, '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:10px;' + (b.h ? 'height:100%;overflow:auto' : '') + '">' +
           r.list.map(function (it) {
             return '<div class="frame" style="padding:12px 14px"><button class="link" data-a="prop:' + it.id + '" style="font-weight:600">' + esc(it.name) + '</button>' +
               '<div style="font-size:12.5px;color:var(--muted);margin-top:2px">' + esc(it.address || DASH) + '</div><div style="margin-top:8px">' +
               it.kv.map(function (x) { return '<div style="display:flex;justify-content:space-between;gap:10px;padding:3px 0;font-size:13px"><span style="color:var(--muted)">' + esc(x.k) + '</span><span>' + esc(vfmt(x.type, x.v)) + '</span></div>'; }).join('') +
               '</div></div>';
-          }).join('') + '</div></div>';
+          }).join('') + '</div>', true);
       }
       return '';
     }).join('');
@@ -1148,17 +1245,20 @@
   }
 
   function exportView(format) {
-    var D = S.data['view:' + S.cv.sel];
+    var D = S.data[viewKey(S.cv.sel)] || S.data[S.cv.lastKey[S.cv.sel]];
     S.cv.exportOpen = false;
     if (!D) return paint();
-    var v = D.view, r = D.result, defs = {};
-    v.config.cards.forEach(function (c) { defs[c.id] = c; });
+    var v = D.view, r = D.result, cfg = workingCfg(D), defs = {};
+    cfg.cards.forEach(function (c) { defs[c.id] = c; });
     var tables = [];
-    if (v.config.layout.indexOf('table') >= 0 || v.config.fields.length) tables.push(tableExport(viewTable(r)));
-    if (v.config.layout.indexOf('chart') >= 0) tables.push({ title: r.chart.title, heads: ['Property', r.chart.title.replace(/ by property$/, '')],
+    /* the spreadsheet as on screen: added columns, sort and the calculation rows */
+    var sheetT = cfg.layout.indexOf('table') >= 0 && window.PortalSheet ? window.PortalSheet.exportTables(v.id, 'Properties') : [];
+    if (sheetT.length) tables = tables.concat(sheetT);
+    else if (cfg.layout.indexOf('table') >= 0 || cfg.fields.length) tables.push(tableExport(viewTable(r)));
+    if (cfg.layout.indexOf('chart') >= 0) tables.push({ title: r.chart.title, heads: ['Property', r.chart.title.replace(/ by property.*$/, '')],
       rows: r.chart.bars.map(function (b) { return { label: b.name, kind: '', cells: [{ f: { money: 'money', pct: 'pct', ratio: 'ratio', count: 'count' }[r.chart.type] || 'money2', v: b.v }] }; }) });
     S.cv.msg = 'Preparing "' + v.name + '"…'; paint();
-    download({ format: format, filename: v.name, title: v.name, subtitle: r.count + ' properties, data through ' + ymLong(r.through) + '.',
+    download({ format: format, filename: v.name, title: v.name, subtitle: r.count + ' properties, ' + (r.periodText || 'trailing 12 months') + ', data through ' + ymLong(r.through) + '.',
                cards: r.cards.map(function (c) { return { label: (defs[c.id] || {}).label || '', value: vfmt(c.type, c.value), sub: c.sub }; }), tables: tables })
       .then(function (name) { S.cv.msg = 'Exported "' + name + '".'; paint(); }, function (e) { S.cv.msg = 'Export failed: ' + e.message; paint(); });
   }
@@ -1167,14 +1267,16 @@
   function emptyDraft() {
     var G = S.data.groups;
     return { id: null, bmode: 'quick', quickCards: true, name: '', how: G && G.groups.length ? 'group' : 'create', props: [], newGroupName: '', newProps: [],
-             groups: [], excl: [], fields: ['address', 'units', 'inc', 'noi', 'debt'], styles: ['table'], chartField: 'inc',
+             groups: [], excl: [], fields: ['address', 'units', 'inc', 'noi', 'debt'], styles: ['table'], chartField: 'inc', period: { t: 'ttm' },
+             blocks: {}, sheet: {},
              cards: [], layout: [], openCard: null, drag: null, share: [], shareSel: '', shareRole: 'viewer', q: '', isOwner: true };
   }
   function draftFromView(D) {
-    var c = D.view.config;
+    var c = workingCfg(D);
     return { id: D.view.id, bmode: c.mode, quickCards: c.quickCards, name: D.view.name, how: c.groups.length ? 'group' : 'pick',
              props: (c.props || []).slice(), newGroupName: '', newProps: [], groups: c.groups.slice(), excl: c.excl.slice(),
-             fields: c.fields.slice(), styles: c.styles.slice(), chartField: c.chartField,
+             fields: c.fields.slice(), styles: c.styles.slice(), chartField: c.chartField, period: JSON.parse(JSON.stringify(c.period || { t: 'ttm' })),
+             blocks: JSON.parse(JSON.stringify(c.blocks || {})), sheet: JSON.parse(JSON.stringify(c.sheet || {})),
              cards: c.cards.map(function (x) { return JSON.parse(JSON.stringify(x)); }), layout: c.layout.slice(), openCard: null, drag: null,
              share: (D.view.shares || []).filter(function (s) { return s.principal_id; }).map(function (s) { return { principal_type: s.principal_type, principal_id: s.principal_id, permission: s.permission }; }),
              shareSel: '', shareRole: 'viewer', q: '', isOwner: D.permission === 'owner' };
@@ -1189,13 +1291,17 @@
     var quick = d.bmode !== 'advanced';
     var cards = d.cards, layout = syncLayout(d.layout, d.cards, d.styles);
     if (quick) {
+      /* quick cards keep the size someone gave them by hand, by position */
+      var old = {}; d.cards.forEach(function (c) { if (/^q\d+$/.test(c.id)) old[c.id] = c; });
       cards = d.quickCards ? d.fields.filter(function (k) { return F[k] && F[k].type !== 'text'; }).map(function (k, i) {
-        return { id: 'q' + i, label: F[k].label, kind: 'value', field: k, period: { t: 'ttm' }, agg: 'total', size: 'M' }; }) : [];
+        var o = old['q' + i] || {};
+        return { id: 'q' + i, label: F[k].label, kind: 'value', field: k, period: { t: 'view' }, agg: 'total', size: 'M', w: o.w || 4, h: o.h || 2 }; }) : [];
       layout = cards.map(function (c) { return 'card:' + c.id; }).concat(['chart', 'table', 'list'].filter(function (k) { return d.styles.indexOf(k) >= 0; }));
     }
     var useG = d.how === 'group';
     return { mode: quick ? 'quick' : 'advanced', quickCards: !!d.quickCards, groups: useG ? d.groups.slice() : [], excl: useG ? d.excl.slice() : [],
-             props: useG ? null : d.props.slice(), fields: d.fields.slice(), styles: d.styles.slice(), chartField: d.chartField, cards: cards, layout: layout };
+             props: useG ? null : d.props.slice(), fields: d.fields.slice(), styles: d.styles.slice(), chartField: d.chartField, cards: cards, layout: layout,
+             period: d.period || { t: 'ttm' }, blocks: d.blocks || {}, sheet: d.sheet || {} };
   }
   /* live result preview, computed HERE: the same engine the server runs
      (props-views-core.js) over every property's figures, loaded once per
@@ -1230,15 +1336,6 @@
     }, 350);
   }
 
-  function periodKey(pd) { pd = pd || { t: 'ttm' }; return pd.t === 'month' ? 'm:' + pd.a : pd.t; }
-  function periodSelect(pd, attr, M) {
-    var k = periodKey(pd);
-    return '<select class="sel" aria-label="Period" ' + attr + '>' +
-      '<option value="ttm"' + (k === 'ttm' ? ' selected' : '') + '>Trailing 12 months</option>' +
-      '<option value="ytd"' + (k === 'ytd' ? ' selected' : '') + '>' + esc(M.periods.ytdLabel) + '</option>' +
-      M.periods.months.map(function (m) { return '<option value="m:' + m.value + '"' + (k === 'm:' + m.value ? ' selected' : '') + '>' + m.label + '</option>'; }).join('') +
-      '<option value="range"' + (k === 'range' ? ' selected' : '') + '>Range of months</option></select>';
-  }
   function monthSelect(v, attr, M) {
     return '<select class="sel" ' + attr + '>' + M.periods.months.map(function (m) { return '<option value="' + m.value + '"' + (v === m.value ? ' selected' : '') + '>' + m.label + '</option>'; }).join('') + '</select>';
   }
@@ -1325,6 +1422,12 @@
       STYLES.map(function (s) { return '<label class="lw-check"><input type="checkbox"' + (d.styles.indexOf(s[0]) >= 0 ? ' checked' : '') + ' data-a="sty:' + s[0] + '">' + s[1] + '</label>'; }).join('') +
       (d.styles.indexOf('chart') >= 0 ? '<span class="note" style="margin-left:8px">Chart shows</span>' + fieldSelect(d.chartField, 'data-in="d:chartField"', M) : '') + '</div>';
 
+    /* the view's dates: what the table, list, chart and quick cards show
+       when it opens; anyone viewing it can pick other dates on screen */
+    h += '<div style="margin-top:20px;font-weight:600">Dates</div><div style="display:flex;gap:8px;margin-top:8px;align-items:center;flex-wrap:wrap">' +
+      periodSelect(d.period, 'data-in="d:period"', M, false) + rangeSelects(d.period, 'data-in="d:pa"', 'data-in="d:pb"', M) +
+      '<span class="note">Applies to income, expenses, NOI, capex, debt service, cash flow, fees and their ratios. Rent roll, debt and value are always the latest. People viewing it can pick other dates.</span></div>';
+
     /* advanced: cards + layout */
     if (!isQuick) {
       h += '<div style="display:flex;align-items:center;justify-content:space-between;margin-top:22px"><span style="font-weight:600">Cards</span><button class="btn press" data-a="addcard">+ Add card</button></div>';
@@ -1335,19 +1438,22 @@
           var open = d.openCard === c.id;
           var s = '<div style="border-bottom:1px solid var(--rule)"><div style="display:flex;align-items:center;gap:12px;padding:10px 12px">' +
             '<button class="link" data-a="ctog:' + c.id + '" style="font-weight:600;color:var(--ink)">' + esc(c.label || 'Untitled card') + '</button>' +
-            '<span class="chip">' + { S: 'Small', M: 'Medium', L: 'Large' }[c.size || 'M'] + '</span><span style="margin-left:auto;font-weight:600">' + esc(pvTxt) + '</span>' +
+            '<span class="chip">' + cardW(c) + ' of 12 wide, ' + cardH(c) + (cardH(c) === 1 ? ' row' : ' rows') + ' high</span><span style="margin-left:auto;font-weight:600">' + esc(pvTxt) + '</span>' +
             '<button class="link" data-a="ctog:' + c.id + '">Edit</button><button class="link" data-a="crm:' + c.id + '" style="color:var(--muted)">Remove</button></div>';
           if (open) {
             var at = function (k) { return 'data-in="c:' + ci + ':' + k + '"'; };
             s += '<div style="padding:4px 12px 14px;display:flex;flex-direction:column;gap:10px;font-size:13px">' +
               '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap"><label>Label <input class="sel" style="width:240px" value="' + esc(c.label) + '" ' + at('label') + '></label>' +
-              '<label>Size <select class="sel" ' + at('size') + '>' + [['S', 'Small'], ['M', 'Medium'], ['L', 'Large']].map(function (z) { return '<option value="' + z[0] + '"' + (c.size === z[0] ? ' selected' : '') + '>' + z[1] + '</option>'; }).join('') + '</select></label>' +
+              '<label>Width <select class="sel" ' + at('w') + '>' + [[3, 'Quarter'], [4, 'Third'], [6, 'Half'], [8, 'Two thirds'], [9, 'Three quarters'], [12, 'Full']]
+                .concat([1, 2, 5, 7, 10, 11].map(function (n) { return [n, n + ' of 12']; })).sort(function (x, y) { return x[0] - y[0]; })
+                .map(function (z) { return '<option value="' + z[0] + '"' + (cardW(c) === z[0] ? ' selected' : '') + '>' + z[1] + '</option>'; }).join('') + '</select></label>' +
+              '<label>Height <select class="sel" ' + at('h') + '>' + [1, 2, 3, 4, 5, 6, 8, 10, 12].map(function (n) { return '<option value="' + n + '"' + (cardH(c) === n ? ' selected' : '') + '>' + n + (n === 1 ? ' row' : ' rows') + '</option>'; }).join('') + '</select></label>' +
               '<span style="display:flex;gap:6px">' + [['value', 'A value'], ['formula', 'A formula']].map(function (kb) { return '<button class="btn press' + ((c.kind || 'value') === kb[0] ? ' on' : '') + '" data-a="ckind:' + ci + ':' + kb[0] + '">' + kb[1] + '</button>'; }).join('') + '</span></div>';
             if ((c.kind || 'value') === 'value') {
               var f = F[c.field] || {};
               s += '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' + fieldSelect(c.field, at('field'), M) +
-                (f.monthly ? periodSelect(c.period, at('period'), M) : '') +
-                (f.monthly && c.period && c.period.t === 'range' ? monthSelect(c.period.a, at('pa') + ' aria-label="From"', M) + '<span>to</span>' + monthSelect(c.period.b, at('pb') + ' aria-label="To"', M) : '') +
+                (f.monthly ? periodSelect(c.period, at('period'), M, true) : '') +
+                (f.monthly ? rangeSelects(c.period, at('pa'), at('pb'), M) : '') +
                 aggSelect(c.agg, at('agg')) + '</div>';
             } else {
               s += (c.terms || []).map(function (tm, ti) {
@@ -1358,8 +1464,8 @@
                       : '<span style="width:56px;color:var(--muted)">Start</span>') +
                   '<select class="sel" aria-label="Term type" ' + tat('kind') + '><option value="field"' + (tm.kind !== 'num' ? ' selected' : '') + '>Field</option><option value="num"' + (tm.kind === 'num' ? ' selected' : '') + '>Number</option></select>' +
                   (tm.kind === 'num' ? '<input class="inp" type="number" value="' + esc(tm.num) + '" aria-label="Number" ' + tat('num') + '>' :
-                    fieldSelect(tm.field, tat('field'), M) + (tf.monthly ? periodSelect(tm.period, tat('period'), M) : '') +
-                    (tf.monthly && tm.period && tm.period.t === 'range' ? monthSelect(tm.period.a, tat('pa') + ' aria-label="From"', M) + '<span>to</span>' + monthSelect(tm.period.b, tat('pb') + ' aria-label="To"', M) : '') +
+                    fieldSelect(tm.field, tat('field'), M) + (tf.monthly ? periodSelect(tm.period, tat('period'), M, true) : '') +
+                    (tf.monthly ? rangeSelects(tm.period, tat('pa'), tat('pb'), M) : '') +
                     aggSelect(tm.agg, tat('agg'))) +
                   ((c.terms || []).length > 1 ? '<button class="link" data-a="trm:' + ci + ':' + ti + '" style="color:var(--muted)">Remove</button>' : '') + '</div>';
               }).join('') +
@@ -1374,17 +1480,19 @@
       }
       h += '<p class="note" style="margin-top:6px">Monthly figures exist through ' + esc(ymLong(M.periods.through)) + '. Months not loaded yet show "–" until the sync brings them in; Oct to Dec 2025 are being backfilled.</p>';
       var layout = syncLayout(d.layout, d.cards, d.styles);
-      h += '<div style="margin-top:20px;font-weight:600">Layout</div><p class="note" style="margin-top:2px">Drag the blocks into the order you want, or use the arrows. Cards sit side by side by size; the table, chart and list take the full width.</p>';
+      h += '<div style="margin-top:20px;font-weight:600">Layout</div><p class="note" style="margin-top:2px">Drag the blocks into the order you want, or use the arrows. Drag a block\'s bottom-right corner to change its width and height (or focus the corner and use the arrow keys). The saved view can be resized the same way.</p>';
       if (layout.length) {
-        h += '<div class="lw-grid12" style="gap:8px;margin-top:8px">' + layout.map(function (k, i) {
+        h += '<div class="lw-grid12" style="margin-top:8px">' + layout.map(function (k, i) {
           var c = k.indexOf('card:') === 0 ? d.cards.find(function (x) { return 'card:' + x.id === k; }) : null;
           var label = c ? 'Card: ' + (c.label || 'Untitled') : (STYLES.find(function (s) { return s[0] === k; }) || [0, k])[1];
-          var subT = c ? (pvCards[c.id] ? vfmt(pvCards[c.id].type, pvCards[c.id].value) : '…') : 'Full width';
-          return '<div class="lw-tile' + (d.drag === i ? ' drag' : '') + '" draggable="true" data-drag="' + i + '" style="grid-column:span ' + (c ? SPAN[c.size || 'M'] : 12) + '">' +
+          var b = c ? { w: cardW(c), h: cardH(c) } : blockOf(d, k);
+          var subT = (c ? (pvCards[c.id] ? vfmt(pvCards[c.id].type, pvCards[c.id].value) + ' · ' : '…  ') : '') + b.w + ' of 12 wide, ' + (b.h ? b.h + (b.h === 1 ? ' row' : ' rows') : 'fits its content');
+          return '<div class="lw-rsbox" data-rsbox="' + esc(k) + '" style="grid-column:span ' + b.w + ';height:' + (b.h ? hpx(b.h) : 64) + 'px">' +
+            '<div class="lw-tile' + (d.drag === i ? ' drag' : '') + '" draggable="true" data-drag="' + i + '" style="height:100%;overflow:hidden">' +
             '<div style="display:flex;align-items:center;gap:6px">' + svg('<circle cx="8" cy="6" r="1.6"></circle><circle cx="16" cy="6" r="1.6"></circle><circle cx="8" cy="12" r="1.6"></circle><circle cx="16" cy="12" r="1.6"></circle><circle cx="8" cy="18" r="1.6"></circle><circle cx="16" cy="18" r="1.6"></circle>', 12, ' fill="var(--muted)" stroke="none"') +
             '<span style="font-weight:600;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(label) + '</span>' +
             '<span style="margin-left:auto;display:flex;gap:2px"><button class="link" data-a="mv:' + i + ':-1" aria-label="Move earlier" style="color:var(--muted)">←</button><button class="link" data-a="mv:' + i + ':1" aria-label="Move later" style="color:var(--muted)">→</button></span></div>' +
-            '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + esc(subT) + '</div></div>';
+            '<div style="font-size:12px;color:var(--muted);margin-top:2px">' + esc(subT) + '</div></div>' + rsHandle(k, 'b', b.w, b.h) + '</div>';
         }).join('') + '</div>';
       }
     }
@@ -1425,12 +1533,6 @@
   function D() { return S.cv.draft; }
   function toggleIn(arr, v) { var i = arr.indexOf(v); if (i >= 0) arr.splice(i, 1); else arr.push(v); }
   function newCardId() { return 'c' + Date.now().toString(36) + Math.floor(Math.random() * 1e4).toString(36); }
-  function keyToPeriod(k, old) {
-    var t = (S.data.people && S.data.people.periods.through) || '';
-    if (k.indexOf('m:') === 0) return { t: 'month', a: k.slice(2) };
-    if (k === 'range') return { t: 'range', a: old && old.a ? old.a : t, b: old && old.b ? old.b : t };
-    return { t: k };
-  }
   function saveView() {
     var d = D(); if (!d) return;
     var body = { name: d.name.trim(), config: draftConfig(d) };
@@ -1440,7 +1542,10 @@
     req.then(function (r) {
       var id = d.id || r.view.id;
       drop('views'); drop('view:' + id);
-      S.cv = { mode: 'view', sel: id, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '' };
+      /* the builder's save is the view now: start the screen copy afresh */
+      delete S.cv.cfg[id]; delete S.cv.lastKey[id]; clearTimeout(saveTimers[id]);
+      if (window.PortalSheet) window.PortalSheet.forget(id);
+      cvReset({ sel: id });
       pushUrl(); paint();
     }, function (e) { S.cv.saving = false; S.cv.err = e.message; paint(); });
   }
@@ -1457,7 +1562,8 @@
     if (!d || !d.id || !window.confirm('Delete the view "' + d.name + '"? People it was shared with lose it too.')) return;
     api('/api/props/views/' + d.id, 'DELETE').then(function () {
       drop('views'); drop('view:' + d.id);
-      S.cv = { mode: 'view', sel: null, draft: null, exportOpen: false, msg: '', preview: null, previewKey: '', saving: false, err: '' };
+      delete S.cv.cfg[d.id]; clearTimeout(saveTimers[d.id]);
+      cvReset({ sel: null });
       paint();
     }, function (e) { S.cv.err = e.message; paint(); });
   }
@@ -1536,7 +1642,7 @@
       case 'fld': toggleIn(d.fields, parts[1]); break;
       case 'qcards': d.quickCards = !d.quickCards; break;
       case 'sty': toggleIn(d.styles, parts[1]); d.layout = syncLayout(d.layout, d.cards, d.styles); break;
-      case 'addcard': { var id = newCardId(); d.cards.push({ id: id, label: 'New card', kind: 'value', field: 'inc', period: { t: 'ttm' }, agg: 'total', size: 'M', fmt: 'money', terms: [] }); d.openCard = id; d.layout = syncLayout(d.layout, d.cards, d.styles); break; }
+      case 'addcard': { var id = newCardId(); d.cards.push({ id: id, label: 'New card', kind: 'value', field: 'inc', period: { t: 'view' }, agg: 'total', size: 'M', w: 4, h: 2, fmt: 'money', terms: [] }); d.openCard = id; d.layout = syncLayout(d.layout, d.cards, d.styles); break; }
       case 'ctog': d.openCard = d.openCard === parts[1] ? null : parts[1]; break;
       case 'crm': d.cards = d.cards.filter(function (c) { return c.id !== parts[1]; }); d.layout = syncLayout(d.layout, d.cards, d.styles); break;
       case 'ckind': {
@@ -1549,7 +1655,7 @@
         }
         break;
       }
-      case 'tadd': d.cards[+parts[1]].terms.push({ op: '+', kind: 'field', field: 'inc', period: { t: 'ttm' }, agg: 'total' }); break;
+      case 'tadd': d.cards[+parts[1]].terms.push({ op: '+', kind: 'field', field: 'inc', period: { t: 'view' }, agg: 'total' }); break;
       case 'trm': d.cards[+parts[1]].terms.splice(+parts[2], 1); delete d.cards[+parts[1]].terms[0].op; break;
       case 'mv': {
         var L2 = syncLayout(d.layout, d.cards, d.styles), from = +parts[1], to = from + (+parts[2]);
@@ -1582,13 +1688,27 @@
          render patches the figures in place and leaves the input alone */
       case 'oa': S.oa[S.prop] = Object.assign({}, S.oa[S.prop] || {}, (function () { var o = {}; o[parts[1]] = value; return o; })()); return true;
     }
+    /* the dates picked on the saved view: for this screen only, never saved */
+    if (parts[0] === 'vp' || parts[0] === 'vpa' || parts[0] === 'vpb') {
+      var id = S.cv.sel, pv = S.cv.vp[id];
+      if (parts[0] === 'vp') S.cv.vp[id] = value ? keyToPeriod(value, pv) : null;
+      else S.cv.vp[id] = { t: 'range', a: parts[0] === 'vpa' ? value : pv.a, b: parts[0] === 'vpb' ? value : pv.b };
+      return true;
+    }
     if (!d) return false;
-    if (parts[0] === 'd') { d[parts[1]] = value; return true; }
+    if (parts[0] === 'd') {
+      if (parts[1] === 'period') d.period = keyToPeriod(value, d.period);
+      else if (parts[1] === 'pa') d.period = { t: 'range', a: value, b: d.period.b };
+      else if (parts[1] === 'pb') d.period = { t: 'range', a: d.period.a, b: value };
+      else d[parts[1]] = value;
+      return true;
+    }
     if (parts[0] === 'c') {
       var c = d.cards[+parts[1]], k = parts[2];
       if (k === 'period') c.period = keyToPeriod(value, c.period);
       else if (k === 'pa') c.period = { t: 'range', a: value, b: c.period.b };
       else if (k === 'pb') c.period = { t: 'range', a: c.period.a, b: value };
+      else if (k === 'w' || k === 'h') c[k] = +value;
       else c[k] = value;
       return true;
     }
@@ -1600,7 +1720,7 @@
       else if (tk === 'num') tm.num = value === '' ? 0 : Number(value);
       else {
         tm[tk] = value;
-        if (tk === 'kind' && value === 'field' && !tm.field) { tm.field = 'inc'; tm.period = { t: 'ttm' }; tm.agg = 'total'; }
+        if (tk === 'kind' && value === 'field' && !tm.field) { tm.field = 'inc'; tm.period = { t: 'view' }; tm.agg = 'total'; }
       }
       return true;
     }
@@ -1622,8 +1742,72 @@
        browser is blurring, so defer a tick */
     setTimeout(paint, 0);
   }
+  /* ---- resizing a block (card, spreadsheet, chart, list) ------------------ */
+  function rsTarget(el) {
+    var key = el.getAttribute('data-rs'), ctx = el.getAttribute('data-rsctx');
+    var cfg = ctx === 'b' ? D() : S.cv.cfg[S.cv.sel];
+    if (!cfg) return null;
+    if (key.indexOf('card:') === 0) {
+      var c = cfg.cards.find(function (x) { return 'card:' + x.id === key; }); if (!c) return null;
+      return { ctx: ctx, minH: 1, get: function () { return { w: cardW(c), h: cardH(c) }; },
+               set: function (w, h) { c.w = w; c.h = Math.max(1, h); }, reset: function () { c.w = SPAN[c.size || 'M']; c.h = 2; } };
+    }
+    cfg.blocks = cfg.blocks || {};
+    return { ctx: ctx, minH: key === 'table' ? 5 : 2, get: function () { return blockOf(cfg, key); },
+             set: function (w, h) { cfg.blocks[key] = { w: w, h: h }; }, reset: function () { cfg.blocks[key] = { w: 12, h: 0 }; } };
+  }
+  function rsDone(t, key) {
+    if (t.ctx === 'v') queueSave(S.cv.sel);
+    paint();
+    if (key) setTimeout(function () { var el = S.host.querySelector('[data-rs="' + key.replace(/"/g, '') + '"]'); if (el) el.focus(); }, 0);
+  }
+  var rsActive = false;
+  function onRsDown(ev) {
+    var hd = ev.target.closest && ev.target.closest('[data-rs]'); if (!hd || !S.host.contains(hd)) return;
+    var t = rsTarget(hd); if (!t) return;
+    ev.preventDefault();
+    var box = hd.closest('[data-rsbox]'), grid = box.parentElement, sx = box.querySelector('[data-sxgrid]');
+    var colW = (grid.clientWidth - 11 * GAP) / 12, cur0 = t.get();
+    var h0 = cur0.h || Math.max(t.minH, Math.round((box.offsetHeight + GAP) / (RU + GAP)));
+    var x0 = ev.clientX, y0 = ev.clientY, w = cur0.w, h = cur0.h;
+    rsActive = true; hd.classList.add('on');
+    try { hd.setPointerCapture(ev.pointerId); } catch (e) { /* ignore */ }
+    function mv(e) {
+      w = Math.max(1, Math.min(12, Math.round(cur0.w + (e.clientX - x0) / (colW + GAP))));
+      var dy = e.clientY - y0;
+      h = !cur0.h && Math.abs(dy) < RU / 2 ? 0 : Math.max(t.minH, Math.min(30, Math.round(h0 + dy / (RU + GAP))));
+      box.style.gridColumn = 'span ' + w;
+      if (sx) sx.style.height = h ? Math.max(120, hpx(h) - 110) + 'px' : '';
+      else if (h) box.style.height = hpx(h) + 'px';
+      hd.setAttribute('data-sz', w + ' of 12 wide × ' + (h ? h + (h === 1 ? ' row' : ' rows') : 'fit'));
+    }
+    function up() {
+      hd.removeEventListener('pointermove', mv); hd.removeEventListener('pointerup', up); hd.removeEventListener('pointercancel', up);
+      rsActive = false; hd.classList.remove('on'); hd.removeAttribute('data-sz');
+      if (w !== cur0.w || h !== cur0.h) { t.set(w, h); rsDone(t); }
+    }
+    hd.addEventListener('pointermove', mv); hd.addEventListener('pointerup', up); hd.addEventListener('pointercancel', up);
+  }
+  function onRsKey(ev) {
+    var hd = ev.target.closest && ev.target.closest('[data-rs]'); if (!hd) return;
+    var dw = { ArrowLeft: -1, ArrowRight: 1 }[ev.key] || 0, dh = { ArrowUp: -1, ArrowDown: 1 }[ev.key] || 0;
+    if (!dw && !dh) return;
+    var t = rsTarget(hd); if (!t) return;
+    ev.preventDefault();
+    var c = t.get(), box = hd.closest('[data-rsbox]');
+    var h = c.h || Math.max(t.minH, Math.round((box.offsetHeight + GAP) / (RU + GAP)));
+    t.set(Math.max(1, Math.min(12, c.w + dw)), dh ? Math.max(t.minH, Math.min(30, h + dh)) : c.h);
+    rsDone(t, hd.getAttribute('data-rs'));
+  }
+  function onRsDbl(ev) {
+    var hd = ev.target.closest && ev.target.closest('[data-rs]'); if (!hd) return;
+    var t = rsTarget(hd); if (!t) return;
+    ev.preventDefault(); t.reset(); rsDone(t);
+  }
+
   function onDragStart(ev) {
     var t = ev.target.closest && ev.target.closest('[data-drag]');
+    if (rsActive || (ev.target.closest && ev.target.closest('[data-rs]'))) { ev.preventDefault(); return; }
     if (!t || !D()) return;
     D().drag = +t.getAttribute('data-drag');
     try { ev.dataTransfer.effectAllowed = 'move'; ev.dataTransfer.setData('text/plain', String(D().drag)); } catch (e) { /* ignore */ }
@@ -1660,6 +1844,8 @@
     if (window.PortalReports) window.PortalReports.init({ api: api, authHeaders: authHeaders, paint: paint, esc: esc, fmt: fmt });
     host.onclick = onClick; host.oninput = onInput; host.onchange = onChange;
     host.ondragstart = onDragStart; host.ondragover = onDragOver; host.ondrop = onDrop;
+    host.onpointerdown = onRsDown; host.onkeydown = onRsKey; host.ondblclick = onRsDbl;
+    if (window.PortalSheet) window.PortalSheet.init({ esc: esc, money: money, pct: pct, ratio: ratio, cnt: cnt, paint: paint });
     bindDoc();
     paint();
   }
@@ -1669,7 +1855,10 @@
     /* keep showing what is on screen while each key refetches (need() serves
        S.old until the new answer lands), so a sync elsewhere never blanks it */
     Object.keys(S.data).forEach(function (k) { S.old[k] = S.data[k]; });
-    S.data = {}; S.errors = {}; S.pending = {}; S.cv.localKey = ''; paint();
+    S.data = {}; S.errors = {}; S.pending = {}; S.cv.localKey = '';
+    /* a view's screen copy is re-read too, unless a change to it is still being saved */
+    Object.keys(S.cv.cfg).forEach(function (id) { if (!saveTimers[id] && S.cv.saveTxt[id] !== 'Saving…') delete S.cv.cfg[id]; });
+    paint();
   }
 
   /* back to the section's front door: Portfolio > Entities. The shell calls

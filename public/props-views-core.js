@@ -78,7 +78,11 @@
   ];
   var FMAP = {};
   FIELDS.forEach(function (f) { FMAP[f[0]] = f; });
-  var FIELD_LIST = FIELDS.map(function (f) { return { key: f[0], label: f[1], group: f[2], type: f[3], monthly: !!f[5] }; });
+  /* a field follows a date range when it is a monthly figure, or a ratio
+     built only from monthly figures; rent roll, debt and value are snapshots */
+  var DERIVED = { er: 1, capexRatio: 1, dscr: 1 };
+  function periodic(f) { return !!(f && (f[5] || DERIVED[f[0]])); }
+  var FIELD_LIST = FIELDS.map(function (f) { return { key: f[0], label: f[1], group: f[2], type: f[3], monthly: periodic(f) }; });
   var FIELD_GROUPS = ['Location', 'Rent roll', 'Income and NOI', 'Expenses and capex', 'Asset management fee', 'Debt and value', 'Management'];
 
   /* -------------------------------------------------------------------------
@@ -88,12 +92,55 @@
   var ID = /^[A-Za-z0-9_-]{1,40}$/;
   function uniq(a) { return a.filter(function (k, i) { return a.indexOf(k) === i; }); }
 
-  function cleanPeriod(p) {
+  /* Period shapes: ttm | ytd | last (n = 1, 3 or 6 latest months) | year (y)
+     | month (a) | range (a..b), plus 'view' on a card or formula term: "use
+     the view's dates". A view's own dates never take 'view'. */
+  function cleanPeriod(p, allowView) {
     if (!p || typeof p !== 'object') return { t: 'ttm' };
     if (p.t === 'ttm' || p.t === 'ytd') return { t: p.t };
+    if (p.t === 'view' && allowView) return { t: 'view' };
+    if (p.t === 'last' && [1, 3, 6].indexOf(Number(p.n)) >= 0) return { t: 'last', n: Number(p.n) };
+    if (p.t === 'year' && /^\d{4}$/.test(String(p.y))) return { t: 'year', y: String(p.y) };
     if (p.t === 'month' && YM.test(p.a)) return { t: 'month', a: p.a };
     if (p.t === 'range' && YM.test(p.a) && YM.test(p.b)) return { t: 'range', a: p.a <= p.b ? p.a : p.b, b: p.a <= p.b ? p.b : p.a };
     return { t: 'ttm' };
+  }
+  function int(v, lo, hi, dflt) { var n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : dflt; }
+  var SPAN = { S: 3, M: 4, L: 6 };
+  var BLOCKS = ['table', 'list', 'chart'];
+
+  /* The spreadsheet's own settings. Formulas are stored as text and only ever
+     read by sheet-core.js's parser; here they are just bounded strings. */
+  /* a free cell: "<rows below Total>|<column key>" (sheet-core.js) */
+  var CELL_KEY = /^(\d{1,3})\|([A-Za-z0-9_:-]{1,48})$/;
+  var FMTS = ['auto', 'money', 'number', 'pct', 'ratio', 'text'];
+  function cleanSheet(s) {
+    s = s && typeof s === 'object' ? s : {};
+    var out = { n: int(s.n, 0, 5000, 0), cols: [], cells: {}, colW: {}, rowH: {}, sort: null, rows: int(s.rows, 5, 200, 20) };
+    (Array.isArray(s.cols) ? s.cols : []).slice(0, 20).forEach(function (c) {
+      if (!c || !ID.test(String(c.id || ''))) return;
+      var col = { id: String(c.id), label: str(c.label, 80) || 'New column', kind: c.kind === 'input' ? 'input' : 'formula',
+                  fmt: FMTS.indexOf(c.fmt) >= 0 ? c.fmt : 'auto', f: str(c.f, 1000), vals: {} };
+      var v = c.vals && typeof c.vals === 'object' ? c.vals : {};
+      Object.keys(v).slice(0, 600).forEach(function (pid) { if (UUID.test(pid) && v[pid] !== '' && v[pid] !== null && v[pid] !== undefined) col.vals[pid] = str(v[pid], 1000); });
+      out.cols.push(col);
+    });
+    var cells = s.cells && typeof s.cells === 'object' ? s.cells : {};
+    Object.keys(cells).slice(0, 3000).forEach(function (k) {
+      var m = CELL_KEY.exec(k), x = cells[k];
+      if (!m || +m[1] < 1 || +m[1] > 200 || !x || typeof x !== 'object') return;
+      var v = str(x.v, 1000);
+      if (v === '' && !x.fmt) return;
+      out.cells[k] = { v: v }; if (FMTS.indexOf(x.fmt) > 0) out.cells[k].fmt = x.fmt;
+    });
+    var dims = function (o, lo, hi) {
+      var r = {}; o = o && typeof o === 'object' ? o : {};
+      Object.keys(o).slice(0, 800).forEach(function (k) { if (/^[A-Za-z0-9_:-]{1,48}$/.test(k)) { var n = int(o[k], lo, hi, null); if (n !== null) r[k] = n; } });
+      return r;
+    };
+    out.colW = dims(s.colW, 40, 800); out.rowH = dims(s.rowH, 18, 300);
+    if (s.sort && typeof s.sort === 'object' && /^[A-Za-z0-9_:-]{1,48}$/.test(String(s.sort.key || ''))) out.sort = { key: String(s.sort.key), dir: s.sort.dir === 'desc' ? 'desc' : 'asc' };
+    return out;
   }
   function cleanTerm(t, first) {
     var out = {};
@@ -101,7 +148,7 @@
     if (t && t.kind === 'num') { out.kind = 'num'; var n = Number(t.num); out.num = Number.isFinite(n) ? n : 0; return out; }
     out.kind = 'field';
     out.field = t && FMAP[t.field] && FMAP[t.field][3] !== 'text' ? t.field : 'inc';
-    out.period = cleanPeriod(t && t.period);
+    out.period = cleanPeriod(t && t.period, true);
     out.agg = t && t.agg === 'avg' ? 'avg' : 'total';
     return out;
   }
@@ -117,11 +164,19 @@
       fields: uniq((Array.isArray(c.fields) ? c.fields : []).filter(function (k) { return FMAP[k]; })).slice(0, 30),
       styles: uniq((Array.isArray(c.styles) ? c.styles : []).filter(function (s) { return ['table', 'list', 'chart'].indexOf(s) >= 0; })),
       chartField: FMAP[c.chartField] && FMAP[c.chartField][3] !== 'text' ? c.chartField : 'inc',
+      period: cleanPeriod(c.period),
       cards: [],
+      blocks: {},
+      sheet: cleanSheet(c.sheet),
     };
+    var bl = c.blocks && typeof c.blocks === 'object' ? c.blocks : {};
+    BLOCKS.forEach(function (k) { var b = bl[k] || {}; cfg.blocks[k] = { w: int(b.w, 1, 12, 12), h: int(b.h, 0, 30, 0) }; });
     (Array.isArray(c.cards) ? c.cards : []).slice(0, 24).forEach(function (k) {
       if (!k || !ID.test(String(k.id || ''))) return;
-      var card = { id: String(k.id), label: str(k.label, 120), size: ['S', 'M', 'L'].indexOf(k.size) >= 0 ? k.size : 'M',
+      var size = ['S', 'M', 'L'].indexOf(k.size) >= 0 ? k.size : 'M';
+      /* w: grid columns of 12; h: rows of 44px. Views saved before these
+         existed keep the width their S/M/L size gave them. */
+      var card = { id: String(k.id), label: str(k.label, 120), size: size, w: int(k.w, 1, 12, SPAN[size]), h: int(k.h, 1, 12, 2),
                    kind: k.kind === 'formula' ? 'formula' : 'value' };
       if (card.kind === 'formula') {
         card.fmt = ['money', 'number', 'pct', 'ratio'].indexOf(k.fmt) >= 0 ? k.fmt : 'money';
@@ -160,7 +215,8 @@
     return { ids: out, groupNames: names };
   }
 
-  /* plain property -> the object the field rules read */
+  /* plain property -> the object the field rules read, for the trailing 12
+     months (the figures as loaded) */
   function hydrate(p, t) {
     var ttmMonths = ymSpan(ymAdd(t, -11), t);
     var q = Object.assign({}, p);
@@ -169,49 +225,62 @@
     q.ttm = function (k) { return ttmMonths.map(function (m) { return q.month(m, k); }); };
     return q;
   }
+  /* the same property seen through a date range: every monthly figure is the
+     total of the range's months and q.ttm() walks those months instead, so
+     every field rule (ratios included) answers for the range unchanged.
+     Snapshot figures (rent roll, debt, value, optimized NOI) are left alone. */
+  var SCOPED = ['inc', 'opx', 'noi', 'ds', 'cf'];
+  function scope(q, pd, t) {
+    if (!pd || pd.t === 'ttm') return q;
+    var ms = monthsOf(pd, t);
+    /* a month after the latest data is not loaded yet: say so with "–"
+       rather than total what is there */
+    var future = ms.some(function (m) { return m > t; });
+    var s = Object.assign({}, q);
+    SCOPED.forEach(function (k) { s[k] = future ? null : sumA(ms.map(function (m) { return q.month(m, k); })); });
+    s.ttm = function (k) { return ms.map(function (m) { return future ? null : q.month(m, k); }); };
+    return s;
+  }
 
-  /* -------------------------------------------------------------------------
-     Evaluation: the mockup's propVal / termVal / evalFormula, unchanged in
-     meaning.
-  ------------------------------------------------------------------------- */
   function monthsOf(pd, t) {
     if (pd.t === 'ytd') return ymSpan(t.slice(0, 4) + '-01', t);
+    if (pd.t === 'last') return ymSpan(ymAdd(t, 1 - pd.n), t);
+    if (pd.t === 'year') return ymSpan(pd.y + '-01', pd.y + '-12');
     if (pd.t === 'month') return [pd.a];
     if (pd.t === 'range') return ymSpan(pd.a, pd.b);
-    return null;
+    return ymSpan(ymAdd(t, -11), t);
   }
   function periodText(pd, t) {
     if (pd.t === 'ttm') return 'trailing 12 months';
     if (pd.t === 'ytd') return 'Jan to ' + MN[Number(t.slice(5)) - 1] + ' ' + t.slice(0, 4);
+    if (pd.t === 'last') return pd.n === 1 ? 'latest month, ' + ymShort(t) : 'last ' + pd.n + ' months, ' + ymShort(ymAdd(t, 1 - pd.n)) + ' to ' + ymShort(t);
+    if (pd.t === 'year') return 'Jan to Dec ' + pd.y;
     if (pd.t === 'month') return ymShort(pd.a);
     return ymShort(pd.a) + ' to ' + ymShort(pd.b);
   }
-  function propVal(f, q, pd, t) {
-    if (!f[5] || !pd || pd.t === 'ttm') return f[4](q);
-    var ms = monthsOf(pd, t);
-    /* a month after the latest data is not loaded yet: say so with "–" rather
-       than total what is there */
-    if (ms.some(function (m) { return m > t; })) return null;
-    return sumA(ms.map(function (m) { return q.month(m, f[5]); }));
-  }
-  function termVal(ps, tm, t) {
+  /* a term's period, with "use the view's dates" resolved */
+  function periodOf(tm, vp) { var pd = (tm && tm.period) || { t: 'ttm' }; return pd.t === 'view' ? vp : pd; }
+
+  /* ps(pd): the properties seen through period pd (cached per period) */
+  function termVal(ps, tm, t, vp) {
     var f = FMAP[tm.field]; if (!f) return null;
-    if (f[6] && (!f[5] || !tm.period || tm.period.t === 'ttm')) return f[6](ps);
-    var vals = ps.map(function (q) { return propVal(f, q, f[5] ? tm.period : null, t); })
+    var qs = ps(periodic(f) ? periodOf(tm, vp || { t: 'ttm' }) : { t: 'ttm' });
+    if (f[6]) return f[6](qs);
+    var vals = qs.map(function (q) { return f[4](q); })
       .filter(function (v) { return v !== null && v !== undefined && !Number.isNaN(v); });
     if (!vals.length) return null;
     var s = vals.reduce(function (a, b) { return a + b; }, 0);
     if (f[3] === 'pct' || f[3] === 'ratio' || tm.agg === 'avg') return s / vals.length;
     return s;
   }
-  function termText(tm, t) {
+  function termText(tm, t, vp) {
     var f = FMAP[tm.field]; if (!f) return '?';
-    return f[1] + (f[5] ? ', ' + periodText(tm.period || { t: 'ttm' }, t) : '') + (tm.agg === 'avg' && f[3] !== 'pct' && f[3] !== 'ratio' ? ' (average)' : '');
+    return f[1] + (periodic(f) ? ', ' + periodText(periodOf(tm, vp || { t: 'ttm' }), t) : '') + (tm.agg === 'avg' && f[3] !== 'pct' && f[3] !== 'ratio' ? ' (average)' : '');
   }
   /* standard precedence over a flat list: × and ÷ bind first, then + and −,
      left to right. Division by zero is no answer, not infinity. */
-  function evalFormula(ps, terms, t) {
-    var vals = terms.map(function (tm) { return tm.kind === 'num' ? tm.num : termVal(ps, tm, t); });
+  function evalFormula(ps, terms, t, vp) {
+    var vals = terms.map(function (tm) { return tm.kind === 'num' ? tm.num : termVal(ps, tm, t, vp); });
     if (vals.some(function (v) { return v === null || v === undefined || Number.isNaN(v); })) return null;
     var st = [vals[0]], ops = [];
     for (var i = 1; i < terms.length; i++) {
@@ -227,47 +296,63 @@
     return Number.isFinite(r) ? r : null;
   }
   var OPN = { '+': '+', '-': '−', '*': '×', '/': '÷' };
-  function formulaText(terms, t) { return terms.map(function (tm, i) { return (i ? OPN[tm.op] + ' ' : '') + (tm.kind === 'num' ? String(tm.num) : termText(tm, t)); }).join(' '); }
+  function formulaText(terms, t, vp) { return terms.map(function (tm, i) { return (i ? OPN[tm.op] + ' ' : '') + (tm.kind === 'num' ? String(tm.num) : termText(tm, t, vp)); }).join(' '); }
 
-  function cardResult(ps, c, t) {
-    if (c.kind === 'formula') return { value: evalFormula(ps, c.terms, t), type: c.fmt, sub: formulaText(c.terms, t) };
+  function cardResult(ps, c, t, vp) {
+    if (c.kind === 'formula') return { value: evalFormula(ps, c.terms, t, vp), type: c.fmt, sub: formulaText(c.terms, t, vp) };
     var f = FMAP[c.field];
-    return { value: termVal(ps, c, t), type: f[3],
-             sub: termText(c, t) + (f[3] === 'pct' || f[3] === 'ratio' || f[6] ? '' : c.agg === 'avg' ? '' : ', total') };
+    return { value: termVal(ps, c, t, vp), type: f[3],
+             sub: termText(c, t, vp) + (f[3] === 'pct' || f[3] === 'ratio' || f[6] ? '' : c.agg === 'avg' ? '' : ', total') };
   }
 
   /* cfg: validated config. sel: resolve() output. data: { through, props } with
-     plain props for (at least) every id in sel.ids. */
-  function evaluateData(cfg, sel, data) {
+     plain props for (at least) every id in sel.ids. period: the dates picked
+     on screen, overriding the view's own (cfg.period) for this answer only. */
+  function evaluateData(cfg, sel, data, period) {
     var t = data.through;
+    var vp = period ? cleanPeriod(period) : cfg.period || { t: 'ttm' };
     var byId = {}; (data.props || []).forEach(function (p) { byId[p.id] = p; });
-    var ps = sel.ids.map(function (id) { return byId[id]; }).filter(Boolean).map(function (p) { return hydrate(p, t); });
+    var base = sel.ids.map(function (id) { return byId[id]; }).filter(Boolean).map(function (p) { return hydrate(p, t); });
+    var cache = {};
+    var ps = function (pd) {
+      var k = JSON.stringify(pd);
+      return cache[k] || (cache[k] = base.map(function (q) { return scope(q, pd, t); }));
+    };
+    /* quick-build cards are made for the view as a whole, so they follow its dates */
+    var cards = cfg.mode === 'quick' ? cfg.cards.map(function (c) { return Object.assign({}, c, { period: { t: 'view' } }); }) : cfg.cards;
     var fs = cfg.fields.map(function (k) { return FMAP[k]; });
     var numF = fs.filter(function (f) { return f[3] !== 'text'; });
     var cf = FMAP[cfg.chartField] || numF[0] || FMAP.inc;
+    var at = function (f) { return function (q) { return f[4](q); }; };
+    var rowsQ = ps(vp);
     return {
       through: t,
-      count: ps.length, groupNames: sel.groupNames, excluded: cfg.excl.length,
-      properties: ps.map(function (q) { return { id: q.id, name: q.name, address: q.address, mgr: q.mgr }; }),
-      cards: cfg.cards.map(function (c) { return Object.assign({ id: c.id }, cardResult(ps, c, t)); }),
-      heads: fs.map(function (f) { return { key: f[0], label: f[1], type: f[3] }; }),
-      rows: ps.map(function (q) { return { id: q.id, name: q.name, mgr: q.mgr, cells: fs.map(function (f) { return f[4](q); }) }; }),
-      totals: fs.map(function (f) { return f[3] === 'text' ? null : termVal(ps, { field: f[0], period: { t: 'ttm' }, agg: 'total' }, t); }),
-      list: ps.map(function (q) { return { id: q.id, name: q.name, address: q.address, kv: numF.map(function (f) { return { k: f[1], type: f[3], v: f[4](q) }; }) }; }),
-      chart: { title: cf[1] + ' by property', type: cf[3],
-               bars: ps.map(function (q) { return { id: q.id, name: q.name, v: cf[4](q) }; })
+      period: vp, periodText: periodText(vp, t),
+      count: base.length, groupNames: sel.groupNames, excluded: cfg.excl.length,
+      properties: base.map(function (q) { return { id: q.id, name: q.name, address: q.address, mgr: q.mgr }; }),
+      cards: cards.map(function (c) { return Object.assign({ id: c.id }, cardResult(ps, c, t, vp)); }),
+      heads: fs.map(function (f) { return { key: f[0], label: f[1], type: f[3], dated: periodic(f) }; }),
+      rows: rowsQ.map(function (q) { return { id: q.id, name: q.name, mgr: q.mgr, cells: fs.map(function (f) { return f[4](q); }) }; }),
+      totals: fs.map(function (f) { return f[3] === 'text' ? null : termVal(ps, { field: f[0], period: { t: 'view' }, agg: 'total' }, t, vp); }),
+      list: rowsQ.map(function (q) { return { id: q.id, name: q.name, address: q.address, kv: numF.map(function (f) { return { k: f[1], type: f[3], v: f[4](q) }; }) }; }),
+      chart: { title: cf[1] + ' by property' + (periodic(cf) ? ', ' + periodText(vp, t) : ''), type: cf[3],
+               bars: rowsQ.map(function (q) { return { id: q.id, name: q.name, v: cf[4](q) }; })
                  .filter(function (b) { return b.v !== null && b.v !== undefined; }).sort(function (a, b) { return b.v - a.v; }) },
     };
   }
 
+  /* the months a picker offers: the two years of history loaded (loadPlain
+     reads 24 months) plus three ahead, which show "–" until synced */
   function periodOptionsFor(t) {
-    var months = ymSpan(ymAdd(t, -11), ymAdd(t, 3));
+    var months = ymSpan(ymAdd(t, -23), ymAdd(t, 3));
+    var y = +t.slice(0, 4), years = [String(y), String(y - 1)];
     return { through: t, ytdLabel: 'Jan to ' + MN[Number(t.slice(5)) - 1] + ' ' + t.slice(0, 4),
-             months: months.map(function (m) { return { value: m, label: ymShort(m) }; }) };
+             months: months.map(function (m) { return { value: m, label: ymShort(m) }; }),
+             years: years };
   }
 
-  return { FIELDS: FIELDS, FIELD_LIST: FIELD_LIST, FIELD_GROUPS: FIELD_GROUPS, FMAP: FMAP,
+  return { FIELDS: FIELDS, FIELD_LIST: FIELD_LIST, FIELD_GROUPS: FIELD_GROUPS, FMAP: FMAP, SPAN: SPAN,
            validateConfig: validateConfig, resolve: resolve, evaluateData: evaluateData, periodOptionsFor: periodOptionsFor,
-           hydrate: hydrate, evalFormula: evalFormula, termVal: termVal, cleanPeriod: cleanPeriod,
-           ymAdd: ymAdd, ymSpan: ymSpan };
+           hydrate: hydrate, evalFormula: evalFormula, termVal: termVal, cleanPeriod: cleanPeriod, cleanSheet: cleanSheet,
+           periodText: periodText, ymAdd: ymAdd, ymSpan: ymSpan };
 });

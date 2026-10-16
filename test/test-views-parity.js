@@ -42,6 +42,14 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
           { op: '/', kind: 'field', field: 'inc', period: { t: 'month', a: prev }, agg: 'total' }] },
         { id: 'e', label: 'Occupancy', kind: 'value', field: 'occ', size: 'M' },
       ], layout: [] } },
+    { name: 'view dates: last 3 months, cards that follow them, ratios', cfg: { mode: 'advanced', props: dataset.props.filter(p => Object.keys(p.series).length).slice(0, 15).map(p => p.id), fields: ['inc', 'opx', 'noi', 'er', 'dscr', 'capex', 'capexRatio', 'amExp', 'occ'],
+      styles: ['table', 'chart'], chartField: 'noi', period: { t: 'last', n: 3 },
+      cards: [
+        { id: 'a', label: 'Income', kind: 'value', field: 'inc', period: { t: 'view' }, agg: 'total' },
+        { id: 'b', label: 'DSCR', kind: 'value', field: 'dscr', period: { t: 'view' } },
+        { id: 'c', label: 'Margin', kind: 'formula', fmt: 'pct', terms: [{ kind: 'field', field: 'noi', period: { t: 'view' } }, { op: '/', kind: 'field', field: 'inc', period: { t: 'view' } }] },
+        { id: 'd', label: 'Calendar year income', kind: 'value', field: 'inc', period: { t: 'year', y: t.slice(0, 4) } },
+      ] }, period: { t: 'range', a: core.ymAdd(t, -7), b: core.ymAdd(t, -2) } },
   ];
   if (groups.length) {
     const g = groups.find(x => x.property_ids.length > 1) || groups[0];
@@ -54,6 +62,13 @@ const check = (n, fn) => { try { fn(); pass++; } catch (e) { fails.push(n + ' ->
     const server = await V.evaluate(cfg, TENANT);
     const browser = core.evaluateData(cfg, core.resolve(cfg, groups), JSON.parse(JSON.stringify(dataset)));
     check(c.name + ': same answer in the browser as on the server', () => assert.deepStrictEqual(browser, server));
+    /* dates picked on screen (the viewer's override) agree too */
+    if (c.period) {
+      const s2 = await V.evaluate(cfg, TENANT, c.period);
+      const b2 = core.evaluateData(cfg, core.resolve(cfg, groups), JSON.parse(JSON.stringify(dataset)), c.period);
+      check(c.name + ': picked dates, same answer both ways', () => assert.deepStrictEqual(b2, s2));
+      check(c.name + ': picked dates change the figures', () => assert.notDeepStrictEqual(s2.rows, server.rows));
+    }
     check(c.name + ': has rows', () => assert.ok(server.count > 0, 'count ' + server.count));
   }
   console.log('views parity: ' + pass + ' passed, ' + fails.length + ' failed  (' + configs.length + ' configs, ' + dataset.props.length + ' properties in the dataset)');
